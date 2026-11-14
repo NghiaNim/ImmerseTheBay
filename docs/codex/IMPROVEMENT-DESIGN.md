@@ -98,6 +98,47 @@ Use deterministic plans only for positively matched supported actions. Negation,
 
 During a detour support continue, cancel and replace. Replacement supersedes future nodes and appends fresh visits; it does not create an unbounded stack or rewind an executed node. Coalesce rapid changes to the latest deliberate intent. Define which action wins when cancel and commit race using the expected revision. Preserve bounded interaction lengths, but replace the opaque six-detour cutoff with a visible, configurable session policy.
 
+### Character continuity and prompt composition
+
+**Requirement added by the user:** the same clerk must retain the same face throughout opening, main beats, detours, cancellation, replacement and rejoin. Preserve facial structure, apparent age, skin tone, hairstyle, clothing and accessories from the approved starting image; expression, gaze, speech and natural pose may change. Do not invent demographic descriptions or facial details missing from the reference. If the clerk leaves the frame, their return must retain the same identity. Preserve the established voice where audio steering supports it, without claiming a voice-lock API exists.
+
+Build each visual prompt from a server-owned continuity anchor plus exactly one current action. The planner proposes the action; it cannot overwrite the character anchor. Apply composition **after** optional LLM refinement to every outgoing `set_prompt`, including deterministic fallback, pointing, branch and return paths. Reserve room for the anchor inside the existing three-sentence / 95-word / 600-character limits; shorten the action first, never silently truncate away identity. Reject conflicting action cues such as replacing the clerk or changing their face. Keep audio instructions in `set_audio_prompt`.
+
+Proposed compact visual template (not yet wired into runtime):
+
+> Keep the same clerk from the starting image, with unchanged facial features, age, skin tone, hairstyle, clothing and accessories. The clerk gently indicates the selected bottle while maintaining a natural expression. Continue the same store, lighting and viewpoint without a cut or character replacement.
+
+Replace only the second sentence for each physical delta; use the grounded target description when available. Rejoin example: “The same clerk gently redirects attention toward the original checkout task.” Avoid re-describing an entire new shop or adding new people on each turn. Keep the original image as the identity reference for the run; do not repeatedly call `set_image` or reset the video merely to restate identity. If the reference has no visible clerk, explicitly mark identity as unanchored until an operator-approved clear generated frame is available; do not pretend a detailed face was grounded in the original image.
+
+Prompt constraints improve steering but do not guarantee face preservation. Evaluate bounded video sequences at opening, side view, brief occlusion, detour, cancellation and rejoin. Review visible facial features, hair and clothing together; do not infer identity success from command acknowledgments. Record drift separately from target-action success. If drift is observed, flag the result and test a continuity-only correction without advancing the lesson; do not silently reseed/reset the scene. Reference-frame control beyond the existing starting-image API requires capability verification before design commitments.
+
+### Context management: structured state instead of growing history
+
+The server owns a bounded `SceneContext` with explicit provenance and lifecycle. This is a proposed v2 contract, not a new field accepted by the existing endpoint today.
+
+| Layer | Contents | Lifetime / update rule |
+|---|---|---|
+| Identity anchor | `characterId`, approved reference asset/version, grounded appearance, fixed continuity instructions | Immutable within a run; new reference requires an explicit new run |
+| Scene anchor | Store/layout, style, lighting, viewpoint, original learning objective | Stable baseline; only an authorized scene transition changes it |
+| Committed state | Run/revision, main checkpoint, active node, confirmed object actions, accepted command and visual-observation status | Updated through operation commit; command acceptance does not prove visual completion |
+| Current goal | Latest explicit intent, action type, selected `targetRef`, cancel/replace semantics | Replaces superseded goals; must not overwrite the saved main checkpoint |
+| Detour memory | Saved return objective, completed visits, current branch, next permitted transition | Bounded active branch; archive completed/canceled branches outside the model input |
+| Ephemeral evidence | Transcript, live-frame reference, grounded bounds, gesture and timestamp | Expire on time limit, revision/run change, invalid transform, cancellation or tracking loss |
+| Recent context | Up to three relevant committed action summaries, unresolved question and response | Bounded facts only; no complete transcripts, repeated prompts or cumulative DAG dump |
+
+Construct model inputs through one allowlisted context builder shared by planning and refinement. Select fields by operation: navigation uses deterministic state; planning receives current intent/target and return objective; refinement receives current line, transcript and compact scene anchors. Do not send raw frame bytes to text-only planning, the entire lesson, all prior branch nodes, or unrelated room observations. Measure serialized input size and provider token usage; begin with a configurable 2,000-token context target (excluding system instructions and image input), then tune from latency/quality evidence. Never truncate JSON or discard identity, current intent, revision or return anchor to meet the budget: remove old summaries first, then reject or reduce optional input explicitly.
+
+Resolve conflicts by field ownership: fixed identity and scene constraints come from trusted run configuration; the latest deliberate user goal controls the requested action; only current grounded evidence supplies object descriptors; the committed checkpoint controls rejoin. A stale summary never wins over a newer revision. Treat captions, transcripts, model observations and summaries as data, not system instructions. A user saying “take that bottle” changes the action, not the clerk's identity. A canceled purchase must not survive as an active objective in subsequent prompts.
+
+Derive compact memory from validated committed events wherever possible; do not add an LLM summarization call to every turn. Store attempted, accepted, visually observed and user-confirmed actions distinctly. Preserve unresolved ambiguity rather than summarizing a guess as fact. Reconnect restores the same anchor/version and committed checkpoint; reset discards run-local goals, evidence and summaries. Log context version, selected field names, byte/token counts and expiration reasons with the operation ID; avoid logging full transcripts or image payloads by default.
+
+Acceptance additions:
+- All visual prompt paths preserve the continuity anchor within length limits, including maximum-length model output and provider-failure fallback; audio prompts remain sound-only.
+- A branch, replacement, cancel, reconnect and rejoin preserve the character reference and original main objective; reset creates an explicit new context.
+- Stale frames, superseded goals and canceled purchase actions never leak into the next prompt; ambiguous evidence stays unresolved.
+- Long-session replay keeps model input bounded without dropping identity/current goal/return checkpoint; report token counts and latency before/after.
+- Human review of live clips checks face continuity across visible transitions; hidden or blurred faces are marked unassessable rather than passed. Prompt text tests alone cannot satisfy this acceptance gate.
+
 ## 7. Video-object and gesture design
 
 ### Frame-bound target references
@@ -169,15 +210,15 @@ B must not edit `scene-point.js` while C owns it. A owns the new transcription l
 
 ### Wave 0 — Baseline and contract freeze
 
-Create reproducible live/recorded test fixtures; define state vocabulary, operation IDs, target reference, driver ownership and acceptance artifact format. Capture the currently missing live bottle sequence if capacity permits. Freeze v2 contracts before parallel edits.
+Create reproducible live/recorded test fixtures; define state vocabulary, operation IDs, target reference, driver ownership, SceneContext ownership/lifetimes, character reference and acceptance artifact format. Capture the currently missing live bottle sequence if capacity permits. Freeze v2 contracts before parallel edits.
 
 ### Wave 1 — P0 correctness, three parallel workers
 
-A: recovery/replay protocol and explicit pending-operation cancellation. B: truthful media states and client operation lifecycle. C: frame identity and grounded target references. Coordinator integrates and runs lost-response, stale-frame, shared-join and cancellation tests. Do not expand features until duplicate-transition and photo/live ambiguity failures are eliminated.
+A: recovery/replay protocol, explicit pending-operation cancellation, bounded context builder and final visual-prompt continuity composition. B: truthful media states and client operation lifecycle. C: frame identity and grounded target references. Coordinator integrates and runs lost-response, stale-frame, shared-join and cancellation tests. Do not expand features until duplicate-transition and photo/live ambiguity failures are eliminated.
 
 ### Wave 2 — P1 fluid interaction
 
-A: intent fidelity, cancel/replace, gradual rejoin, bounded speech requests and persistence. B: speech UX, inspection/selection and recovery UI. C: target association, short-lived tracking and semantic/visual evaluation. Tune latency only after stage measurements exist. Complete the five live end-to-end cases.
+A: intent fidelity, cancel/replace, gradual rejoin, bounded speech requests and persistence. B: speech UX, inspection/selection and recovery UI. C: target association, short-lived tracking and semantic/visual evaluation, including face-continuity clips with no identity claims from unassessable frames. Tune latency only after stage measurements exist. Complete the five live end-to-end cases.
 
 ### Wave 3 — Device transfer
 
