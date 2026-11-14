@@ -17,6 +17,7 @@ let lastSdkError = null, lastPromptAt = 0, latestDecision = null;
 let availableResolutions = [], webResolution = 'native';
 let runtimeEvents = [], runtimeState = emptyRuntimeState();
 let mediaStream = new MediaStream();
+let recording = null, micStarting = false, transcribing = false, speechAttempt = 0;
 
 if (token) $('homeLink').href = `/?portal_token=${encodeURIComponent(token)}`;
 
@@ -39,11 +40,13 @@ function refresh() {
   $('leave').disabled = !active && !busy && !reactor;
   for (const id of ['lesson', 'sample', 'photo', 'model', 'sessionId', 'previewOnly']) $(id).disabled = busy || active;
   $('useShared').disabled = busy || active || !sharedSession;
-  for (const id of ['pinch', 'longPinch', 'point', 'sendContext']) $(id).disabled = !active || busy || finished;
-  $('speak').disabled = !active || busy || finished || !SpeechRecognition || !!recognition;
-  $('stopSpeech').disabled = !recognition;
-  $('stopSpeech').hidden = !recognition;
-  $('speechMode').disabled = busy || !!recognition; $('intentLanguage').disabled = !!recognition;
+  const speechInUse = !!recognition || !!recording || micStarting || transcribing;
+  for (const id of ['pinch', 'longPinch', 'point', 'sendContext']) $(id).disabled = !active || busy || finished || speechInUse;
+  const engineAvailable = $('speechEngine').value === 'browser' ? !!SpeechRecognition : !!window.MediaRecorder && !!navigator.mediaDevices?.getUserMedia;
+  $('speak').disabled = !active || busy || finished || !engineAvailable || speechInUse;
+  $('stopSpeech').disabled = !recognition && !recording && !micStarting;
+  $('stopSpeech').hidden = !recognition && !recording && !micStarting;
+  $('speechMode').disabled = busy || speechInUse; $('intentLanguage').disabled = speechInUse; $('speechEngine').disabled = speechInUse;
   $('speak').textContent = $('speechMode').value === 'intent' ? 'Tell guide' : 'Speak Japanese';
   $('sound').disabled = !reactor;
   $('sessionInfo').textContent = sessionId ? `${preview ? 'Practice' : model} · ${sessionId}` : sharedSession ? `Shared session available: ${sharedSession.sessionId}` : '';
@@ -316,15 +319,94 @@ async function turn({ gesture = null, transcript, intent } = {}, run = epoch) {
   } catch (error) { if (run === epoch && error.name !== 'AbortError') notify(`Turn failed: ${error.message}`, true); return false; }
   finally { if (run === epoch) { busy = false; refresh(); } }
 }
-function stopSpeech() { if (recognition) recognition.stop(); }
-function startSpeech() {
-  if (!SpeechRecognition || recognition || busy || !active) return;
-  const speech = new SpeechRecognition(), run = epoch, intentMode = $('speechMode').value === 'intent'; recognition = speech;
+function stopSpeech() {
+  if (recognition) recognition.stop();
+  else if (recording?.recorder.state === 'recording') recording.recorder.stop();
+  else if (micStarting) { ++speechAttempt; micStarting = false; $('speechStatus').textContent = 'Microphone request cancelled.'; refresh(); }
+}
+function cancelSpeech() {
+  ++speechAttempt; micStarting = false; transcribing = false;
+  if (recognition) { recognition.onend = null; recognition.onerror = null; recognition.abort(); recognition = null; }
+  if (recording) {
+    const pending = recording; recording = null; pending.cancelled = true; clearTimeout(pending.timer);
+    if (pending.recorder.state !== 'inactive') pending.recorder.stop();
+    for (const track of pending.stream.getTracks()) track.stop();
+  }
+}
+function microphoneError(error) {
+  if (error?.name === 'NotAllowedError' || error?.name === 'SecurityError') return 'Microphone access was blocked. Allow microphone permission for this site, then press Speak again.';
+  if (error?.name === 'NotFoundError') return 'No microphone was found. Connect one and try again.';
+  if (error?.name === 'NotReadableError') return 'The microphone is unavailable or in use by another app. Close that app and retry.';
+  return 'Could not record the microphone. Try again or choose another speech input in lesson setup.';
+}
+async function finishRecording(pending) {
+  clearTimeout(pending.timer);
+  for (const track of pending.stream.getTracks()) track.stop();
+  if (recording === pending) recording = null;
+  if (pending.cancelled || pending.run !== epoch || pending.attempt !== speechAttempt) return;
+  const audio = new Blob(pending.chunks, { type: pending.recorder.mimeType || pending.chunks[0]?.type || 'audio/webm' });
+  if (!audio.size) { notify('No audio was recorded. Press Speak and try again.', true); refresh(); return; }
+  transcribing = true; $('speechStatus').textContent = 'Microphone stopped · transcribing…'; refresh();
+  try {
+    const response = await fetch('/api/agent/transcribe', { method: 'POST', headers: { ...authHeaders(), 'Content-Type': audio.type, 'x-audio-language': pending.language }, body: audio, signal: apiAbort.signal });
+    if (!response.ok) {
+      const errors = { 401: 'Portal authorization is required for transcription.', 413: 'Recording was too large. Try a shorter phrase.', 415: 'This audio format is unsupported. Try Chrome or another speech input.', 429: 'Speech service is busy. Wait a moment and try again.', 503: 'Server speech is not configured or available. Check the portal speech settings.', 504: 'Speech service timed out. Press Speak to retry.' };
+      throw new Error(errors[response.status] || 'Server transcription failed. Press Speak to try again.');
+    }
+    const result = await response.json();
+    if (pending.run !== epoch || pending.attempt !== speechAttempt) return;
+    const text = typeof result.text === 'string' ? result.text.trim() : '';
+    if (!text) throw new Error('No speech was detected. Press Speak and try again.');
+    if (text.length > (pending.intentMode ? 500 : 1000)) throw new Error('That phrase was too long. Please record a shorter sentence.');
+    $('transcript').textContent = text; transcribing = false; $('speechStatus').textContent = 'Microphone stopped.'; refresh();
+    await turn(pending.intentMode ? { intent: text } : { transcript: text }, pending.run);
+  } catch (error) {
+    if (pending.run === epoch && pending.attempt === speechAttempt && error.name !== 'AbortError') notify(error instanceof TypeError ? 'Could not reach the transcription server. Your microphone permission is already granted; check the portal connection and retry.' : error.message, true);
+  } finally {
+    if (pending.run === epoch && pending.attempt === speechAttempt) { transcribing = false; $('speechStatus').textContent = 'Microphone stopped.'; refresh(); }
+  }
+}
+async function startRecording() {
+  const run = epoch, attempt = ++speechAttempt, intentMode = $('speechMode').value === 'intent';
+  const language = intentMode ? $('intentLanguage').value : 'ja-JP';
+  micStarting = true; $('speechStatus').textContent = 'Opening microphone…'; refresh();
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    if (run !== epoch || attempt !== speechAttempt) { stream.getTracks().forEach((track) => track.stop()); return; }
+    const mimeType = ['audio/webm;codecs=opus', 'audio/mp4', 'audio/ogg;codecs=opus'].find((type) => MediaRecorder.isTypeSupported(type));
+    const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+    const pending = { recorder, stream, chunks: [], bytes: 0, run, attempt, intentMode, language, cancelled: false, timer: null };
+    recording = pending; micStarting = false;
+    recorder.ondataavailable = (event) => {
+      if (pending.cancelled || !event.data.size) return;
+      pending.bytes += event.data.size;
+      if (pending.bytes > 10 * 1024 * 1024) { pending.cancelled = true; recorder.stop(); notify('Recording was too large. Try a shorter phrase.', true); }
+      else pending.chunks.push(event.data);
+    };
+    recorder.onerror = () => {
+      pending.cancelled = true; clearTimeout(pending.timer); stream.getTracks().forEach((track) => track.stop());
+      if (recording === pending) recording = null;
+      if (run === epoch && attempt === speechAttempt) { notify('Audio recording failed. Press Speak to retry.', true); refresh(); }
+    };
+    recorder.onstop = () => { void finishRecording(pending); if (pending.cancelled && run === epoch && attempt === speechAttempt) { $('speechStatus').textContent = 'Microphone stopped.'; refresh(); } };
+    recorder.start(250);
+    pending.timer = setTimeout(() => { if (recorder.state === 'recording') recorder.stop(); }, 15000);
+    $('speechStatus').textContent = `Recording ${language} · press Stop when finished · 15 seconds max.`;
+    notify('Recording only your microphone. Press Stop to send it for transcription.'); refresh();
+  } catch (error) {
+    stream?.getTracks().forEach((track) => track.stop());
+    if (run === epoch && attempt === speechAttempt) { recording = null; micStarting = false; notify(microphoneError(error), true); $('speechStatus').textContent = 'Microphone stopped.'; refresh(); }
+  }
+}
+function startBrowserSpeech() {
+  if (!SpeechRecognition) { $('speechEngine').value = 'server'; void startRecording(); return; }
+  const speech = new SpeechRecognition(), run = epoch, attempt = ++speechAttempt, intentMode = $('speechMode').value === 'intent'; recognition = speech;
   speech.lang = intentMode ? $('intentLanguage').value : 'ja-JP'; speech.interimResults = true; speech.continuous = false; speech.maxAlternatives = 1;
-  let finalText = '';
-  speech.onstart = () => { $('speechStatus').textContent = intentMode ? `Tell the guide what you want to do · ${speech.lang}…` : 'Listening in Japanese…'; refresh(); };
+  let finalText = '', failed = false;
+  speech.onstart = () => { if (run !== epoch || attempt !== speechAttempt) return; $('speechStatus').textContent = intentMode ? `Tell the guide what you want to do · ${speech.lang}…` : 'Listening in Japanese…'; refresh(); };
   speech.onresult = (event) => {
-    if (run !== epoch) return;
+    if (run !== epoch || attempt !== speechAttempt) return;
     let interim = '';
     for (let i = event.resultIndex; i < event.results.length; i++) {
       const text = event.results[i][0].transcript;
@@ -332,18 +414,33 @@ function startSpeech() {
     }
     $('transcript').textContent = finalText + interim;
   };
-  speech.onerror = (event) => { if (run === epoch) notify(`Speech recognition: ${event.error}. Check microphone access and try again.`, true); };
+  speech.onerror = (event) => {
+    if (run !== epoch || attempt !== speechAttempt) return;
+    failed = true;
+    if (event.error === 'network') {
+      $('speechEngine').value = 'server';
+      notify('The browser speech service could not connect. Switched to server speech: press Speak again, then Stop when finished. Microphone permission is not the problem.', true);
+    } else if (event.error === 'not-allowed' || event.error === 'service-not-allowed') notify('Microphone or browser speech permission was blocked. Allow it for this site, or choose server speech in lesson setup.', true);
+    else if (event.error === 'audio-capture') notify('No available microphone could be captured. Check the selected input device.', true);
+    else if (event.error === 'no-speech') notify('No speech was detected. Press Speak to try again.', true);
+    else if (event.error !== 'aborted') notify(`Browser speech failed (${event.error}). Try server speech in lesson setup.`, true);
+  };
   speech.onend = () => {
     if (recognition === speech) recognition = null;
+    if (run !== epoch || attempt !== speechAttempt) return;
     $('speechStatus').textContent = 'Microphone stopped.'; refresh();
-    if (run === epoch && finalText.trim()) void turn(intentMode ? { intent: finalText.trim() } : { transcript: finalText.trim() }, run);
+    if (!failed && finalText.trim()) void turn(intentMode ? { intent: finalText.trim() } : { transcript: finalText.trim() }, run);
   };
-  try { speech.start(); refresh(); } catch (error) { recognition = null; notify(error.message, true); refresh(); }
+  try { speech.start(); refresh(); } catch (error) { recognition = null; notify(microphoneError(error), true); refresh(); }
+}
+function startSpeech() {
+  if (recognition || recording || micStarting || transcribing || busy || !active || finished) return;
+  if ($('speechEngine').value === 'browser') startBrowserSpeech(); else void startRecording();
 }
 async function leave(message = 'You have left the lesson.') {
   ++epoch; apiAbort?.abort(); const client = reactor, oldId = sessionId, wasPreview = preview;
   reactor = null; active = false; busy = false; sessionId = null; finished = false; latestDecision = null;
-  if (recognition) { recognition.onend = null; recognition.abort(); recognition = null; }
+  cancelSpeech();
   if (oldId && !wasPreview) hubSend({ type: 'session_end', sessionId: oldId });
   for (const track of mediaStream.getTracks()) track.stop(); mediaStream = new MediaStream(); $('video').srcObject = null;
   $('video').muted = true; $('sound').textContent = 'Unmute scene'; $('photoPreview').hidden = !photoFile; $('sceneFocus').hidden = !photoFile;
@@ -375,6 +472,7 @@ $('photo').onchange = () => {
 $('setupToggle').onclick = () => setSetupOpen($('setupPanel').hidden);
 $('setupClose').onclick = () => { setSetupOpen(false); $('setupToggle').focus(); };
 $('previewOnly').onchange = refresh;
+$('speechEngine').onchange = () => { $('speechStatus').textContent = $('speechEngine').value === 'server' ? 'Press Speak, then Stop to transcribe (15 seconds max).' : 'Browser speech recognition selected.'; refresh(); };
 $('speechMode').onchange = () => {
   refresh();
   $('speechStatus').textContent = $('speechMode').value === 'intent' ? 'Say what you want to do. The guide will lead you back to the lesson.' : 'Practice the Japanese line in the scene.';
@@ -394,6 +492,6 @@ $('sound').onclick = () => { $('video').muted = !$('video').muted; $('sound').te
 $('useShared').onclick = () => { if (sharedSession) { $('sessionId').value = sharedSession.sessionId; $('model').value = sharedSession.model === MODELS.dynamic ? 'dynamic' : 'stable'; } };
 window.addEventListener('pagehide', unload); window.addEventListener('beforeunload', unload);
 window.addEventListener('pageshow', (event) => { if (event.persisted) { closing = false; connectHub(); refresh(); } });
-if (!SpeechRecognition) $('speechStatus').textContent = 'Speech recognition is unavailable in this browser. Use Chrome on localhost or HTTPS, or use Pinch to continue.';
+if (!window.MediaRecorder || !navigator.mediaDevices?.getUserMedia) $('speechStatus').textContent = 'Audio recording requires a supported browser on HTTPS or localhost.';
 else if (!window.isSecureContext) $('speechStatus').textContent = 'Microphone access needs HTTPS or localhost. On a phone, use an HTTPS portal URL.';
 connectHub(); void loadCatalog(); refresh();
