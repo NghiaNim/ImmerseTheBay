@@ -1,5 +1,18 @@
 # Start-image sources
 
+## Convenience-store lesson
+
+`ja-konbini-001` deliberately has no bundled start image yet. Its default must use text-to-video or a suitable learner-uploaded photo; the home images below are not store images. No AI-generated replacement was created.
+
+The following CC0 candidates were checked and **not committed** because visible product branding conflicts with the project's unbranded sample-asset requirement:
+
+- [WordPress photo 259678bae9](https://wordpress.org/photos/photo/259678bae9/), Nilo Velez, supermarket dairy aisle. The source page explicitly says CC0; visual inspection of its 1536×1024 JPEG showed prominent packaging logos.
+- [Commons rawpixel image 5957725](https://commons.wikimedia.org/wiki/File:Image-from-rawpixel-id-5957725-original.jpg), a snack aisle, explicitly labeled CC0. The photographer is not named on the file page, and visual inspection showed prominent snack-brand logos throughout the frame.
+
+These are provenance leads, not approved lesson assets. A photo license does not remove separate branding constraints.
+
+## Optional home-visit lesson
+
 Checked 2026-11-14. All three committed files are downloaded photographs; none are generated. The download variants are retained unchanged. These are visual references for an original invented scene, not claims to document a 1970s household.
 
 | Local file | Creator / subject | Source and license evidence | Download variant |

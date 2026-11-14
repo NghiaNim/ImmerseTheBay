@@ -1,10 +1,12 @@
 # Authoring lessons
 
-Lessons are original conversation material in `Assets/StreamingAssets/lessons/<id>.json`. The first lesson, `ja-home-001`, visits an invented 1970s Tokyo suburban home. Its five beats contain ten learner utterances: arrival, tea, small repairs, a passing shower, and a farewell. The host is an original adult character. N1 is the intended practice level, not a claim that every expression is exclusive to a particular exam level.
+Lessons are original conversation material in `Assets/StreamingAssets/lessons/<id>.json`. The default lesson, `ja-konbini-001`, is shopping at an invented Japanese neighborhood convenience store. Its five beats contain ten learner utterances: finding food, asking about products, comparing prices, checkout and packing, and a polite farewell. N1 is the intended learner level; everyday shopping deliberately mixes advanced phrasing with common natural expressions rather than forcing exam grammar into every sentence. There are no real chain or product brands in the prompts.
+
+`ja-home-001` remains an optional home-visit lesson, not the default shopping scenario. Its images must not be used as convenience-store reference photos. The store lesson currently has `startImage: ""`: use text-to-video or upload an appropriate personal store photo. No suitable CC0/public-domain store photo without prominent branding was verified during this change; see the candidates in `images/SOURCES.md`.
 
 ## File schema
 
-All fields below are required. Strings contain plain text, not HTML or executable instructions. Keep lesson IDs to lowercase ASCII letters, digits and hyphens; the filename must match `id`.
+All fields below are required. Strings contain plain text, not HTML or executable instructions. `startImage` may be empty when there is no approved bundled reference; other text fields must be nonempty. Keep lesson IDs to lowercase ASCII letters, digits and hyphens; the filename must match `id`.
 
 ```json
 {
@@ -35,13 +37,15 @@ All fields below are required. Strings contain plain text, not HTML or executabl
 }
 ```
 
-`startImage` is relative to Unity's `StreamingAssets` directory. The web server exposes approved public images beneath `/lessons/images/`; it must not expose the whole StreamingAssets tree. Arrays preserve the teaching order. Each beat has at least one line and a vocabulary array. A line is a learner utterance, not a host response. `cue` is the small visible action the host or environment can perform as that line is rehearsed. Follow the authoritative request/response contract and progression rules in `portal/agent/contract.md`; a beat can contain several lines, so clients must not assume one turn equals one beat.
+When nonempty, `startImage` is relative to Unity's `StreamingAssets` directory. The web server exposes approved public images beneath `/lessons/images/`; it must not expose the whole StreamingAssets tree. Arrays preserve the teaching order. Each beat has at least one line and a vocabulary array. A line is a learner utterance, not a host response. `cue` is the small visible action the host or environment can perform as that line is rehearsed. Follow the authoritative request/response contract and progression rules in `portal/agent/contract.md`; a beat can contain several lines, so clients must not assume one turn equals one beat.
 
 `kana` spells out the complete reading, including kanji readings, with Japanese punctuation retained. Particles keep normal orthography (`は`, `へ`, `を`); romaji uses their spoken values (`wa`, `e`, `o`). Romaji uses ASCII Hepburn-style spelling and explicit long vowels (`ou`, `uu`) to simplify display. Translations preserve meaning and conversational tone rather than word order. The sample's final `かたがた` farewell is intentionally somewhat formal; the goal says so. A fluent speaker should review future material before a learning release.
 
 ## Spatial vocabulary
 
 Use the lowercase classification labels `table`, `door`, `wall`, `floor`, and `ceiling` in `objectHint`. This is the surface or place associated with a word, not a claim that the mesh recognizer can identify the object itself. For example, `湯飲み` can be suggested when pointing at a `table`; do not tell the learner the table *is* a cup. Keep at least one literal surface word available for each relevant label. Missing or uncertain labels must remain unknown instead of inventing a detection.
+
+For the store lesson, `table` grounds the checkout counter and items being discussed there, `door` grounds the entrance/exit, `wall` grounds wall-side shelves, and `floor` grounds the aisle. These mappings are teaching associations, not additional object-recognition capabilities.
 
 ## Prompt and image rules
 
