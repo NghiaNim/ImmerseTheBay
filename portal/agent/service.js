@@ -127,7 +127,10 @@ export function createAgentService({ store = createLessonStore(), llm = createCl
       return response;
     });
     session.tail = run.catch(() => {});
-    try { return await run; } finally { session.pending--; }
+    try { return await run; } finally {
+      session.pending--;
+      if (!session.pending && !session.lessons.size) sessions.delete(request.sessionId);
+    }
   }
   function reset(input) {
     if (!plain(input) || Object.keys(input).some((k) => !['sessionId', 'lessonId'].includes(k))) invalid('Invalid reset request');

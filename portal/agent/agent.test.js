@@ -98,3 +98,8 @@ test('reset initializes a joined scene again without resetting prompt rate limit
   await service.turn(request()); assert.deepEqual(service.reset({ sessionId: 'test-session', lessonId: 'ja-test' }), { ok: true });
   const result = await service.turn(request()); assert.ok(result.visko.some((v) => v.name === 'start')); assert.equal(waited, 2000);
 });
+test('invalid lessons do not consume session capacity permanently', async () => {
+  const { service } = setup({ maxSessions: 1, store: { load: async (id) => { if (id === 'missing') { const e = new Error('not found'); e.status = 404; throw e; } return lesson; } } });
+  await assert.rejects(service.turn(request({ sessionId: 'bad', lessonId: 'missing' })), { status: 404 });
+  assert.equal((await service.turn(request())).advance, 'stay');
+});
