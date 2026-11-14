@@ -36,6 +36,9 @@ Assets/StreamingAssets/visko.json
 Assets/StreamingAssets/visko.json.meta
 portal/.env
 portal/node_modules/
+portal/agent/logs/
+Assets/StreamingAssets/lessons/private/
+Assets/StreamingAssets/lessons/private.meta
 
 # Unity transient files
 .utmp/
