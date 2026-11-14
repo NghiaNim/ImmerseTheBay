@@ -10,7 +10,7 @@ Read next: [INFRASTRUCTURE.md](INFRASTRUCTURE.md) (all modules) · [VISKO.md](VI
 
 | Area | State | Verified how |
 |---|---|---|
-| Repo | Integration branch `feat/immersive-learning`; A–E merged locally. | Git integration history |
+| Repo | All current A–E work integrated and pushed to `main`. Coworker entry: [handoff](codex/HANDOFF-web-dynamic.md). | Git integration history |
 | Web lesson | Landscape convenience store, original generated start image, dim peripheral image and feathered central video, compact Japanese overlay, spoken intent mode. Demo: `http://localhost:8791/learn.html`. | Browser checks at 1440×900 / 1280×720; automated speech callback mocked |
 | Web speech | Default browser MediaRecorder → server → `gpt-transcribe`; Speak then Stop (15 s cap). Browser speech is optional, with accurate network/permission errors. | Real Chrome recorder with synthetic Chinese mic file → real OpenAI → sandwich detour passed; 1.265 s after Stop. Actual user mic/device still user-tested. |
 | Video object pointing | Click “指向物体”, then click an object (hold/release to select). Local image crop → Luna object/bounds → confidence+point gate → existing agent DAG. Real-world mesh labels are separate. | Original store image bottle identified at model confidence 0.95; full route 3.556 s. Repeated small-bottle trials also produced no-hit: localization remains a prototype with false negatives. Person/blank-wall controls produced no hit and no branch. Live-frame object test attempted at 14:53 local; Dynamic returned 429 no available capacity before connection, so this specific path remains unverified. |
@@ -21,7 +21,7 @@ Read next: [INFRASTRUCTURE.md](INFRASTRUCTURE.md) (all modules) · [VISKO.md](VI
 | APK | `Builds/ImmerseTheBay.apk` (~230 MB development build); gitignored. | BuildScript.BuildAndroid: Success, 0 errors, 90 seconds |
 | Hardware | Air 2 Ultra + Samsung S25 remains untested on device. Glasses retain native resolution; no 1080p fallback. | No adb device attached |
 | XREAL SDK | Proprietary 3.1.0 tarball remains gitignored. | APK build |
-| Node services | Realtime server tests 5/5. Portal tests 52/52 include agent, DAG, provider and cast; npm run check passed. | node --test |
+| Node services | Realtime server tests 5/5. Portal tests 61/61 include agent, DAG, provider and cast; npm run check passed. | node --test |
 
 Video pointing is a 2D pointer rehearsal, not physical hand tracking or 3D hand-to-object distance. Glasses need a calibrated hand-to-video coordinate projection; the vision endpoint accepts normalized frame coordinates.
 
