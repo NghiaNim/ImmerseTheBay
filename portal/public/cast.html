@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Glasses first-person cast · ImmerseTheBay</title>
+  <style>
+    :root { color-scheme: dark; font-family: system-ui, sans-serif; background: #10151f; color: #edf2fa; }
+    body { max-width: 1040px; margin: 0 auto; padding: 24px; }
+    a { color: #9dc8ff; }
+    h1 { font-size: 1.6rem; }
+    p { color: #bcc9da; line-height: 1.5; }
+    form { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; margin: 24px 0; }
+    label { display: grid; gap: 6px; }
+    input, button { font: inherit; border: 1px solid #526078; border-radius: 6px; padding: 10px; }
+    input { background: #182233; color: inherit; width: min(300px, 70vw); }
+    button { background: #9dc8ff; color: #10151f; cursor: pointer; }
+    button:disabled { opacity: .5; cursor: default; }
+    canvas { display: block; background: black; width: 100%; height: auto; border-radius: 8px; }
+    .telemetry { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; margin: 12px 0; }
+    output { font-variant-numeric: tabular-nums; }
+  </style>
+</head>
+<body>
+  <a href="/">← Visko portal</a>
+  <h1>Glasses first-person cast</h1>
+  <p>Live virtual content from the wearer’s left-eye view. The physical room and audio are not included.
+    Turn casting on in the app with V or the casting control.</p>
+  <form id="connection">
+    <label>Portal token (if required)
+      <input id="token" type="password" autocomplete="off" spellcheck="false">
+    </label>
+    <button id="connect" type="submit">Connect</button>
+    <button id="disconnect" type="button" disabled>Disconnect</button>
+    <label><span>Orientation</span><span><input id="flip" type="checkbox" style="width:auto"> Flip vertically</span></label>
+  </form>
+  <div class="telemetry">
+    <span id="status" role="status" aria-live="polite">Disconnected</span>
+    <output id="stats" aria-label="Stream statistics">0.0 fps · 0 KiB/s</output>
+  </div>
+  <canvas id="view" width="640" height="360" aria-label="Live virtual view from the glasses"></canvas>
+  <p>The app sends up to 640×360 at 10 fps. A frozen frame is marked stale after three seconds.</p>
+  <script src="/cast.js" type="module"></script>
+</body>
+</html>
