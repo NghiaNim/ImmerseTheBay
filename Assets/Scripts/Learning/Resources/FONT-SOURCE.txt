@@ -1,0 +1,11 @@
+Noto Sans CJK JP Regular
+
+Unmodified OpenType font distributed under the SIL Open Font License 1.1.
+See Noto-LICENSE.txt in this directory for the full license.
+
+Official upstream repository: https://github.com/notofonts/noto-cjk
+Font: https://github.com/notofonts/noto-cjk/blob/main/Sans/OTF/Japanese/NotoSansCJKjp-Regular.otf
+License: https://github.com/notofonts/noto-cjk/blob/main/Sans/LICENSE
+
+The font supplies Japanese and CJK glyphs for the world-space learning subtitles.
+Imported as a Unity legacy dynamic Font; loaded by Resources name NotoSansCJKjp-Regular.
