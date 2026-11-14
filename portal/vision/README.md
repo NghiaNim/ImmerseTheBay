@@ -65,3 +65,5 @@ Official documentation checked 2026-11-14:
 - [Images and vision](https://developers.openai.com/api/docs/guides/images-vision): image input and spatial-reasoning limitations.
 
 Integration note (2026-11-14): browser start-image pointing → real Luna bottle detection → learner-goal DAG succeeded in 3.556 s; person and blank-wall controls produced no branch. A live Dynamic frame check was blocked before connection by Reactor HTTP 429 `no available capacity`; no Stable substitution was made.
+
+Accuracy limit: a repeated live-model request at the same tiny bottle also returned no-hit, including a hold/select trial. The prototype therefore has observed false negatives; a successful single-frame result is not a reliability benchmark. No-hit leaves the lesson unchanged. Physical hand tracking and 3D proximity remain outside this Web pointer prototype.
