@@ -12,6 +12,8 @@ Read next: [INFRASTRUCTURE.md](INFRASTRUCTURE.md) (all modules) · [VISKO.md](VI
 |---|---|---|
 | Repo | Integration branch `feat/immersive-learning`; A–E merged locally. | Git integration history |
 | Web lesson | Landscape convenience store, original generated start image, dim peripheral image and feathered central video, compact Japanese overlay, spoken intent mode. Demo: `http://localhost:8791/learn.html`. | Browser checks at 1440×900 / 1280×720; automated speech callback mocked |
+| Web speech | Default browser MediaRecorder → server → `gpt-transcribe`; Speak then Stop (15 s cap). Browser speech is optional, with accurate network/permission errors. | Real Chrome recorder with synthetic Chinese mic file → real OpenAI → sandwich detour passed; 1.265 s after Stop. Actual user mic/device still user-tested. |
+| Video object pointing | Click “指向物体”, then click an object (hold/release to select). Local image crop → Luna object/bounds → confidence+point gate → existing agent DAG. Real-world mesh labels are separate. | Original store image bottle identified at confidence 0.95; full route 3.556 s. Person/blank-wall controls produced no hit and no branch. Live-frame validation below. |
 | Lesson agent | Forward DAG: temporary interactions rejoin the saved lesson cursor. Arbitrary goals use a server-side planner; strict schema, text scoring, bounded queues and prompt pacing. | Node tests; live status below |
 | OpenAI | Key only in ignored `portal/.env`. User requests `OPENAI_MODEL=gpt-6-luna`, `OPENAI_REASONING_EFFORT=none`. Luna access was initially denied, then a fresh retry succeeded after the user updated access/configuration. No automatic older-model substitution. | Real Luna structured plan: 2.784 s in one sample. Full opening → generated bento-heating branch → scored lines → saved-checkpoint rejoin passed in 8.263 s. |
 | Visko | Web defaults to **Dynamic**, no silent Stable fallback. Live Dynamic start/image/hint/video succeeded at native 640×368. Live three-node sandwich branch/rejoin commands accepted, video continued, non-silent audio measured (peak 0.273). Stable lacked native and worked at user-approved web-only 1080p. | 30-second Dynamic browser run, always Leave. Deployment omits documented active_prompt/current_prompt: command acceptance is verified, exact applied-prompt telemetry unavailable. |
@@ -19,7 +21,9 @@ Read next: [INFRASTRUCTURE.md](INFRASTRUCTURE.md) (all modules) · [VISKO.md](VI
 | APK | `Builds/ImmerseTheBay.apk` (~230 MB development build); gitignored. | BuildScript.BuildAndroid: Success, 0 errors, 90 seconds |
 | Hardware | Air 2 Ultra + Samsung S25 remains untested on device. Glasses retain native resolution; no 1080p fallback. | No adb device attached |
 | XREAL SDK | Proprietary 3.1.0 tarball remains gitignored. | APK build |
-| Node services | Realtime server tests 5/5. Portal tests 39/39 include agent, DAG, provider and cast; npm run check passed. | node --test |
+| Node services | Realtime server tests 5/5. Portal tests 52/52 include agent, DAG, provider and cast; npm run check passed. | node --test |
+
+Video pointing is a 2D pointer rehearsal, not physical hand tracking or 3D hand-to-object distance. Glasses need a calibrated hand-to-video coordinate projection; the vision endpoint accepts normalized frame coordinates.
 
 The original generated convenience-store image is a user-approved exception to the earlier CC0-only sample rule; see `Assets/StreamingAssets/lessons/images/SOURCES.md`. The home lesson remains available. Camera, typography, speech, mesh classification and rendering require glasses verification.
 

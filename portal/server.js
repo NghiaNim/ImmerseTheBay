@@ -11,6 +11,7 @@ import os from 'node:os';
 import { WebSocketServer } from 'ws';
 import { attachCast } from './cast/castHub.js';
 import { registerAgentRoutes } from './agent/routes.js';
+import { registerVisionRoutes } from './vision/routes.js';
 
 const PORT = Number(process.env.PORT || 8790);
 const API_KEY = process.env.REACTOR_API_KEY || '';
@@ -28,6 +29,7 @@ if (!API_KEY || API_KEY.startsWith('rk_your')) {
 }
 
 const app = express();
+registerVisionRoutes(app, { authorized });
 app.use(express.json({ limit: '64kb' }));
 
 function authorized(req) {

@@ -1,3 +1,4 @@
+import { installScenePoint } from './scene-point.js';
 // SDK 3.4.0 signatures verified against its published declarations and Reactor's
 // reactor-class / Visko stable schema docs. sendCommand reports errors via replies/events.
 const $ = (id) => document.getElementById(id);
@@ -438,6 +439,7 @@ function startSpeech() {
   if ($('speechEngine').value === 'browser') startBrowserSpeech(); else void startRecording();
 }
 async function leave(message = 'You have left the lesson.') {
+  scenePoint.clear();
   ++epoch; apiAbort?.abort(); const client = reactor, oldId = sessionId, wasPreview = preview;
   reactor = null; active = false; busy = false; sessionId = null; finished = false; latestDecision = null;
   cancelSpeech();
@@ -494,4 +496,12 @@ window.addEventListener('pagehide', unload); window.addEventListener('beforeunlo
 window.addEventListener('pageshow', (event) => { if (event.persisted) { closing = false; connectHub(); refresh(); } });
 if (!window.MediaRecorder || !navigator.mediaDevices?.getUserMedia) $('speechStatus').textContent = 'Audio recording requires a supported browser on HTTPS or localhost.';
 else if (!window.isSecureContext) $('speechStatus').textContent = 'Microphone access needs HTTPS or localhost. On a phone, use an HTTPS portal URL.';
+const scenePoint = installScenePoint({
+  ready: () => active && !busy && !finished && !recognition && !recording && !micStarting && !transcribing,
+  getRun: () => `${epoch}:${beat}:${latestDecision?.route?.nodeId || ''}`,
+  getSignal: () => apiAbort?.signal,
+  headers: authHeaders,
+  onIntent: intent => turn({ intent }),
+  notify,
+});
 connectHub(); void loadCatalog(); refresh();
