@@ -1,0 +1,11 @@
+{
+  "items": [
+    { "id": "video-2d",  "label": "2D Video",   "type": "video", "source": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4", "layout": "Mono", "size": 1.2 },
+    { "id": "duck",      "label": "3D Duck",    "type": "model", "source": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/Duck/glTF-Binary/Duck.glb", "size": 0.25 },
+    { "id": "helmet",    "label": "3D Helmet",  "type": "model", "source": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/DamagedHelmet/glTF-Binary/DamagedHelmet.glb", "size": 0.35 },
+    { "id": "cube",      "label": "Cube",       "type": "primitive", "source": "Cube", "size": 0.15 },
+    { "id": "sbs-video", "label": "3D SBS Video", "type": "video", "source": "", "layout": "SideBySide", "size": 1.2 },
+    { "id": "image",     "label": "Image",      "type": "image", "source": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/DamagedHelmet/screenshot/screenshot.png", "layout": "Mono", "size": 0.8 }
+  ],
+  "markers": []
+}

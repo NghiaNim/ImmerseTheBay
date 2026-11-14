@@ -25,3 +25,8 @@
 .DS_Store
 sysinfo.txt
 crashlytics-build.properties
+
+# XREAL SDK: proprietary, each developer downloads it (see docs/HANDOFF.md)
+Packages/com.xreal.xr.tar.gz
+error.log
+*.log
