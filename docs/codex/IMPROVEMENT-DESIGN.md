@@ -100,6 +100,8 @@ During a detour support continue, cancel and replace. Replacement supersedes fut
 
 ### Character continuity and prompt composition
 
+Implementation status: the first continuity/context slice and its verification report are tracked in [IMPLEMENTATION-character-context.md](IMPLEMENTATION-character-context.md) and GitHub issue #1. Broader lifecycle, tracking and device proposals below remain planned.
+
 **Requirement added by the user:** the same clerk must retain the same face throughout opening, main beats, detours, cancellation, replacement and rejoin. Preserve facial structure, apparent age, skin tone, hairstyle, clothing and accessories from the approved starting image; expression, gaze, speech and natural pose may change. Do not invent demographic descriptions or facial details missing from the reference. If the clerk leaves the frame, their return must retain the same identity. Preserve the established voice where audio steering supports it, without claiming a voice-lock API exists.
 
 Build each visual prompt from a server-owned continuity anchor plus exactly one current action. The planner proposes the action; it cannot overwrite the character anchor. Apply composition **after** optional LLM refinement to every outgoing `set_prompt`, including deterministic fallback, pointing, branch and return paths. Reserve room for the anchor inside the existing three-sentence / 95-word / 600-character limits; shorten the action first, never silently truncate away identity. Reject conflicting action cues such as replacing the clerk or changing their face. Keep audio instructions in `set_audio_prompt`.

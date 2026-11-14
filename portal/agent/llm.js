@@ -1,16 +1,18 @@
+import { buildModelContext } from './model-context.js';
 import { lessonSystemPrompt } from './prompts.js';
 import { createOpenAIClient } from './openai.js';
 import { RESPONSE_SCHEMA, PLAN_SCHEMA } from './schema.js';
 export const DEFAULT_MODEL = 'claude-opus-5-5';
 export function createClaudeClient({ apiKey = process.env.ANTHROPIC_API_KEY, model = process.env.ANTHROPIC_MODEL || DEFAULT_MODEL, fetchImpl = fetch, planMode = false } = {}) {
   if (!apiKey) return null;
-  return async ({ lesson, current, transcript, context, photoCaption, fallback, attempts, intent, returnBeat }) => {
+  return async (input) => {
+    const modelContext = buildModelContext(input, { planMode });
     const system = lessonSystemPrompt(planMode);
     const response = await fetchImpl('https://api.anthropic.com/v1/messages', {
       method: 'POST', signal: AbortSignal.timeout(12_000),
       headers: { 'content-type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': process.env.ANTHROPIC_API_VERSION || '2026-10-21' },
       body: JSON.stringify({ model, max_tokens: planMode ? 4000 : 2500, system, output_config: { format: { type: 'json_schema', schema: planMode ? PLAN_SCHEMA : { ...RESPONSE_SCHEMA, required: Object.keys(RESPONSE_SCHEMA.properties) } } },
-        messages: [{ role: 'user', content: JSON.stringify({ lesson: { title: lesson.title, level: lesson.level }, current, transcript, context, photoCaption, attempts, fallback, intent, returnBeat, scenePrompt: lesson.scenePrompt }) }] }),
+        messages: [{ role: 'user', content: JSON.stringify(modelContext) }] }),
     });
     if (!response.ok) throw new Error(`Claude HTTP ${response.status}`);
     const result = await response.json();

@@ -1,3 +1,4 @@
+import { buildModelContext } from './model-context.js';
 import { RESPONSE_SCHEMA, PLAN_SCHEMA } from './schema.js';
 import { lessonSystemPrompt } from './prompts.js';
 export const DEFAULT_OPENAI_MODEL = 'gpt-6-luna';
@@ -18,14 +19,15 @@ export function createOpenAIClient({ apiKey = process.env.OPENAI_API_KEY, model 
   const key = apiKey.trim();
   const luna = model === 'gpt-6-luna' || model.startsWith('gpt-6-luna-');
   const effort = ['none', 'low', 'medium', 'high', 'xhigh', 'max'].includes(reasoningEffort) ? reasoningEffort : 'none';
-  return async ({ lesson, current, transcript, context, photoCaption, fallback, attempts, intent, returnBeat }) => {
+  return async (input) => {
+    const modelContext = buildModelContext(input, { planMode });
     const response = await fetchImpl('https://api.openai.com/v1/responses', {
       method: 'POST', signal: AbortSignal.timeout(12_000),
       headers: { 'content-type': 'application/json', authorization: `Bearer ${key}` },
       body: JSON.stringify({
         model, ...(luna ? { reasoning: { effort } } : {}), store: false, max_output_tokens: planMode ? 4000 : 2500,
         instructions: lessonSystemPrompt(planMode),
-        input: JSON.stringify({ lesson: { title: lesson.title, level: lesson.level }, scenePrompt: lesson.scenePrompt, current, transcript, context, photoCaption, fallback, attempts, intent, returnBeat }),
+        input: JSON.stringify(modelContext),
         text: { format: { type: 'json_schema', name: planMode ? 'lesson_detour' : 'lesson_turn', strict: true, schema: strictOutputSchema(planMode ? PLAN_SCHEMA : RESPONSE_SCHEMA) } },
       }),
     });
