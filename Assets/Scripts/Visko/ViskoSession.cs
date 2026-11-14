@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.IO;
 using System.Text;
 using System.Threading.Tasks;
 using ImmerseTheBay.Content;
@@ -45,8 +47,14 @@ namespace ImmerseTheBay.Visko
 
         public string Status { get; private set; } = "idle";
         public string SessionId { get; private set; } = "";
+        public string PortalSessionId => m_PortalSession;
+        public Texture2D StartImageTexture { get; private set; }
         public string Model { get; private set; } = "";
         public bool IsConnected => Status == "READY";
+        public event Action<string> OnLearnMessage;
+        public bool IsConfigLoaded { get; private set; }
+        readonly TaskCompletionSource<bool> m_ConfigReady = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public Task ConfigReady => m_ConfigReady.Task;
         public event Action<string, string> OnModelMessage; // (type, json)
 
         const string Hello = "{\"type\":\"hello\",\"role\":\"unity\",\"name\":\"";
@@ -56,6 +64,15 @@ namespace ImmerseTheBay.Visko
         Texture2D m_Texture;
         long m_LastFrame;
         bool m_OwnsSession;
+        int m_ConnectVersion;
+        long m_OperationId;
+        Task m_ImageTask;
+        sealed class PendingOperation
+        {
+            public string Name;
+            public TaskCompletionSource<bool> Completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        }
+        readonly Dictionary<string, PendingOperation> m_Pending = new();
         string m_LastError = "", m_LastMessage = "", m_HubStatus = "offline", m_PortalSession = "";
         int m_Frames; float m_FpsT; float m_Fps;
         Func<string> m_Debug;
@@ -70,30 +87,58 @@ namespace ImmerseTheBay.Visko
                 $"reactor {Status}  model {Model}  session {Short(SessionId)} {(m_OwnsSession ? "(owner)" : SessionId != "" ? "(joined)" : "")}\n" +
                 $"video {(m_Texture ? $"{m_Texture.width}x{m_Texture.height}" : "-")} {m_Fps:F0} fps  portal session {Short(m_PortalSession)}\n" +
                 $"last {Trim(m_LastMessage, 70)}" + (m_LastError != "" ? $"\n<color=#f88>{Trim(m_LastError, 90)}</color>" : "");
+        }
+
+        void EnsureBackend()
+        {
 #if UNITY_ANDROID && !UNITY_EDITOR
-            m_Backend = new AndroidViskoBackend(this);
-#else
-            m_Backend = null; // Reactor's native SDK only runs on device; the editor still syncs with the portal.
+            if (m_Backend == null && isActiveAndEnabled) m_Backend = new AndroidViskoBackend(this);
 #endif
         }
 
-        void OnEnable() => DebugRegistry.Register(m_Debug);
+        void OnEnable()
+        {
+            DebugRegistry.Register(m_Debug);
+            EnsureBackend();
+            SetHasVideo(false);
+            if (IsConfigLoaded) InitializeHub();
+        }
 
         void OnDisable()
         {
             DebugRegistry.Unregister(m_Debug);
-            m_Backend?.Dispose();
+            Leave();
+            if (m_Hub) m_Hub.enabled = false;
+        }
+
+        void OnDestroy()
+        {
+            m_ConfigReady.TrySetCanceled();
+            if (m_Hub) Destroy(m_Hub);
+            if (m_Texture) Destroy(m_Texture);
+            if (StartImageTexture) Destroy(StartImageTexture);
         }
 
         async void Start()
         {
             await LoadConfig();
+            if (!this) return;
+            IsConfigLoaded = true;
+            m_ConfigReady.TrySetResult(true);
+            if (isActiveAndEnabled) InitializeHub();
+        }
+
+        void InitializeHub()
+        {
+            if (m_Hub) { m_Hub.enabled = true; return; }
             m_Hub = gameObject.AddComponent<NetClient>();
+            m_Hub.loadStreamingAssetsConfig = false;
             m_Hub.testUrl = "";
             m_Hub.sendTestMessages = false;
             m_Hub.heartbeatMessage = "{\"type\":\"ping\"}";
             m_Hub.OnConnected += () =>
             {
+                if (!isActiveAndEnabled) return;
                 m_HubStatus = "online";
                 _ = m_Hub.SendText(Hello + Esc(SystemInfo.deviceModel) + "\"}");
                 SendHubStatus();
@@ -101,9 +146,9 @@ namespace ImmerseTheBay.Visko
             };
             m_Hub.OnDisconnected += _ => m_HubStatus = "offline";
             m_Hub.OnMessage += OnHubMessage;
-            var ws = config.portalUrl.Replace("https://", "wss://").Replace("http://", "ws://").TrimEnd('/') + "/sync" +
+            m_Hub.webSocketUrl = config.portalUrl.Replace("https://", "wss://").Replace("http://", "ws://").TrimEnd('/') + "/sync" +
                      (string.IsNullOrEmpty(config.portalToken) ? "" : "?portal_token=" + UnityWebRequest.EscapeURL(config.portalToken));
-            _ = m_Hub.Connect(ws);
+            // NetClient.Start owns the first connect; enabling it later reconnects to this URL.
         }
 
         async Task LoadConfig()
@@ -125,7 +170,11 @@ namespace ImmerseTheBay.Visko
         }
 
         // ------------------------------------------------------------ public API (menu / other scripts)
-        public async void CreateSession() => await ConnectInternal(ModelFromConfig(), null);
+        public async void CreateSession()
+        {
+            await ConfigReady;
+            if (this && isActiveAndEnabled) await ConnectInternal(ModelFromConfig(), null);
+        }
 
         public async void JoinPortalSession()
         {
@@ -133,12 +182,14 @@ namespace ImmerseTheBay.Visko
             await ConnectInternal(Model == "" ? ModelFromConfig() : Model, m_PortalSession);
         }
 
-        public void StartGeneration(string prompt = null)
+        public async void StartGeneration(string prompt = null)
         {
-            // Always native 832x480: resolution applies at the next start, so set it right before starting.
-            Command("set_resolution", "{\"resolution\":\"" + glassesResolution + "\"}");
-            Command("set_prompt", "{\"prompt\":\"" + Esc(string.IsNullOrEmpty(prompt) ? config.defaultPrompt : prompt) + "\"}");
-            Command("start", null);
+            try
+            {
+                await CommandAsync("set_prompt", "{\"prompt\":\"" + Esc(string.IsNullOrEmpty(prompt) ? config.defaultPrompt : prompt) + "\"}");
+                await CommandAsync("start", null);
+            }
+            catch (Exception e) { m_LastError = e.Message; }
         }
 
         public void SetPrompt(string prompt) => Command("set_prompt", "{\"prompt\":\"" + Esc(prompt) + "\"}");
@@ -148,32 +199,164 @@ namespace ImmerseTheBay.Visko
 
         public void Leave()
         {
-            m_Backend?.Disconnect();
+            ++m_ConnectVersion;
+            CancelInvoke(nameof(RetryConnect));
+            Status = "DISCONNECTED";
+            var backend = m_Backend;
+            m_Backend = null;
+            FailPending("Visko connection closed");
+            m_ImageTask = null;
+            m_LastFrame = -1;
+            SetHasVideo(false);
+            backend?.Dispose();
             if (m_OwnsSession) _ = m_Hub?.SendText("{\"type\":\"session_end\"}");
             m_OwnsSession = false; SessionId = ""; Status = "DISCONNECTED";
             SendHubStatus();
         }
 
-        /// <summary>Sends a Reactor command. If this app is not connected, asks the web portal to run it.</summary>
-        public void Command(string name, string argsJson)
+        /// <summary>Legacy command entry point; disconnected/editor callers relay to the web.</summary>
+        public async void Command(string name, string argsJson)
         {
-            if (m_Backend != null && IsConnected) { m_Backend.SendCommand(name, argsJson ?? ""); return; }
-            _ = m_Hub?.SendText("{\"type\":\"command\",\"name\":\"" + Esc(name) + "\",\"data\":" + (string.IsNullOrEmpty(argsJson) ? "{}" : argsJson) + "}");
-            m_LastMessage = $"→ portal {name}";
+            try
+            {
+                if (m_Backend != null && IsConnected) await CommandAsync(name, argsJson);
+                else if (m_Hub && m_Hub.IsConnected)
+                    await m_Hub.SendText("{\"type\":\"command\",\"name\":\"" + Esc(name) + "\",\"data\":" + (string.IsNullOrEmpty(argsJson) ? "{}" : argsJson) + "}");
+                else throw new InvalidOperationException("No Reactor or portal connection");
+            }
+            catch (Exception e) { m_LastError = e.Message; }
+        }
+
+        /// <summary>Completes after a correlated native reply. Relay mode cannot acknowledge execution.</summary>
+        public async Task CommandAsync(string name, string argsJson)
+        {
+            RequireReady();
+            int version = m_ConnectVersion;
+            if (name == "start")
+            {
+                if (m_ImageTask != null) await m_ImageTask;
+                CheckVersion(version);
+                await RunOperation("set_resolution", (id) => m_Backend.SendCommand(id, "set_resolution", "{\"resolution\":\"" + Esc(glassesResolution) + "\"}"));
+                CheckVersion(version);
+            }
+            await RunOperation(name, (id) => m_Backend.SendCommand(id, name, argsJson ?? ""));
+            if (name == "reset") m_ImageTask = null;
+        }
+
+        /// <summary>Uploads a JPEG and completes only after set_image returns image_accepted.</summary>
+        public Task SetImage(byte[] jpg)
+        {
+            RequireReady();
+            if (jpg == null || jpg.Length == 0 || jpg.Length > 16 * 1024 * 1024)
+                throw new ArgumentException("JPEG must be between 1 byte and 16 MiB", nameof(jpg));
+            if (m_ImageTask != null && !m_ImageTask.IsCompleted) throw new InvalidOperationException("Image upload already in progress");
+            return m_ImageTask = UploadAndDisplayImage((byte[])jpg.Clone());
+        }
+
+        public Task SetImageFromStreamingAssets(string path)
+        {
+            RequireReady();
+            if (m_ImageTask != null && !m_ImageTask.IsCompleted) throw new InvalidOperationException("Image upload already in progress");
+            if (string.IsNullOrWhiteSpace(path) || Path.IsPathRooted(path) || path.Contains(":") ||
+                Array.Exists(path.Replace('\\', '/').Split('/'), segment => segment == ".."))
+                throw new ArgumentException("Use a path relative to StreamingAssets", nameof(path));
+            return m_ImageTask = LoadAndSetImage(path, m_ConnectVersion);
+        }
+
+        async Task LoadAndSetImage(string path, int version)
+        {
+            using var request = UnityWebRequest.Get(ContentLibrary.ToUrl(path));
+            request.timeout = 20;
+            var operation = request.SendWebRequest();
+            while (!operation.isDone) { CheckVersion(version); await Task.Yield(); }
+            if (request.result != UnityWebRequest.Result.Success) throw new IOException(request.error);
+            CheckVersion(version);
+            byte[] bytes = request.downloadHandler.data;
+            if (bytes.Length == 0 || bytes.Length > 16 * 1024 * 1024) throw new IOException("Image must be between 1 byte and 16 MiB");
+            await UploadAndDisplayImage(bytes);
+        }
+
+        async Task UploadAndDisplayImage(byte[] bytes)
+        {
+            int version = m_ConnectVersion;
+            bool png = bytes.Length > 8 && bytes[0] == 137 && bytes[1] == 80 && bytes[2] == 78 && bytes[3] == 71;
+            await RunOperation("set_image", id => m_Backend.UploadImage(id, bytes, png ? "photo.png" : "photo.jpg", png ? "image/png" : "image/jpeg"));
+            CheckVersion(version);
+            var texture = new Texture2D(2, 2, TextureFormat.RGB24, false) { wrapMode = TextureWrapMode.Clamp };
+            if (!ImageConversion.LoadImage(texture, bytes, true))
+            {
+                Destroy(texture);
+                Debug.LogWarning("[Visko] Image accepted, but the local environment preview could not decode it");
+                return;
+            }
+            var old = StartImageTexture;
+            StartImageTexture = texture;
+            if (screen && screen.material.HasProperty("_EnvironmentTex")) screen.material.SetTexture("_EnvironmentTex", texture);
+            SetHasVideo(false);
+            if (old) Destroy(old);
+        }
+
+        public Task SendLearningEvent(string json)
+        {
+            if (!isActiveAndEnabled || !m_Hub || !m_Hub.IsConnected) throw new InvalidOperationException("Learning sync is offline");
+            if (JsonField(json, "type") != "learn") throw new ArgumentException("Expected a complete learn envelope", nameof(json));
+            return m_Hub.SendText(json);
+        }
+
+        void RequireReady()
+        {
+            if (!isActiveAndEnabled || m_Backend == null || !IsConnected)
+                throw new InvalidOperationException("Reactor command unavailable: Android connection must be READY");
+        }
+
+        void CheckVersion(int version)
+        {
+            if (!this || version != m_ConnectVersion) throw new OperationCanceledException("Visko connection changed");
+            RequireReady();
+        }
+
+        async Task RunOperation(string name, Action<string> send)
+        {
+            RequireReady();
+            string id = (++m_OperationId).ToString();
+            var pending = new PendingOperation { Name = name };
+            m_Pending.Add(id, pending);
+            try
+            {
+                send(id);
+                if (await Task.WhenAny(pending.Completion.Task, Task.Delay(95000)) != pending.Completion.Task)
+                    throw new TimeoutException(name + " acknowledgement timed out");
+                await pending.Completion.Task;
+            }
+            finally { m_Pending.Remove(id); }
+        }
+
+        void FailPending(string error)
+        {
+            var pending = new List<PendingOperation>(m_Pending.Values);
+            m_Pending.Clear();
+            foreach (var operation in pending) operation.Completion.TrySetException(new InvalidOperationException(error));
         }
 
         string ModelFromConfig() => config.model == "stable" || config.model == Slugs[1] ? Slugs[1] : Slugs[0];
 
         async Task ConnectInternal(string model, string sessionId)
         {
+            EnsureBackend();
             if (m_Backend == null) { m_LastError = "Visko video needs the Android build (editor: use the web portal)"; return; }
+            await ConfigReady;
+            if (!this || !isActiveAndEnabled) return;
+            Leave();
+            EnsureBackend();
+            int version = m_ConnectVersion;
             m_LastError = "";
             Model = model;
             m_OwnsSession = string.IsNullOrEmpty(sessionId);
             Status = "TOKEN";
             string jwt;
             try { jwt = await MintToken(model, sessionId); }
-            catch (Exception e) { m_LastError = "token: " + e.Message; Status = "DISCONNECTED"; return; }
+            catch (Exception e) { if (version == m_ConnectVersion) { m_LastError = "token: " + e.Message; Status = "DISCONNECTED"; } return; }
+            if (!this || !isActiveAndEnabled || version != m_ConnectVersion) return;
             m_PendingModel = model; m_PendingSession = sessionId;
             m_Backend.Connect(jwt, model, sessionId);
         }
@@ -198,32 +381,51 @@ namespace ImmerseTheBay.Visko
         [Serializable] class TokenResponse { public string jwt; public long expires_at; }
 
         // ------------------------------------------------------------ backend callbacks (any thread)
-        internal void PostStatus(string s) => m_Main.Enqueue(() =>
+        void EnqueueBackend(object sender, Action callback) => m_Main.Enqueue(() =>
+        {
+            if (isActiveAndEnabled && ReferenceEquals(sender, m_Backend)) callback();
+        });
+
+        internal void PostStatus(object sender, string s) => EnqueueBackend(sender, () =>
         {
             Status = s;
+            if (s == "DISCONNECTED") FailPending("Reactor disconnected");
             if (s == "READY") m_Retries = 0;
             SendHubStatus();
             if (s == "READY" && m_OwnsSession)
             {
                 // Frames cross JNI every frame: keep the shared session at 832x480 unless changed in the portal.
-                m_Backend?.SendCommand("set_resolution", "{\"resolution\":\"" + glassesResolution + "\"}");
+                Command("set_resolution", "{\"resolution\":\"" + Esc(glassesResolution) + "\"}");
                 AnnounceSession();
             }
         });
 
-        internal void PostSessionId(string id) => m_Main.Enqueue(() => { SessionId = id; if (m_OwnsSession && IsConnected) AnnounceSession(); });
+        internal void PostSessionId(object sender, string id) => EnqueueBackend(sender, () => { SessionId = id; if (m_OwnsSession && IsConnected) AnnounceSession(); });
 
-        internal void PostMessage(string json) => m_Main.Enqueue(() =>
+        internal void PostMessage(object sender, string json) => EnqueueBackend(sender, () =>
         {
             var type = JsonField(json, "type");
+            if (type == "command_error")
+            {
+                var data = JsonObjectField(json, "data");
+                string command = JsonField(data, "command"), reason = JsonField(data, "reason");
+                m_LastError = command + ": " + reason;
+                // Broadcasts may belong to another client. Only correlated onOperation settles tasks.
+            }
             if (type != "chunk_complete") m_LastMessage = Trim(json, 120);
             // Mirror model state to the portal so the web UI shows it even when it is not connected itself
             if (type == "state") _ = m_Hub?.SendText("{\"type\":\"state\",\"data\":" + (JsonObjectField(json, "data") ?? "{}") + "}");
             OnModelMessage?.Invoke(type, json);
         });
 
-        internal void PostReply(string command, string json) => m_Main.Enqueue(() => m_LastMessage = $"{command} ↩ {Trim(json, 100)}");
-        internal void PostError(string msg) => m_Main.Enqueue(() =>
+        internal void PostOperation(object sender, string id, string command, string json, string error) => EnqueueBackend(sender, () =>
+        {
+            if (!m_Pending.TryGetValue(id, out var pending)) return;
+            if (!string.IsNullOrEmpty(error)) pending.Completion.TrySetException(new InvalidOperationException(error));
+            else pending.Completion.TrySetResult(true);
+            m_LastMessage = $"{command} ↩ {Trim(json, 100)}";
+        });
+        internal void PostError(object sender, string msg) => EnqueueBackend(sender, () =>
         {
             m_LastError = msg;
             _ = m_Hub?.SendText("{\"type\":\"log\",\"text\":\"" + Esc(msg) + "\"}");
@@ -240,10 +442,14 @@ namespace ImmerseTheBay.Visko
         // ------------------------------------------------------------ hub
         void OnHubMessage(string json)
         {
+            if (!isActiveAndEnabled) return;
             var type = JsonField(json, "type");
             var from = JsonField(json, "from");
             switch (type)
             {
+                case "learn":
+                    OnLearnMessage?.Invoke(json);
+                    break;
                 case "welcome":
                     var sessionObj = JsonObjectField(json, "session");
                     if (!string.IsNullOrEmpty(sessionObj) && JsonField(sessionObj, "owner") == "web") OnPortalSession(sessionObj);
@@ -255,7 +461,7 @@ namespace ImmerseTheBay.Visko
                     if (from == "web") { m_PortalSession = ""; if (!m_OwnsSession && SessionId != "") Leave(); }
                     break;
                 case "command":
-                    if (from == "web" && IsConnected) m_Backend.SendCommand(JsonField(json, "name"), JsonObjectField(json, "data") ?? "");
+                    if (from == "web" && IsConnected) Command(JsonField(json, "name"), JsonObjectField(json, "data") ?? "");
                     break;
             }
         }
@@ -266,7 +472,8 @@ namespace ImmerseTheBay.Visko
             var model = JsonField(json, "model");
             if (!string.IsNullOrEmpty(model)) Model = model;
             m_LastMessage = $"portal session {Short(m_PortalSession)}";
-            if (config.autoJoin && !IsConnected && m_Backend != null && !string.IsNullOrEmpty(m_PortalSession))
+            if (config.autoJoin) EnsureBackend();
+            if (config.autoJoin && (Status == "DISCONNECTED" || Status == "idle") && m_Backend != null && !string.IsNullOrEmpty(m_PortalSession))
                 _ = ConnectInternal(Model, m_PortalSession);
         }
 
@@ -276,6 +483,11 @@ namespace ImmerseTheBay.Visko
         void SendHubStatus() => _ = m_Hub?.SendText($"{{\"type\":\"status\",\"status\":\"{(m_Backend == null ? "EDITOR" : Status)}\"}}");
 
         // ------------------------------------------------------------ video
+        void SetHasVideo(bool value)
+        {
+            if (screen && screen.material.HasProperty("_HasVideo")) screen.material.SetFloat("_HasVideo", value ? 1 : 0);
+        }
+
         void PullFrame()
         {
             if (m_Backend == null || !screen) return;
@@ -300,6 +512,7 @@ namespace ImmerseTheBay.Visko
             }
             m_Texture.LoadRawTextureData(px);
             m_Texture.Apply(false);
+            SetHasVideo(true);
             m_Frames++;
         }
 
@@ -373,7 +586,8 @@ namespace ImmerseTheBay.Visko
     interface IViskoBackend : IDisposable
     {
         void Connect(string jwt, string model, string sessionId);
-        void SendCommand(string name, string argsJson);
+        void SendCommand(string id, string name, string argsJson);
+        void UploadImage(string id, byte[] bytes, string name, string mime);
         void Disconnect();
         long FrameId { get; }
         int Width { get; }
@@ -390,19 +604,21 @@ namespace ImmerseTheBay.Visko
         class Listener : AndroidJavaProxy
         {
             readonly ViskoSession m_S;
-            public Listener(ViskoSession s) : base("com.immersethebay.visko.ViskoReactorBridge$Listener") { m_S = s; }
-            void onStatus(string status) => m_S.PostStatus(status);
-            void onSessionId(string id) => m_S.PostSessionId(id);
-            void onMessage(string json) => m_S.PostMessage(json);
-            void onReply(string command, string json) => m_S.PostReply(command, json);
-            void onError(string message) => m_S.PostError(message);
+            readonly AndroidViskoBackend m_Backend;
+            public Listener(ViskoSession s, AndroidViskoBackend backend) : base("com.immersethebay.visko.ViskoReactorBridge$Listener") { m_S = s; m_Backend = backend; }
+            void onStatus(string status) => m_S.PostStatus(m_Backend, status);
+            void onSessionId(string id) => m_S.PostSessionId(m_Backend, id);
+            void onMessage(string json) => m_S.PostMessage(m_Backend, json);
+            void onOperation(string id, string command, string json, string error) => m_S.PostOperation(m_Backend, id, command, json, error);
+            void onError(string message) => m_S.PostError(m_Backend, message);
         }
 
         public AndroidViskoBackend(ViskoSession s) =>
-            m_Bridge = new AndroidJavaObject("com.immersethebay.visko.ViskoReactorBridge", new Listener(s));
+            m_Bridge = new AndroidJavaObject("com.immersethebay.visko.ViskoReactorBridge", new Listener(s, this));
 
         public void Connect(string jwt, string model, string sessionId) => m_Bridge.Call("connect", jwt, model, sessionId ?? "");
-        public void SendCommand(string name, string argsJson) => m_Bridge.Call("sendCommand", name, argsJson ?? "");
+        public void SendCommand(string id, string name, string argsJson) => m_Bridge.Call("sendCommand", id, name, argsJson ?? "");
+        public void UploadImage(string id, byte[] bytes, string name, string mime) => m_Bridge.Call("uploadImage", id, bytes, name, mime);
         public void Disconnect() => m_Bridge.Call("disconnect");
         public long FrameId => m_Bridge.Call<long>("getFrameId");
         public int Width => m_Bridge.Call<int>("getWidth");
