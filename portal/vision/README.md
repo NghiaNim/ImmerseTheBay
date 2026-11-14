@@ -63,3 +63,5 @@ Official documentation checked 2026-11-14:
 - [GPT-6 Luna](https://developers.openai.com/api/docs/models/gpt-6-luna): image input, structured outputs and `none` reasoning are supported.
 - [Responses create](https://developers.openai.com/api/reference/resources/responses/methods/create): image data URLs and strict `text.format` JSON Schema.
 - [Images and vision](https://developers.openai.com/api/docs/guides/images-vision): image input and spatial-reasoning limitations.
+
+Integration note (2026-11-14): browser start-image pointing → real Luna bottle detection → learner-goal DAG succeeded in 3.556 s; person and blank-wall controls produced no branch. A live Dynamic frame check was blocked before connection by Reactor HTTP 429 `no available capacity`; no Stable substitution was made.
