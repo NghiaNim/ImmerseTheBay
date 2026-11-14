@@ -103,3 +103,12 @@ test('invalid lessons do not consume session capacity permanently', async () => 
   await assert.rejects(service.turn(request({ sessionId: 'bad', lessonId: 'missing' })), { status: 404 });
   assert.equal((await service.turn(request())).advance, 'stay');
 });
+test('real home lesson romaji does not trigger character-name substrings', async () => {
+  const { readFile } = await import('node:fs/promises');
+  // Original authored content copied from the integrated lesson, not rewritten to avoid detection.
+  const home = JSON.parse(await readFile(new URL('./fixtures/ja-home-001.json', import.meta.url), 'utf8'));
+  assert.equal(validateLesson(home).id, 'ja-home-001');
+  assert.equal(hasBannedTerm('Tenjou made naosu to naru to, sasuga ni watashitachi dake de wa te ni oemasen.'), false);
+  assert.equal(hasBannedTerm('tonaruto'), false);
+  for (const name of ['Naruto enters.', 'Ｄｏｒａｅｍｏｎ', 'Dora\u200bemon', 'D.o.r.a.e.m.o.n', 'Mickey Mouse', 'ドラえもん']) assert.equal(hasBannedTerm(name), true, name);
+});
