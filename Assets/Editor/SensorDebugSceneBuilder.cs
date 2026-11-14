@@ -140,10 +140,33 @@ public static class SensorDebugSceneBuilder
         Object.DestroyImmediate(viskoScreen.GetComponent<Collider>());
         viskoScreen.transform.position = new Vector3(0, 0.15f, 2.6f);
         viskoScreen.transform.localScale = new Vector3(1.6f, 0.9f, 1);
-        viskoScreen.GetComponent<MeshRenderer>().sharedMaterial = AssetDatabase.LoadAssetAtPath<Material>($"{MatDir}/StereoScreen.mat");
+        viskoScreen.GetComponent<MeshRenderer>().sharedMaterial = SaveMat(new Material(Shader.Find("ImmerseTheBay/ImmersiveVisko")), "ImmersiveVisko");
         var visko = new GameObject("Visko Session").AddComponent<ImmerseTheBay.Visko.ViskoSession>();
         visko.screen = viskoScreen.GetComponent<MeshRenderer>();
         menu.visko = visko;
+
+        // Bind the learning loop before enabling its lifecycle subscriptions.
+        var learningGo = new GameObject("Immersive Learning");
+        learningGo.SetActive(false);
+        var context = learningGo.AddComponent<ImmerseTheBay.Learning.LearningContext>();
+        context.headCamera = cam;
+        context.microphone = mic;
+        context.meshManager = meshMgr;
+        context.planeManager = planes;
+        var overlay = learningGo.AddComponent<ImmerseTheBay.Learning.LearningOverlay>();
+        overlay.screen = visko.screen;
+        overlay.headCamera = cam;
+        var speech = learningGo.AddComponent<ImmerseTheBay.Visko.AndroidSpeechToText>();
+        var learning = learningGo.AddComponent<ImmerseTheBay.Learning.LearningAgentClient>();
+        learning.visko = visko;
+        learning.context = context;
+        learning.overlay = overlay;
+        learning.speechProvider = speech;
+        learning.lessonId = "ja-konbini-001";
+        learning.startImage = "lessons/images/konbini-checkout-original.png";
+        menu.learning = learning;
+        menu.photoCapture = learningGo.AddComponent<ImmerseTheBay.Visko.PhotoCapture>();
+        learningGo.SetActive(true);
 
         // --- First-person view of the glasses to the portal (/cast, viewer at portal/cast.html)
         var caster = new GameObject("First Person Caster").AddComponent<ImmerseTheBay.Cast.FirstPersonCaster>();
@@ -263,8 +286,21 @@ public static class SensorDebugSceneBuilder
     {
         const string path = "Assets/Prefabs/MeshChunk.prefab";
         var existing = AssetDatabase.LoadAssetAtPath<GameObject>(path);
-        if (existing) return existing;
-        var go = new GameObject("MeshChunk", typeof(MeshFilter), typeof(MeshRenderer));
+        if (existing)
+        {
+            if (!existing.GetComponent<MeshCollider>())
+            {
+                var contents = PrefabUtility.LoadPrefabContents(path);
+                try
+                {
+                    contents.AddComponent<MeshCollider>();
+                    PrefabUtility.SaveAsPrefabAsset(contents, path);
+                }
+                finally { PrefabUtility.UnloadPrefabContents(contents); }
+            }
+            return AssetDatabase.LoadAssetAtPath<GameObject>(path);
+        }
+        var go = new GameObject("MeshChunk", typeof(MeshFilter), typeof(MeshRenderer), typeof(MeshCollider));
         go.GetComponent<MeshRenderer>().sharedMaterial = TransparentUnlit("SpatialMesh", new Color(0.2f, 0.8f, 1f, 0.25f));
         var prefab = PrefabUtility.SaveAsPrefabAsset(go, path);
         Object.DestroyImmediate(go);

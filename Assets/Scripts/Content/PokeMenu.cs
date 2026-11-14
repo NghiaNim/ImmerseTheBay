@@ -21,6 +21,8 @@ namespace ImmerseTheBay.Content
         public ImmerseTheBay.Xreal.XrealFeatures xreal;
         public ImmerseTheBay.Visko.ViskoSession visko;
         public ImmerseTheBay.Cast.FirstPersonCaster caster;
+        public ImmerseTheBay.Learning.LearningAgentClient learning;
+        public ImmerseTheBay.Visko.PhotoCapture photoCapture;
 
         [Header("Placement")]
         public float distance = 0.45f;
@@ -71,6 +73,10 @@ namespace ImmerseTheBay.Content
             AddButton("Hands / Controller", new Color(0.2f, 0.4f, 0.45f, 0.9f), () => xreal?.SwitchInputSource());
             AddButton("6DoF / 3DoF / 0DoF", new Color(0.2f, 0.4f, 0.45f, 0.9f), () => xreal?.CycleTrackingType());
             var viskoColor = new Color(0.45f, 0.2f, 0.5f, 0.9f);
+            AddButton("Lesson: begin", viskoColor, () => learning?.BeginLesson());
+            AddButton("Lesson: phone photo", viskoColor, BeginPhotoLesson);
+            AddButton("Lesson: point", viskoColor, () => learning?.context?.Point());
+            AddButton("Lesson: leave", viskoColor, () => learning?.LeaveLesson());
             AddButton("Visko: new session", viskoColor, () => visko?.CreateSession());
             AddButton("Visko: join portal", viskoColor, () => visko?.JoinPortalSession());
             AddButton("Visko: start", viskoColor, () => visko?.StartGeneration());
@@ -80,6 +86,17 @@ namespace ImmerseTheBay.Content
             AddButton("HUD on/off", new Color(0.3f, 0.3f, 0.3f, 0.9f), () => { if (hud) hud.SetActive(!hud.activeSelf); });
             Layout();
             PlaceInFront();
+        }
+
+        async void BeginPhotoLesson()
+        {
+            if (!learning || !photoCapture || photoCapture.IsCapturing) return;
+            try
+            {
+                var image = await photoCapture.CaptureJpeg();
+                if (this && learning && isActiveAndEnabled) learning.BeginLessonWithImage(image);
+            }
+            catch (Exception error) { Debug.LogWarning("Phone photo lesson: " + error.Message); }
         }
 
         void BuildCanvas()

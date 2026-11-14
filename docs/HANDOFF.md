@@ -10,13 +10,19 @@ Read next: [INFRASTRUCTURE.md](INFRASTRUCTURE.md) (all modules) · [VISKO.md](VI
 
 | Area | State | Verified how |
 |---|---|---|
-| Repo | `main` pushed to github.com/NghiaNim/ImmerseTheBay (public), head `95d3ca1`. Git LFS is **disabled** on the repo; LFS rules were removed — commit small binaries normally. | `git push` |
-| Unity project | Compiles with 0 errors; debug scene generated on XREAL's official rig; APK builds (`Builds/ImmerseTheBay.apk`, ~220 MB dev build). | Unity batch compile + `BuildScript.BuildAndroid` |
-| XREAL SDK | 3.1.0 tarball in `Packages/` (**gitignored**, proprietary). Loader auto-enabled for Android, `XREALSettings` registered, input source Hands, tracking 6DoF. | Batch build |
-| Visko web portal | Works end to end. Stable model: session ready in ~2 s, live 18 fps video + audio, prompt steering morphs the scene. Dynamic model returned **429 no capacity** at test time (Reactor-side). Native 832×480 is now forced before every start (not re-tested live). | Real run in browser, ~1 min (~$0.6) |
-| Visko in glasses | Kotlin bridge + Reactor Android SDK compile into the APK (`libreactor_*.so` present). **Never run on a device.** | APK inspection |
-| Everything else on device | **Never run on hardware** (hands, anchors, mesh, cast, media, mic, XRI grabbing). | — |
-| Node services | `server/` tests 5/5, `portal/cast` tests 4/4. Portal `/sync` + `/cast` share one HTTP server. | `npm test`, `node --test` |
+| Repo | Integration branch `feat/immersive-learning`; A–E merged locally. | Git integration history |
+| Web lesson | Landscape convenience store, original generated start image, dim peripheral image and feathered central video, compact Japanese overlay, spoken intent mode. Demo: `http://localhost:8791/learn.html`. | Browser checks at 1440×900 / 1280×720; automated speech callback mocked |
+| Lesson agent | Forward DAG: temporary interactions rejoin the saved lesson cursor. Arbitrary goals use a server-side planner; strict schema, text scoring, bounded queues and prompt pacing. | Node tests; live status below |
+| OpenAI | Key only in ignored `portal/.env`. User requests `OPENAI_MODEL=gpt-6-luna`, `OPENAI_REASONING_EFFORT=none`. Luna access was initially denied, then a fresh retry succeeded after the user updated access/configuration. No automatic older-model substitution. | Real Luna structured plan: 2.784 s in one sample. Full opening → generated bento-heating branch → scored lines → saved-checkpoint rejoin passed in 8.263 s. |
+| Visko | Web defaults to **Dynamic**, no silent Stable fallback. Live Dynamic start/image/hint/video succeeded at native 640×368. Live three-node sandwich branch/rejoin commands accepted, video continued, non-silent audio measured (peak 0.273). Stable lacked native and worked at user-approved web-only 1080p. | 30-second Dynamic browser run, always Leave. Deployment omits documented active_prompt/current_prompt: command acceptance is verified, exact applied-prompt telemetry unavailable. |
+| Unity learning | Context, overlay, command client, camera, Japanese speech, feather material and scene/menu wiring integrated. New `.meta` files generated. | Unity Android compilation: no `error CS`; LearningContractChecks passed |
+| APK | `Builds/ImmerseTheBay.apk` (~230 MB development build); gitignored. | BuildScript.BuildAndroid: Success, 0 errors, 90 seconds |
+| Hardware | Air 2 Ultra + Samsung S25 remains untested on device. Glasses retain native resolution; no 1080p fallback. | No adb device attached |
+| XREAL SDK | Proprietary 3.1.0 tarball remains gitignored. | APK build |
+| Node services | Realtime server tests 5/5. Portal tests 39/39 include agent, DAG, provider and cast; npm run check passed. | node --test |
+
+The original generated convenience-store image is a user-approved exception to the earlier CC0-only sample rule; see `Assets/StreamingAssets/lessons/images/SOURCES.md`. The home lesson remains available. Camera, typography, speech, mesh classification and rendering require glasses verification.
+
 
 ## 2. Hardware change: Samsung S25 instead of Beam Pro
 XREAL's docs list "Beam Pro or a supported Android phone — Samsung S24 and later flagship series", so the S25 is a supported host. What changes:

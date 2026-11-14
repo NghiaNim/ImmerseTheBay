@@ -4,10 +4,10 @@ Visko Orbis models run on Reactor (docs.reactor.inc) and stream real-time genera
 
 | Model | Slug | Notes |
 |---|---|---|
-| Dynamic (default) | `reactor/visko-orbis-dynamic` | `max_chunks` up to 229 (~7 min/run). State has `current_prompt`; `chunk_complete` has `active_prompt`. No `passthrough` on `set_prompt`. |
+| Dynamic (default) | `reactor/visko-orbis-dynamic` | `max_chunks` up to 229 (~7 min/run). Published schema lists `current_prompt` / `active_prompt`, but the 2026-11-14 live deployment omitted both; track acceptance separately. No `passthrough` on `set_prompt`. |
 | Stable | `reactor/visko-orbis-stable` | up to 2000 chunks (~61 min/run). `set_prompt` accepts `passthrough`. |
 
-Common: 832×480 generation upscaled to `available_resolutions` (native/1080p/2k/4k). **We always run at `native` (832×480)**: both the web Start button and the glasses send `set_resolution native` before every `start`. Streams: 18 fps `main_video`, 48 kHz mono `main_audio`, 33-frame chunks (~1.8 s); a new prompt morphs at the next chunk. Commands: `set_prompt`, `set_audio_prompt`, `set_image`, `set_seed`, `set_resolution`, `set_audio_enabled`, `start`, `pause`, `resume`, `reset`. Billing runs from `ready` until the session ends, even when idle — always Leave when done.
+Live delivery depends on the model/deployment: Dynamic was verified at native **640×368**, 18 fps with audio, in 33-frame chunks (~1.8 s). Glasses request native before every start. The learning web page also prefers native, but the user approved a **web-only 1080p fallback** when native is unavailable (observed on Stable). Inspect `available_resolutions`; do not hard-code native dimensions. `set_prompt` steers an ongoing run; `set_audio_prompt` describes sound. The web trace distinguishes `acceptedPrompt` from applied-prompt telemetry and records delivered dimensions, frame and audio sample counts. Current Dynamic chunks report 33 frames and 88,000 audio samples; audio was measured non-silent in the browser. Billing runs from ready until Leave, even when idle.
 
 ## Where the API key goes
 **`portal/.env`** (gitignored; copy from `portal/.env.example`):
