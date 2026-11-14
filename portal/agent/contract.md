@@ -28,6 +28,10 @@
 - `GET /lessons/images/:filename` → a flat, locally stored `.jpg`, `.jpeg`, `.png` or `.webp` file. Other files and nested/private paths are denied. `startImage` uses `lessons/images/<filename>`; browser prepends `/`.
 - Catalog and images use the same portal authorization. For an image element use `?portal_token=...`; fetch requests can use the header.
 
+## Restarting a run
+
+`POST /api/agent/reset` with `{sessionId,lessonId}` returns `{ok:true}` and clears lesson initialization/hints, preserving the session-wide prompt rate limit. Await any pending turn first (otherwise 409). When starting fresh on a joined session, await Reactor `reset`, call this endpoint, then upload/set the image and request beat 0. This changes a shared scene for all joined clients.
+
 ## Sync
 
 The driving client broadcasts `{type:"learn", sessionId, lessonId, beat, ...response}` **after** commands finish; `beat` is the new cursor after applying `advance`. Receiving clients render the event without executing `visko` again. `/sync` already relays arbitrary message types.

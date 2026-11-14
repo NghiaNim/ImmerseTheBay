@@ -10,6 +10,7 @@ import http from 'node:http';
 import os from 'node:os';
 import { WebSocketServer } from 'ws';
 import { attachCast } from './cast/castHub.js';
+import { registerAgentRoutes } from './agent/routes.js';
 
 const PORT = Number(process.env.PORT || 8790);
 const API_KEY = process.env.REACTOR_API_KEY || '';
@@ -33,6 +34,8 @@ function authorized(req) {
   if (!PORTAL_TOKEN) return true;
   return req.get('portal_token') === PORTAL_TOKEN || req.query.portal_token === PORTAL_TOKEN;
 }
+
+registerAgentRoutes(app, { authorized });
 
 app.get('/api/models', (_req, res) => res.json(MODELS));
 
