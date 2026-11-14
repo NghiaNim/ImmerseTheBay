@@ -211,5 +211,35 @@
         }
       ]
     }
-  ]
+  ],
+  "graph": {
+    "checkpoints": [
+      {
+        "id": "find-items",
+        "label": "Find items",
+        "beat": 0
+      },
+      {
+        "id": "ask-details",
+        "label": "Ask about products",
+        "beat": 2
+      },
+      {
+        "id": "compare-price",
+        "label": "Compare prices",
+        "beat": 4
+      },
+      {
+        "id": "checkout",
+        "label": "Check out and pack",
+        "beat": 6
+      },
+      {
+        "id": "farewell",
+        "label": "Thank the assistant and leave",
+        "beat": 8
+      }
+    ],
+    "detourReturnPolicy": "pending-checkpoint"
+  }
 }

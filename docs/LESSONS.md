@@ -47,6 +47,29 @@ Use the lowercase classification labels `table`, `door`, `wall`, `floor`, and `c
 
 For the store lesson, `table` grounds the checkout counter and items being discussed there, `door` grounds the entrance/exit, `wall` grounds wall-side shelves, and `floor` grounds the aisle. These mappings are teaching associations, not additional object-recognition capabilities.
 
+## Flexible lesson graph
+
+The script is a backbone, not a restriction on what the learner may say. `ja-konbini-001` includes optional graph metadata agreed with the lesson-agent service:
+
+```json
+{
+  "graph": {
+    "checkpoints": [
+      { "id": "find-items", "label": "Find items", "beat": 0 },
+      { "id": "ask-details", "label": "Ask about products", "beat": 2 },
+      { "id": "compare-price", "label": "Compare prices", "beat": 4 },
+      { "id": "checkout", "label": "Check out and pack", "beat": 6 },
+      { "id": "farewell", "label": "Thank the assistant and leave", "beat": 8 }
+    ],
+    "detourReturnPolicy": "pending-checkpoint"
+  }
+}
+```
+
+These `beat` values are **zero-based flattened line anchors**, matching the API request field; they are not indexes into the lesson's `beats` array. The two lines within each authored beat remain ordered. The service owns intent interpretation and runtime graph visits. A spontaneous request to look at sandwiches can introduce a short locating → asking about contents/availability → selecting detour, then return to the saved pending backbone line. It must not skip directly to checkout merely because the learner mentioned a product, nor mark unrelated target speech as successfully rehearsed.
+
+Keep detours responsive to the learner's actual words. Mentioning an object is not necessarily a purchase decision; asking about ingredients does not establish availability or dietary suitability. The learner may change the choice, ask another question, or cancel and rejoin. Original detour utterances and visual delta cues live with the agent's runtime templates, so the content file does not duplicate an incompatible state machine. A return creates a new forward visit to the logical checkpoint; the runtime visit graph can stay acyclic even when a logical teaching checkpoint is revisited.
+
 ## Prompt and image rules
 
 - Write original scenes and dialogue. Do not copy textbook passages, named fictional characters, franchise designs, brand imagery, or prompts requesting imitation of those properties. Broad settings and generic anime-inspired rendering are acceptable.
