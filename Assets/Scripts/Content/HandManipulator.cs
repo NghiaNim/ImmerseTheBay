@@ -13,6 +13,8 @@ namespace ImmerseTheBay.Content
     public class HandManipulator : MonoBehaviour
     {
         public ContentSpawner spawner;
+        // Enable in the inspector to use the old pinch path; XRI grabs are disabled while it is active.
+        public bool useLegacyPinch = false;
         [Tooltip("Extra margin around an object's bounds that still counts as touching it (metres).")]
         public float nearMargin = 0.06f;
         public bool allowFarGrab = true;
@@ -37,15 +39,27 @@ namespace ImmerseTheBay.Content
         void Awake()
         {
             if (!spawner) spawner = FindAnyObjectByType<ContentSpawner>();
-            m_Debug = () => $"<b>== MANIPULATION ==</b>\nL grab: {Name(m_Left.target)}  R grab: {Name(m_Right.target)}  hover: {Name(m_Hover)}";
+            m_Debug = () => $"<b>== MANIPULATION ==</b>\nmode: {(useLegacyPinch ? "legacy pinch" : "XRI")}\nL grab: {Name(m_Left.target)}  R grab: {Name(m_Right.target)}  hover: {Name(m_Hover)}";
         }
 
         void OnEnable() => DebugRegistry.Register(m_Debug);
-        void OnDisable() => DebugRegistry.Unregister(m_Debug);
+        void OnDisable()
+        {
+            DebugRegistry.Unregister(m_Debug);
+            ReleaseGrabs();
+            SetLegacyInteraction(false);
+        }
         static string Name(PlaceableContent c) => c ? c.item?.label ?? c.name : "-";
 
         void Update()
         {
+            if (!useLegacyPinch)
+            {
+                ReleaseGrabs();
+                SetLegacyInteraction(false);
+                return;
+            }
+            SetLegacyInteraction(true);
             var hands = HandInput.Instance;
             if (!hands || !spawner) return;
             var l = hands.Left; var r = hands.Right;
@@ -63,6 +77,25 @@ namespace ImmerseTheBay.Content
             }
         }
 
+        void SetLegacyInteraction(bool legacy)
+        {
+            if (!spawner) return;
+            foreach (var content in spawner.Spawned)
+                if (content) content.SetLegacyInteraction(legacy);
+        }
+
+        void ReleaseGrabs()
+        {
+            var left = m_Left.target;
+            var right = m_Right.target;
+            m_Left = m_Right = default;
+            if (m_Hover) m_Hover.SetHighlight(false);
+            m_Hover = null;
+            if (!spawner) return;
+            if (left) spawner.Reanchor(left);
+            if (right && right != left) spawner.Reanchor(right);
+        }
+
         void HandleHand(HandState h, ref Grab g, PlaceableContent otherHandTarget)
         {
             if (h.pinchDown && !g.target)
@@ -74,7 +107,7 @@ namespace ImmerseTheBay.Content
                     var inv = Quaternion.Inverse(h.palmRotation);
                     g.posOffset = inv * (t.transform.position - h.pinchPoint);
                     g.rotOffset = inv * t.transform.rotation;
-                    if (t.transform.parent) t.transform.SetParent(null, true); // detach from old anchor while moving
+                    t.DetachForManipulation();
                     if (t == otherHandTarget) BeginTwoHand(t);
                 }
             }
