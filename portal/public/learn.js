@@ -13,6 +13,7 @@ let sdkPromise, reactor, sessionId, model, sharedSession, hub, hubRetry, recogni
 let lesson, catalog = [], beat = 0, busy = false, active = false, finished = false, preview = false;
 let closing = false, epoch = 0, apiAbort, photoFile, photoCaption = '', previewUrl, imageRef;
 let lastSdkError = null, lastPromptAt = 0, latestDecision = null;
+let availableResolutions = [], webResolution = 'native';
 let mediaStream = new MediaStream();
 
 if (token) $('homeLink').href = `/?portal_token=${encodeURIComponent(token)}`;
@@ -20,12 +21,14 @@ if (token) $('homeLink').href = `/?portal_token=${encodeURIComponent(token)}`;
 function notify(text, error = false) { $('notice').textContent = text; $('notice').classList.toggle('error', error); }
 function refresh() {
   $('begin').disabled = busy || active || !lesson || !photoFile;
+  $('begin').textContent = $('previewOnly').checked ? 'Start practice' : 'Start live lesson';
   $('leave').disabled = !active && !busy && !reactor;
   for (const id of ['lesson', 'sample', 'photo', 'model', 'sessionId', 'previewOnly']) $(id).disabled = busy || active;
   $('useShared').disabled = busy || active || !sharedSession;
   for (const id of ['pinch', 'longPinch', 'point', 'sendContext']) $(id).disabled = !active || busy || finished;
   $('speak').disabled = !active || busy || finished || !SpeechRecognition || !!recognition;
   $('stopSpeech').disabled = !recognition;
+  $('stopSpeech').hidden = !recognition;
   $('sound').disabled = !reactor;
   $('sessionInfo').textContent = sessionId ? `${preview ? 'Practice' : model} · ${sessionId}` : sharedSession ? `Shared session available: ${sharedSession.sessionId}` : '';
 }
@@ -53,7 +56,7 @@ function connectHub() {
     // Learning messages are display-only: never execute the same decisions twice.
     if (msg.type === 'learn' && msg.sessionId === sessionId && msg.from === 'unity') {
       if (Number.isInteger(msg.beat)) beat = msg.beat;
-      finished = msg.advance === 'scene_done'; renderDecision(msg);
+      finished = msg.advance === 'scene_done'; renderDecision(msg, Boolean(msg.transcript));
     }
     // The owning web client can execute commands relayed by Unity's ViskoSession.
     if (msg.type === 'command' && msg.from === 'unity' && reactor && (!msg.sessionId || msg.sessionId === sessionId)) {
@@ -84,7 +87,7 @@ async function chooseLesson() {
 function setPhoto(file, caption) {
   photoFile = file; photoCaption = caption;
   if (previewUrl) URL.revokeObjectURL(previewUrl);
-  previewUrl = URL.createObjectURL(file); $('photoPreview').src = previewUrl;
+  previewUrl = URL.createObjectURL(file); $('photoPreview').src = previewUrl; $('sceneFocus').src = previewUrl; $('sceneFocus').hidden = false;
   $('photoPreview').hidden = false; $('scenePlaceholder').hidden = true;
   refresh();
 }
@@ -133,14 +136,17 @@ async function connectReactor(targetModel, joinId, run) {
     if (client !== reactor || run !== epoch) { track.stop(); return; }
     for (const previous of mediaStream.getTracks().filter((t) => t.kind === track.kind)) { mediaStream.removeTrack(previous); previous.stop(); }
     mediaStream.addTrack(track); $('video').srcObject = mediaStream;
-    if (track.kind === 'video') { $('photoPreview').hidden = true; $('scenePlaceholder').hidden = true; }
+    if (track.kind === 'video') { $('photoPreview').hidden = false; $('sceneFocus').hidden = true; $('scenePlaceholder').hidden = true; }
     void $('video').play().catch(() => notify('Press Unmute scene to enable playback.'));
   });
   client.on('message', (msg) => {
     if (client !== reactor || run !== epoch) return;
-    if (msg.type === 'chunk_complete') $('sceneStatus').textContent = `Live · scene chunk ${msg.data?.chunk_index ?? ''}`;
+    if (msg.type === 'chunk_complete') $('sceneStatus').textContent = `Live · ${webResolution} · chunk ${msg.data?.chunk_index ?? ''}`;
     if (msg.type === 'command_error') { lastSdkError = new Error(msg.data?.reason || 'Scene command rejected'); notify(lastSdkError.message, true); }
-    if (msg.type === 'state') hubSend({ type: 'state', sessionId, data: msg.data });
+    if (msg.type === 'state') {
+      if (Array.isArray(msg.data?.available_resolutions)) availableResolutions = msg.data.available_resolutions;
+      hubSend({ type: 'state', sessionId, data: msg.data });
+    }
   });
   try { await client.connect(credentials.jwt, joinId ? { sessionId: joinId } : undefined); assertCurrent(run); }
   catch (error) { if (reactor === client) reactor = null; await client.disconnect().catch(() => {}); throw error; }
@@ -151,7 +157,7 @@ async function connectReactor(targetModel, joinId, run) {
 }
 async function begin() {
   if (busy || active || !lesson || !photoFile) return;
-  busy = true; finished = false; preview = $('previewOnly').checked; beat = 0; imageRef = null; latestDecision = null; lastPromptAt = 0;
+  busy = true; finished = false; preview = $('previewOnly').checked; beat = 0; imageRef = null; latestDecision = null; lastPromptAt = 0; availableResolutions = []; webResolution = 'native';
   const run = ++epoch; apiAbort = new AbortController(); refresh(); notify('Preparing your scene…');
   try {
     const photo = await preparePhoto(photoFile); assertCurrent(run);
@@ -179,7 +185,7 @@ async function begin() {
       await command('set_image', { image: ref }, client); assertCurrent(run);
       imageRef = { id: ref.uploadId, caption: photoCaption };
     }
-    active = true; busy = false; refresh();
+    active = true; busy = false; setSetupOpen(false); refresh();
     if (!await turn({}, run)) throw new Error('The lesson guide could not start. Please try again.');
   } catch (error) {
     if (run === epoch) { await leave(); notify(error.name === 'AbortError' ? 'Lesson cancelled.' : `Could not start: ${error.message}`, error.name !== 'AbortError'); }
@@ -193,8 +199,22 @@ function contextSnapshot(gesture = null) {
     rms: Number($('rms').value), glassesKey: null,
   };
 }
+async function setWebResolution() {
+  // Web may use 1080p when offered by Reactor; glasses keep their native policy.
+  let resolution = availableResolutions.length && !availableResolutions.includes('native') && availableResolutions.includes('1080p') ? '1080p' : webResolution;
+  try { await command('set_resolution', { resolution }); }
+  catch (error) {
+    const reason = String(error.message || error);
+    const advertisedFallback = /1080p/.test(reason) && /resolution/i.test(reason) && /not available|not supported|not offered|unsupported|invalid|available|offered/i.test(reason);
+    if (resolution !== 'native' || !advertisedFallback) throw error;
+    resolution = '1080p'; await command('set_resolution', { resolution });
+  }
+  webResolution = resolution; $('sceneStatus').textContent = `Live · ${webResolution}`;
+  return { name: 'set_resolution', data: { resolution } };
+}
 async function executeDecision(decision, run) {
-  if (preview) return;
+  if (preview) return [];
+  const executed = [];
   const allowed = new Set(['set_prompt', 'set_audio_prompt', 'set_resolution', 'start', 'pause', 'resume', 'reset']);
   for (const item of decision.visko) {
     assertCurrent(run);
@@ -204,17 +224,19 @@ async function executeDecision(decision, run) {
       if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
       assertCurrent(run); lastPromptAt = Date.now();
     }
-    if (item.name === 'start') await command('set_resolution', { resolution: 'native' });
-    await command(item.name, item.name === 'set_resolution' ? { resolution: 'native' } : item.data || {});
+    if (item.name === 'set_resolution') { executed.push(await setWebResolution()); continue; }
+    if (item.name === 'start') executed.push(await setWebResolution());
+    await command(item.name, item.data || {}); executed.push({ name: item.name, data: item.data || {} });
   }
+  return executed;
 }
-function renderDecision(decision) {
+function renderDecision(decision, hasSpeech = false) {
   const overlay = decision.overlay;
   for (const field of ['jp', 'kana', 'romaji', 'zh', 'en']) $(field).textContent = overlay?.[field] || '';
   if (!overlay && decision.advance === 'scene_done') { $('jp').textContent = 'お疲れさまでした。'; $('en').textContent = 'Scene complete. Leave the session when you are ready.'; }
   $('hintLevel').hidden = !overlay?.hintLevel;
   $('hintLevel').textContent = overlay?.hintLevel ? `HINT ${overlay.hintLevel}` : '';
-  $('feedback').textContent = decision.feedback ? `${decision.feedback.score}/100 · ${(decision.feedback.notes || []).join(' ')}` : '';
+  $('feedback').textContent = decision.feedback ? `${hasSpeech ? `${decision.feedback.score}/100 · ` : ''}${(decision.feedback.notes || []).join(' ')}` : '';
   const total = lesson?.beats.reduce((n, b) => n + b.lines.length, 0) || 0;
   $('progress').textContent = decision.advance === 'scene_done' ? 'SCENE COMPLETE' : `LINE ${Math.min(beat + 1, total)} / ${total}`;
 }
@@ -226,15 +248,17 @@ async function turn({ gesture = null, transcript } = {}, run = epoch) {
   try {
     const decision = await api('/api/agent/turn', request, apiAbort.signal); assertCurrent(run);
     if (!Array.isArray(decision.visko) || !['stay', 'next_line', 'scene_done'].includes(decision.advance)) throw new Error('The lesson guide returned an invalid decision.');
-    try { await executeDecision(decision, run); assertCurrent(run); }
+    let executed;
+    try { executed = await executeDecision(decision, run); assertCurrent(run); }
     catch (error) {
       if (run === epoch) { await leave(); notify(`Scene command failed: ${error.message}. Begin again to restart safely.`, true); }
       return false;
     }
     if (decision.advance === 'next_line') beat++;
     finished = decision.advance === 'scene_done'; latestDecision = decision;
-    renderDecision(decision); $('decision').textContent = JSON.stringify({ request, response: decision }, null, 2);
-    hubSend({ type: 'learn', sessionId, lessonId: lesson.id, beat, context, ...(transcript ? { transcript } : {}), ...decision });
+    const execution = { mode: preview ? 'practice' : 'live', resolution: preview ? null : webResolution, visko: executed };
+    renderDecision(decision, Boolean(transcript)); $('decision').textContent = JSON.stringify({ request, response: decision, execution }, null, 2);
+    hubSend({ type: 'learn', sessionId, lessonId: lesson.id, beat, context, ...(transcript ? { transcript } : {}), ...decision, execution });
     notify(finished ? (preview ? 'Practice complete. Press Leave to start again.' : 'Lesson complete. Press Leave to end the billed session.') : preview ? 'Practice mode: speak a line or try the glasses signals.' : 'Your scene is ready. Speak the Japanese line, or ask for a hint.');
     return true;
   } catch (error) { if (run === epoch && error.name !== 'AbortError') notify(`Turn failed: ${error.message}`, true); return false; }
@@ -270,13 +294,17 @@ async function leave(message = 'You have left the lesson.') {
   if (recognition) { recognition.onend = null; recognition.abort(); recognition = null; }
   if (oldId && !wasPreview) hubSend({ type: 'session_end', sessionId: oldId });
   for (const track of mediaStream.getTracks()) track.stop(); mediaStream = new MediaStream(); $('video').srcObject = null;
-  $('video').muted = true; $('sound').textContent = 'Unmute scene'; $('photoPreview').hidden = !photoFile;
+  $('video').muted = true; $('sound').textContent = 'Unmute scene'; $('photoPreview').hidden = !photoFile; $('sceneFocus').hidden = !photoFile;
   $('sceneStatus').textContent = 'Session ended'; $('speechStatus').textContent = 'Microphone stopped.';
   refresh(); notify(message);
   if (client) {
     try { await client.disconnect(); }
     catch (error) { notify(`Disconnect did not confirm: ${error.message}. Check the Reactor dashboard before leaving.`, true); }
   }
+}
+function setSetupOpen(open) {
+  $('setupPanel').hidden = !open;
+  $('setupToggle').setAttribute('aria-expanded', String(open));
 }
 function unload() {
   if (closing) return; closing = true; clearTimeout(hubRetry);
@@ -291,6 +319,13 @@ $('photo').onchange = () => {
   const file = $('photo').files[0]; if (!file) return;
   if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 10 * 1024 * 1024) { notify('Choose a JPEG, PNG or WebP photo under 10 MB.', true); $('photo').value = ''; return; }
   setPhoto(file, 'Learner-selected start photo; its visual contents have not been captioned.'); $('sample').value = ''; notify('Your photo is ready.');
+};
+$('setupToggle').onclick = () => setSetupOpen($('setupPanel').hidden);
+$('setupClose').onclick = () => { setSetupOpen(false); $('setupToggle').focus(); };
+$('previewOnly').onchange = refresh;
+$('translationToggle').onclick = () => {
+  $('translations').hidden = !$('translations').hidden;
+  $('translationToggle').setAttribute('aria-expanded', String(!$('translations').hidden));
 };
 $('begin').onclick = begin; $('leave').onclick = () => void leave();
 $('speak').onclick = startSpeech; $('stopSpeech').onclick = stopSpeech;
