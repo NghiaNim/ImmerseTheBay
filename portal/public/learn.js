@@ -188,15 +188,7 @@ async function begin() {
     } else {
       const joinId = $('sessionId').value.trim();
       const requestedModel = MODELS[$('model').value];
-      let client;
-      try { client = await connectReactor(requestedModel, joinId, run); }
-      catch (error) {
-        assertCurrent(run);
-        if (!joinId && requestedModel === MODELS.dynamic && /429|capacity/i.test(error.message)) {
-          notify('Dynamic is at capacity. Connecting to Stable…'); $('model').value = 'stable';
-          client = await connectReactor(MODELS.stable, '', run);
-        } else throw error;
-      }
+      const client = await connectReactor(requestedModel, joinId, run);
       assertCurrent(run);
       // Joining for a new lesson explicitly resets the model before applying its start photo.
       if (joinId) await command('reset', {}, client);
