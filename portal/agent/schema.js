@@ -3,6 +3,7 @@ const text = { type: 'string' };
 const object = (properties, required = Object.keys(properties)) => ({ type: 'object', properties, required, additionalProperties: false });
 export const PLAN_SCHEMA = object({ label: text, returnBeat: { type: 'number' }, nodes: { type: 'array', items: object({ jp: text, kana: text, romaji: text, zh: text, en: text, cue: text }) } });
 export const RESPONSE_SCHEMA = object({
+  speech: { anyOf: [{ type: 'null' }, object({ role: { type: 'string', enum: ['clerk'] }, text, language: { type: 'string', enum: ['ja'] } })] },
   visko: { type: 'array', items: { anyOf: [
     object({ name: { type: 'string', enum: ['set_prompt', 'set_audio_prompt'] }, data: object({ prompt: text }) }),
     object({ name: { type: 'string', enum: ['set_resolution'] }, data: object({ resolution: text }) }),

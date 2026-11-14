@@ -1,5 +1,6 @@
 import { connectWithCapacityRetry } from './dynamic-retry.js';
 import { installScenePoint } from './scene-point.js';
+import { createLessonSpeech } from './lesson-speech.js';
 // SDK 3.4.0 signatures verified against its published declarations and Reactor's
 // reactor-class / Visko stable schema docs. sendCommand reports errors via replies/events.
 const $ = (id) => document.getElementById(id);
@@ -21,6 +22,18 @@ let nextAllowedConnectAt = 0, lastRateLimitReason = 'rate_limit';
 let runtimeEvents = [], runtimeState = emptyRuntimeState();
 let mediaStream = new MediaStream();
 let recording = null, micStarting = false, transcribing = false, speechAttempt = 0;
+let clerkSpeech = null;
+const lessonSpeech = createLessonSpeech({
+  video: $('video'), headers: authHeaders,
+  isMicrophoneActive: () => !!recognition || !!recording || micStarting || transcribing,
+  onState: ({ state, role, message }) => {
+    const label = role === 'clerk' ? '店员' : 'Your line';
+    $('ttsStatus').textContent = state === 'loading' ? `${label} · preparing audio…`
+      : state === 'playing' ? `${label} · speaking…`
+      : state === 'error' ? `${label} · ${message} ${role === 'clerk' ? 'Press 店员重播 to retry.' : 'Press Listen to retry.'}` : '';
+    $('ttsStatus').classList.toggle('error', state === 'error');
+  },
+});
 
 if (token) $('homeLink').href = `/?portal_token=${encodeURIComponent(token)}`;
 
@@ -51,6 +64,8 @@ function refresh() {
   $('stopSpeech').hidden = !recognition && !recording && !micStarting;
   $('speechMode').disabled = busy || speechInUse; $('intentLanguage').disabled = speechInUse; $('speechEngine').disabled = speechInUse;
   $('speak').textContent = $('speechMode').value === 'intent' ? 'Tell guide' : 'Speak Japanese';
+  $('listen').disabled = !active || busy || finished || speechInUse || !latestDecision?.overlay?.jp;
+  $('clerkReplay').disabled = !active || busy || speechInUse || !clerkSpeech;
   $('sound').disabled = !reactor;
   $('sessionInfo').textContent = sessionId ? `${preview ? 'Practice' : model} · ${sessionId}` : sharedSession ? `Shared session available: ${sharedSession.sessionId}` : '';
 }
@@ -100,6 +115,7 @@ async function loadCatalog() {
   } catch (error) { notify(`Could not load lessons: ${error.message}`, true); }
 }
 async function chooseLesson() {
+  lessonSpeech.cancel(); clerkSpeech = null; $('clerkCaption').hidden = true; $('clerkReplay').hidden = true;
   busy = true; refresh();
   try {
     lesson = await api(`/api/agent/lessons/${encodeURIComponent($('lesson').value)}`);
@@ -309,6 +325,10 @@ async function executeDecision(decision, run) {
   return executed;
 }
 function renderDecision(decision, hasSpeech = false) {
+  clerkSpeech = decision.speech?.role === 'clerk' && decision.speech.language === 'ja' && typeof decision.speech.text === 'string' && decision.speech.text.trim()
+    ? { text: decision.speech.text, language: 'ja', role: 'clerk' } : null;
+  $('clerkCaption').textContent = clerkSpeech ? `店员 · ${clerkSpeech.text}` : '';
+  $('clerkCaption').hidden = !clerkSpeech; $('clerkReplay').hidden = !clerkSpeech;
   const overlay = decision.overlay;
   for (const field of ['jp', 'kana', 'romaji', 'zh', 'en']) $(field).textContent = overlay?.[field] || '';
   if (!overlay && decision.advance === 'scene_done') { $('jp').textContent = 'お疲れさまでした。'; $('en').textContent = 'Scene complete. Leave the session when you are ready.'; }
@@ -326,6 +346,7 @@ function renderDecision(decision, hasSpeech = false) {
 }
 async function turn({ gesture = null, transcript, intent } = {}, run = epoch) {
   if (!active || busy || finished) return;
+  lessonSpeech.cancel();
   busy = true; refresh();
   const context = contextSnapshot(gesture);
   const request = { sessionId, lessonId: lesson.id, beat, imageRef, context, ...(transcript ? { transcript } : {}), ...(intent ? { intent } : {}) };
@@ -344,6 +365,7 @@ async function turn({ gesture = null, transcript, intent } = {}, run = epoch) {
     renderDecision(decision, Boolean(transcript)); $('decision').textContent = JSON.stringify({ request, response: decision, execution }, null, 2);
     hubSend({ type: 'learn', sessionId, lessonId: lesson.id, beat, context, ...(transcript ? { transcript } : {}), ...(intent ? { intent } : {}), ...decision, execution });
     notify(finished ? (preview ? 'Practice complete. Press Leave to start again.' : 'Lesson complete. Press Leave to end the billed session.') : preview ? 'Practice mode: speak a line or try the glasses signals.' : 'Your scene is ready. Speak the Japanese line, or ask for a hint.');
+    if (clerkSpeech) void lessonSpeech.play(clerkSpeech);
     return true;
   } catch (error) { if (run === epoch && error.name !== 'AbortError') notify(`Turn failed: ${error.message}`, true); return false; }
   finally { if (run === epoch) { busy = false; refresh(); } }
@@ -464,10 +486,12 @@ function startBrowserSpeech() {
 }
 function startSpeech() {
   if (recognition || recording || micStarting || transcribing || busy || !active || finished) return;
+  lessonSpeech.cancel();
   if ($('speechEngine').value === 'browser') startBrowserSpeech(); else void startRecording();
 }
 async function leave(message = 'You have left the lesson.') {
-  scenePoint.clear();
+  scenePoint.clear(); lessonSpeech.cancel(); clerkSpeech = null;
+  $('clerkCaption').hidden = true; $('clerkReplay').hidden = true;
   ++epoch; apiAbort?.abort(); $('retryStatus').hidden = true; const client = reactor, oldId = sessionId, wasPreview = preview;
   reactor = null; active = false; busy = false; sessionId = null; finished = false; latestDecision = null;
   cancelSpeech();
@@ -512,6 +536,8 @@ $('translationToggle').onclick = () => {
   $('translationToggle').setAttribute('aria-expanded', String(!$('translations').hidden));
 };
 $('begin').onclick = begin; $('leave').onclick = () => void leave();
+$('listen').onclick = () => { if (!$('listen').disabled) void lessonSpeech.play({ text: latestDecision.overlay.jp, language: 'ja', role: 'learner' }); };
+$('clerkReplay').onclick = () => { if (!$('clerkReplay').disabled && clerkSpeech) void lessonSpeech.play(clerkSpeech); };
 $('speak').onclick = startSpeech; $('stopSpeech').onclick = stopSpeech;
 $('pinch').onclick = () => void turn({ gesture: 'pinch' });
 $('longPinch').onclick = () => void turn({ gesture: 'long_pinch' });

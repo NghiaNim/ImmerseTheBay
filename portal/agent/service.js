@@ -4,6 +4,8 @@ import path from 'node:path';
 import { AgentError, createLessonStore, flattenLesson } from './lessons.js';
 import { hasBannedTerm, safePrompt, scoreTranscript } from './guardrails.js';
 import { validateSchema } from './schema.js';
+import { clerkSpeech } from './clerk-speech.js';
+import { composeVisualPrompt, composeAmbientPrompt, CHARACTER_ANCHOR } from './continuity.js';
 import { createLessonClient, createLessonPlanner } from './llm.js';
 import { initializeFlow, detectedIntent, scriptedPlan, validatePlan, startDetour, detourTurn, moveMain } from './flow.js';
 const LOG_ROOT = fileURLToPath(new URL('./logs/', import.meta.url));
@@ -68,7 +70,7 @@ function scriptTurn(request, lesson, state) {
   if (c.rms !== undefined && c.rms < 0.01 && !transcript) notes.push('Speak when ready, or hold a pinch for a hint.');
   let prompt = first ? lesson.scenePrompt : target.line.cue;
   if (!first && point && vocab) prompt = `The camera moves closer to the ${vocab.objectHint}.`;
-  else if (!first && nearby) prompt = `${target.line.cue} The ${nearby.objectHint} stays in view.`;
+  else if (!first && nearby) prompt = `${target.line.cue.replace(/[.!?。！？]+$/u, '')}, while the ${nearby.objectHint} stays in view.`;
   if (first && plain(request.imageRef) && request.imageRef.caption && !hasBannedTerm(request.imageRef.caption)) notes.push('The selected image anchors the opening scene.');
   prompt = safePrompt(prompt, NEUTRAL_PROMPT);
   const visko = done ? [{ name: 'pause', data: {} }] : [{ name: 'set_prompt', data: { prompt } }];
@@ -112,6 +114,23 @@ export function createAgentService({ store = createLessonStore(), llm = createLe
       if (request.beat !== state.flow.mainBeat) throw new AgentError(409, 'beat must match the saved main checkpoint');
       if (state.complete) throw new AgentError(409, 'Lesson complete; reset before starting another run');
       const mainTarget = lines[state.flow.mainBeat];
+      const suppliedReference = typeof request.imageRef === 'string' ? request.imageRef : request.imageRef?.id;
+      if (state.sceneContext && suppliedReference && suppliedReference !== state.sceneContext.referenceId) {
+        throw new AgentError(409, 'Starting image changed; reset the lesson before using a new reference');
+      }
+      if (!state.sceneContext) {
+        state.sceneContext = {
+          version: 1, runId: state.flow.runId,
+          referenceId: suppliedReference || lesson.startImage || '',
+          characterId: `${state.flow.runId}:cast`, identityAnchor: CHARACTER_ANCHOR,
+          sceneAnchor: safePrompt(lesson.scenePrompt, NEUTRAL_PROMPT),
+          mainCheckpoint: { beat: state.flow.mainBeat, goal: mainTarget.beat.goal }, recentActions: [],
+        };
+        state.referenceCaption = plain(request.imageRef) ? request.imageRef.caption || '' : '';
+      }
+      state.sceneContext.mainCheckpoint = { beat: state.flow.mainBeat, goal: mainTarget.beat.goal };
+
+      const previousNodeId = state.flow.current.nodeId;
       const activeTarget = state.flow.active?.nodes[state.flow.active.index] || mainTarget.line;
       const intent = detectedIntent(request, activeTarget);
       let entered = false;
@@ -127,7 +146,7 @@ export function createAgentService({ store = createLessonStore(), llm = createLe
           // planned by Claude. The LLM never controls the saved return checkpoint.
           if (!plan && planner) {
             try {
-              plan = validatePlan(await planner({ lesson, current: mainTarget, intent, returnBeat: state.flow.mainBeat, context: request.context }), state.flow.mainBeat);
+              plan = validatePlan(await planner({ lesson, current: mainTarget, intent, returnBeat: state.flow.mainBeat, context: request.context, sceneContext: structuredClone(state.sceneContext) }), state.flow.mainBeat);
               source = 'llm-detour';
             } catch { failure = 'Detour planner unavailable or unsafe response'; }
           }
@@ -157,14 +176,26 @@ export function createAgentService({ store = createLessonStore(), llm = createLe
         if (intentNote) fallback.feedback = { score: 0, notes: [...(fallback.feedback?.notes || []), intentNote] };
       }
       fallback.route = { ...state.flow.current };
+      const savedTarget = lines[state.flow.mainBeat];
+      state.sceneContext.mainCheckpoint = { beat: state.flow.mainBeat, goal: savedTarget?.beat.goal || 'Lesson complete' };
+      // Completed branch actions must not act as goals on the resumed main line.
+      if (branchTurn && fallback.route.kind === 'rejoin') state.sceneContext.recentActions = [];
       let response = fallback;
       // Gesture-only/context-only navigation uses authored deltas immediately;
       // reserve optional model refinement for opening and actual spoken practice.
       if (llm && !branchTurn && !intent && (!state.started || request.transcript?.trim())) {
         try {
-          response = repairOutput(await llm({ lesson, current, transcript: request.transcript || '', context: request.context, photoCaption: plain(request.imageRef) ? request.imageRef.caption || '' : '', attempts: state.attempts, fallback: structuredClone(fallback) }), fallback);
+          response = repairOutput(await llm({ lesson, current, transcript: request.transcript || '', context: request.context, photoCaption: state.referenceCaption, sceneContext: structuredClone(state.sceneContext), attempts: state.attempts, fallback: structuredClone(fallback) }), fallback);
           source = 'llm';
         } catch (e) { failure = e.message === 'LLM JSON schema mismatch' ? e.message : 'LLM unavailable or invalid response'; }
+      }
+      response.speech = !state.started || previousNodeId !== response.route.nodeId
+        ? clerkSpeech({ first: !state.started, route: response.route, cue: fallback.visko.find((item) => item.name === 'set_prompt')?.data.prompt, store: /konbini|convenience/iu.test(lesson.id + lesson.title) }) : null;
+      for (const command of response.visko) {
+        if (command.name === 'set_audio_prompt') command.data.prompt = composeAmbientPrompt(command.data.prompt);
+        if (command.name !== 'set_prompt') continue;
+        const authored = fallback.visko.find((item) => item.name === 'set_prompt')?.data.prompt;
+        command.data.prompt = composeVisualPrompt(command.data.prompt, authored);
       }
       if (!validateSchema(response)) throw new Error('Internal response validation failed');
       if (response.visko.some((v) => v.name === 'set_prompt')) {
@@ -173,6 +204,12 @@ export function createAgentService({ store = createLessonStore(), llm = createLe
         session.lastPrompt = now();
       }
       await log({ at: new Date(now()).toISOString(), sessionId: request.sessionId, lessonId: request.lessonId, beat: request.beat, transcript: request.transcript || '', intent: intent || null, context: request.context, photoCaption: plain(request.imageRef) ? request.imageRef.caption || '' : '', source, failure, route: response.route, graph: { nodes: state.flow.nodes, edges: state.flow.edges }, response });
+      const visual = response.visko.find((command) => command.name === 'set_prompt');
+      if (visual) {
+        // Issued decisions are not proof of provider acceptance or visual adoption.
+        const recent = state.sceneContext.recentActions.filter((item) => item.nodeId !== response.route.nodeId);
+        state.sceneContext.recentActions = [...recent, { nodeId: response.route.nodeId, action: visual.data.prompt, status: 'issued_unverified' }].slice(-3);
+      }
       state.started = true;
       session.lessons.set(request.lessonId, state);
       session.touched = now();

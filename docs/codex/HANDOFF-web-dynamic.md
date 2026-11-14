@@ -59,3 +59,9 @@ Pointer grounding is 2D, not physical hand tracking. Glasses still need calibrat
 - `docs/VISKO.md`: video integration and retry policy.
 
 Do not commit .env, local transcripts/logs, Builds/, or the proprietary XREAL SDK. Old worktrees under ImmerseTheBay-worktrees predate the LFS rewrite; do not merge them again.
+
+## Character continuity/context follow-up (2026-11-14)
+
+See [implementation and verification report](IMPLEMENTATION-character-context.md), tracked in issue #1. Visual prompts now receive final server-owned character and scene anchors; reference/caption are pinned per run. Both model adapters use bounded allowlisted context, with completed branch memory retired before rejoin refinement. All 80 portal tests and syntax checks pass. Real Dynamic transport/progression was exercised; facial identity is a separate acceptance gate and is not guaranteed by prompt text. The report records live findings and reproduction commands.
+
+Cartesia now handles clerk dialogue and learner Listen playback; Visko audio prompts are environmental-only. Haruka is configured in the ignored env and the example contains the public voice ID. Full integrated portal suite: 100/100 passed. See [Cartesia report](IMPLEMENTATION-cartesia.md), issue #2, for actual browser/audio evidence and limitations.
