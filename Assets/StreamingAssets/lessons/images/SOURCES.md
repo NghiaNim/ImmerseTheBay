@@ -1,5 +1,26 @@
 # Start-image sources
 
+## Convenience-store lesson
+
+`ja-konbini-001` uses **`konbini-checkout-original.png`**, an original AI-generated convenience-store checkout illustration. The user explicitly approved this exception to the CC0/public-domain source-photo policy on 2026-11-14. **This is not a photograph and is not claimed to be CC0.**
+
+- Created with the built-in OpenAI image-generation tool for this project; no reference image was supplied.
+- Original generation prompt supplied by the coordinator: “Original brand-free Japanese neighborhood convenience-store checkout, first-person 35mm landscape 16:9, original adult clerk centered, generic plain packages, no logos/readable text/UI, soft daylight and fluorescent lighting, middle 55% clear for FOV.”
+- Dimensions: 1672×941 pixels. The PNG is copied unmodified from the generation output.
+- Intended caption: “Original illustrated convenience-store checkout with an adult clerk, a counter and shelves of plainly packaged food and drinks.” It depicts an invented location, not a verified real store.
+- The creator does not claim this asset came from a public-domain photo library. The original CC0/public-domain requirement continues to apply to downloaded sample photographs.
+
+The home images below remain specific to the optional home lesson and must not serve as shopping-scene fallbacks.
+
+The following CC0 candidates were checked and **not committed** because visible product branding conflicts with the project's unbranded sample-asset requirement:
+
+- [WordPress photo 259678bae9](https://wordpress.org/photos/photo/259678bae9/), Nilo Velez, supermarket dairy aisle. The source page explicitly says CC0; visual inspection of its 1536×1024 JPEG showed prominent packaging logos.
+- [Commons rawpixel image 5957725](https://commons.wikimedia.org/wiki/File:Image-from-rawpixel-id-5957725-original.jpg), a snack aisle, explicitly labeled CC0. The photographer is not named on the file page, and visual inspection showed prominent snack-brand logos throughout the frame.
+
+These are provenance leads, not approved lesson assets. A photo license does not remove separate branding constraints.
+
+## Optional home-visit lesson
+
 Checked 2026-11-14. All three committed files are downloaded photographs; none are generated. The download variants are retained unchanged. These are visual references for an original invented scene, not claims to document a 1970s household.
 
 | Local file | Creator / subject | Source and license evidence | Download variant |
