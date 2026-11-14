@@ -2,7 +2,15 @@
 
 ## Convenience-store lesson
 
-`ja-konbini-001` deliberately has no bundled start image yet. Its default must use text-to-video or a suitable learner-uploaded photo; the home images below are not store images. No AI-generated replacement was created.
+`ja-konbini-001` uses **`konbini-checkout-original.png`**, an original AI-generated convenience-store checkout illustration. The user explicitly approved this exception to the CC0/public-domain source-photo policy on 2026-11-14. **This is not a photograph and is not claimed to be CC0.**
+
+- Created with the built-in OpenAI image-generation tool for this project; no reference image was supplied.
+- Original generation prompt supplied by the coordinator: “Original brand-free Japanese neighborhood convenience-store checkout, first-person 35mm landscape 16:9, original adult clerk centered, generic plain packages, no logos/readable text/UI, soft daylight and fluorescent lighting, middle 55% clear for FOV.”
+- Dimensions: 1672×941 pixels. The PNG is copied unmodified from the generation output.
+- Intended caption: “Original illustrated convenience-store checkout with an adult clerk, a counter and shelves of plainly packaged food and drinks.” It depicts an invented location, not a verified real store.
+- The creator does not claim this asset came from a public-domain photo library. The original CC0/public-domain requirement continues to apply to downloaded sample photographs.
+
+The home images below remain specific to the optional home lesson and must not serve as shopping-scene fallbacks.
 
 The following CC0 candidates were checked and **not committed** because visible product branding conflicts with the project's unbranded sample-asset requirement:
 

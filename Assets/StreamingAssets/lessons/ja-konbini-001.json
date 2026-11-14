@@ -4,7 +4,7 @@
   "level": "N1",
   "scenePrompt": "An adult shop assistant with short dark hair and a plain charcoal apron stands beside a checkout counter in a small Japanese neighborhood convenience store. Neat shelves hold rice balls in simple paper wrappers, plain bottled drinks and everyday groceries beneath warm white ceiling lights, with a glass entrance door visible at the end of the aisle. Original anime-inspired rendering, eye-level medium-wide view, steady camera.",
   "audioPrompt": "A quiet refrigerator hum, soft footsteps on tile, rustling paper wrappers and occasional checkout beeps.",
-  "startImage": "",
+  "startImage": "lessons/images/konbini-checkout-original.png",
   "beats": [
     {
       "goal": "Enter the shop and ask where a quick meal is; practice a considerate request and ことだし in natural speech.",
@@ -27,9 +27,24 @@
         }
       ],
       "vocab": [
-        { "jp": "入口", "kana": "いりぐち", "en": "entrance", "objectHint": "door" },
-        { "jp": "通路", "kana": "つうろ", "en": "aisle", "objectHint": "floor" },
-        { "jp": "商品棚", "kana": "しょうひんだな", "en": "product shelf along the wall", "objectHint": "wall" }
+        {
+          "jp": "入口",
+          "kana": "いりぐち",
+          "en": "entrance",
+          "objectHint": "door"
+        },
+        {
+          "jp": "通路",
+          "kana": "つうろ",
+          "en": "aisle",
+          "objectHint": "floor"
+        },
+        {
+          "jp": "商品棚",
+          "kana": "しょうひんだな",
+          "en": "product shelf along the wall",
+          "objectHint": "wall"
+        }
       ]
     },
     {
@@ -53,9 +68,24 @@
         }
       ],
       "vocab": [
-        { "jp": "おにぎり", "kana": "おにぎり", "en": "rice ball displayed on the counter", "objectHint": "table" },
-        { "jp": "具", "kana": "ぐ", "en": "filling of a displayed food item", "objectHint": "table" },
-        { "jp": "商品棚", "kana": "しょうひんだな", "en": "product shelf along the wall", "objectHint": "wall" }
+        {
+          "jp": "おにぎり",
+          "kana": "おにぎり",
+          "en": "rice ball displayed on the counter",
+          "objectHint": "table"
+        },
+        {
+          "jp": "具",
+          "kana": "ぐ",
+          "en": "filling of a displayed food item",
+          "objectHint": "table"
+        },
+        {
+          "jp": "商品棚",
+          "kana": "しょうひんだな",
+          "en": "product shelf along the wall",
+          "objectHint": "wall"
+        }
       ]
     },
     {
@@ -79,9 +109,24 @@
         }
       ],
       "vocab": [
-        { "jp": "値札", "kana": "ねふだ", "en": "price card beside the items", "objectHint": "table" },
-        { "jp": "税込み", "kana": "ぜいこみ", "en": "tax included, as shown on a price card", "objectHint": "table" },
-        { "jp": "カウンター", "kana": "かうんたー", "en": "checkout counter", "objectHint": "table" }
+        {
+          "jp": "値札",
+          "kana": "ねふだ",
+          "en": "price card beside the items",
+          "objectHint": "table"
+        },
+        {
+          "jp": "税込み",
+          "kana": "ぜいこみ",
+          "en": "tax included, as shown on a price card",
+          "objectHint": "table"
+        },
+        {
+          "jp": "カウンター",
+          "kana": "かうんたー",
+          "en": "checkout counter",
+          "objectHint": "table"
+        }
       ]
     },
     {
@@ -105,9 +150,24 @@
         }
       ],
       "vocab": [
-        { "jp": "レジ", "kana": "れじ", "en": "cash register on the counter", "objectHint": "table" },
-        { "jp": "買い物袋", "kana": "かいものぶくろ", "en": "shopping bag placed on the counter", "objectHint": "table" },
-        { "jp": "決済端末", "kana": "けっさいたんまつ", "en": "payment terminal on the counter", "objectHint": "table" }
+        {
+          "jp": "レジ",
+          "kana": "れじ",
+          "en": "cash register on the counter",
+          "objectHint": "table"
+        },
+        {
+          "jp": "買い物袋",
+          "kana": "かいものぶくろ",
+          "en": "shopping bag placed on the counter",
+          "objectHint": "table"
+        },
+        {
+          "jp": "決済端末",
+          "kana": "けっさいたんまつ",
+          "en": "payment terminal on the counter",
+          "objectHint": "table"
+        }
       ]
     },
     {
@@ -131,9 +191,24 @@
         }
       ],
       "vocab": [
-        { "jp": "レシート", "kana": "れしーと", "en": "receipt handed across the counter", "objectHint": "table" },
-        { "jp": "出口", "kana": "でぐち", "en": "exit", "objectHint": "door" },
-        { "jp": "通路", "kana": "つうろ", "en": "aisle leading to the exit", "objectHint": "floor" }
+        {
+          "jp": "レシート",
+          "kana": "れしーと",
+          "en": "receipt handed across the counter",
+          "objectHint": "table"
+        },
+        {
+          "jp": "出口",
+          "kana": "でぐち",
+          "en": "exit",
+          "objectHint": "door"
+        },
+        {
+          "jp": "通路",
+          "kana": "つうろ",
+          "en": "aisle leading to the exit",
+          "objectHint": "floor"
+        }
       ]
     }
   ]
