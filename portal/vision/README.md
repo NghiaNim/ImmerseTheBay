@@ -24,6 +24,8 @@ app.use(express.json({ limit: '64kb' }));
 
 Both coordinates range from zero to one, with the origin at the image's top-left. Capture the current visible video crop and compute the point in that exact crop. Account for CSS letterboxing/cropping, mirroring and any field-of-view mask before sending; do not normalize against a containing element with different geometry. Resize to about 640 pixels wide before encoding JPEG. A photograph preview may be used for a clearly labeled static-image test, but must not be described as live video recognition.
 
+For small products, the browser sends a region around the selected point: 0.24 of the visible image width by 0.36 of its height, clamped to the image edges, then resized to 640 pixels wide at JPEG quality 0.9. Normalize the point against this region, not the original full frame. If the region in full-frame normalized coordinates is `(rx, ry, rw, rh)`, send `((px-rx)/rw, (py-ry)/rh)` and map returned boxes back with `x=rx+box.x*rw`, `y=ry+box.y*rh`, `width=box.width*rw`, `height=box.height*rh`. Clamping means the point is not always the region's center. The server validates geometry in the submitted crop's coordinate system; a crop does not provide depth or temporal tracking.
+
 The route accepts at most 3 MiB of JSON. The decoded JPEG is limited to 2 MiB, 4096 pixels per dimension and 8 million pixels overall. It accepts data URLs only, so it cannot fetch arbitrary image URLs. Header validation is bounded; the provider validates compressed-image decoding. Other JSON fields, remote URLs, non-JPEG inputs, invalid normalized numbers and unsupported gestures receive HTTP 400; size overflow receives 413.
 
 The service reads `OPENAI_API_KEY` on the server and uses `gpt-6-luna` through Responses with `reasoning.effort: "none"`, image input, strict JSON Schema, a 12-second timeout and `store: false`. Missing configuration returns 503; provider failure returns a sanitized 502/503/504. Frames are neither written to disk nor included in application logs. They are sent to the configured OpenAI API account; `store: false` is not a claim about zero-retention eligibility.
@@ -53,6 +55,8 @@ Requests have a two-second per-caller cooldown, at most two simultaneous provide
 ## Verification and references
 
 Run `node --test vision/*.test.js` from `portal/`. Tests mock the provider and cover coordinate/image limits, low-confidence and off-point rejection, prompt injection boundaries, Responses payload, provider errors, request throttling, HTTP authorization and route-specific body limits. Unit fixtures test JPEG header handling, not full decoding. Live accuracy and actual account model access must be tested separately on representative frames.
+
+Live static-photo check on 2026-11-14: a small refrigerator bottle at full-frame point `(0.359, 0.446)` returned a raw null detection from a 960-pixel-wide full image. The region crop above returned `bottle`, confidence `0.95`, in approximately 1.6 seconds, with the original confidence and geometry gates unchanged. This verifies that one example and the browser-to-service path; it is not a general accuracy measurement or a live moving-video test. Uncertain or unsupported targets must still return no hit.
 
 Official documentation checked 2026-11-14:
 
