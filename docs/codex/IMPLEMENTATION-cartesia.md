@@ -36,3 +36,5 @@ The video keeps its existing mute/unmute control. During Cartesia speech the env
 ### Visual limits observed in the combined run
 
 Frame review still showed an added foreground customer, camera/layout drift and changed visible character/clothing by rejoin despite the negative prompt. Therefore face/camera continuity remains **not passed**, tracked in issue #1. The browser test establishes media playback and lesson progression, not exact adoption of every visual cue. Environmental-only prompts were asserted, but no isolated audio analysis established complete absence of generated voice; no perfect voice suppression or lip-sync claim is made.
+
+A final 46.8-second combined run repeated the five-turn flow with four successful Cartesia responses and explicitly awaited the Leave handler's SDK disconnect before closing Chrome. This strengthens cleanup evidence beyond the earlier disabled-button assertion. Artifacts: `/tmp/il-cartesia-final-cleanup`.
