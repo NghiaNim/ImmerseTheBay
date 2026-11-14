@@ -1,6 +1,7 @@
 // Small schema validator for our closed JSON surface; no runtime package dependency.
 const text = { type: 'string' };
 const object = (properties, required = Object.keys(properties)) => ({ type: 'object', properties, required, additionalProperties: false });
+export const PLAN_SCHEMA = object({ label: text, returnBeat: { type: 'number' }, nodes: { type: 'array', items: object({ jp: text, kana: text, romaji: text, zh: text, en: text, cue: text }) } });
 export const RESPONSE_SCHEMA = object({
   visko: { type: 'array', items: { anyOf: [
     object({ name: { enum: ['set_prompt', 'set_audio_prompt'] }, data: object({ prompt: text }) }),
@@ -10,7 +11,8 @@ export const RESPONSE_SCHEMA = object({
   overlay: { anyOf: [{ type: 'null' }, object({ jp: text, kana: text, romaji: text, zh: text, en: text, hintLevel: { type: 'number' } })] },
   feedback: { anyOf: [{ type: 'null' }, object({ score: { type: 'number' }, notes: { type: 'array', items: text } })] },
   advance: { enum: ['stay', 'next_line', 'scene_done'] },
-});
+  route: object({ kind: { enum: ['main', 'detour', 'rejoin'] }, nodeId: text, label: text, returnBeat: { type: 'number' }, step: { type: 'number' }, total: { type: 'number' } }),
+}, ['visko', 'overlay', 'feedback', 'advance']);
 export function validateSchema(value, schema = RESPONSE_SCHEMA) {
   if (schema.anyOf) return schema.anyOf.some((s) => validateSchema(value, s));
   if (schema.enum) return schema.enum.includes(value);
