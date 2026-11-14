@@ -30,3 +30,15 @@ crashlytics-build.properties
 Packages/com.xreal.xr.tar.gz
 error.log
 *.log
+
+# Local dev config (LAN IP / portal token) and secrets
+Assets/StreamingAssets/visko.json
+Assets/StreamingAssets/visko.json.meta
+portal/.env
+portal/node_modules/
+
+# Unity transient files
+.utmp/
+Assets/XR/Temp/
+Assets/XR/Temp.meta
+Assets/Resources/PerformanceTestRun*

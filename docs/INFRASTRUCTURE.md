@@ -29,6 +29,7 @@ Target: XREAL Air 2 Ultra (6DoF) + Beam Pro / supported Android phone, Unity 600
 | Image tracking | `Scripts/Tracking/ImageTrackingController.cs` | XREAL has no runtime library: add images (with physical size) to `Assets/Settings/ReferenceImages.asset`; a detected image spawns the content named by the matching `markers[].contentId` in content.json. |
 | Recenter | `Scripts/Tracking/RecenterController.cs` | `XRInputSubsystem.TryRecenter()` (same call XREALUtility wraps). |
 | XREAL-only features | `Scripts/Xreal/XrealFeatures.cs` | Device info, glasses events (wearing, temperature, brightness, volume, buttons, disconnect, errors), runtime switch Hands/Controller and 6DoF/3DoF/0DoF, glasses multi-key double-click = recenter, mesh classification label counts. Menu buttons + editor keys I / T. Anchor remap: M key in `SpatialAnchorController`. |
+| Visko (Reactor) live video | `Scripts/Visko/ViskoSession.cs`, `Plugins/Android/ViskoReactorBridge.kt`, `portal/` | Real-time generated video (dynamic + stable models) in the glasses, synced with the web test portal. API key in `portal/.env`. See [VISKO.md](VISKO.md). |
 | Build | `Editor/BuildScript.cs` | Tools > XREAL > Build APK, or batch `-executeMethod BuildScript.BuildAndroid` -> `Builds/ImmerseTheBay.apk`. |
 
 ### content.json

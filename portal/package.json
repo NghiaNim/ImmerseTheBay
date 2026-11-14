@@ -1,0 +1,20 @@
+{
+  "name": "immersethebay-portal",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Visko (Reactor) quick-test portal + JWT minting + web<->Unity sync hub",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "check": "node --check server.js && node --check public/app.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^4.21.2",
+    "ws": "^8.18.0"
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "portalUrl": "http://YOUR_MAC_LAN_IP:8790",
+  "portalToken": "",
+  "model": "dynamic",
+  "autoJoin": true,
+  "defaultPrompt": "A slow aerial shot over the Golden Gate Bridge at sunrise, fog rolling under the deck, cinematic."
+}

@@ -14,7 +14,7 @@ using UnityEngine.XR.Management;
 [InitializeOnLoad]
 public static class XrealProjectSetup
 {
-    const string DoneKey = "ImmerseTheBay.XrealSetupDone.v3";
+    const string DoneKey = "ImmerseTheBay.XrealSetupDone.v5";
 
     static XrealProjectSetup()
     {
@@ -37,6 +37,7 @@ public static class XrealProjectSetup
         PlayerSettings.Android.minSdkVersion = AndroidSdkVersions.AndroidApiLevel29; // Android 10+
         PlayerSettings.Android.targetSdkVersion = AndroidSdkVersions.AndroidApiLevelAuto;
         PlayerSettings.Android.forceInternetPermission = true;
+        PlayerSettings.insecureHttpOption = InsecureHttpOption.AlwaysAllowed; // dev: http/ws to the portal on the LAN
         PlayerSettings.SetUseDefaultGraphicsAPIs(BuildTarget.Android, false);
         PlayerSettings.SetGraphicsAPIs(BuildTarget.Android, new[] { GraphicsDeviceType.OpenGLES3 });
         PlayerSettings.defaultInterfaceOrientation = UIOrientation.Portrait; // per XREAL docs (phone/Beam Pro screen is the controller)
@@ -50,6 +51,7 @@ public static class XrealProjectSetup
         SetActiveInputHandler(2); // 2 = Both (old Input Manager + Input System)
         EnsureUrpAsset();
         EnableXrealLoader();
+        SetGradlePropertiesTemplate();
 
         EditorPrefs.SetBool(DoneKey + "." + Application.dataPath, true);
         AssetDatabase.SaveAssets();
@@ -81,7 +83,38 @@ public static class XrealProjectSetup
         settings.InitManagerOnStart = true;
         bool ok = XRPackageMetadataStore.AssignLoader(settings.Manager, loader, BuildTargetGroup.Android);
         EditorUtility.SetDirty(perTarget);
+        EnsureXrealSettings();
         Debug.Log($"[ImmerseTheBay] XREAL loader for Android: {(ok ? "enabled" : "already enabled or failed")}");
+    }
+
+    /// <summary>
+    /// XREAL's build processor reads its settings through EditorBuildSettings; an unregistered asset makes it throw a
+    /// NullReferenceException. Also sets the input source to Hands (the SDK default is Controller).
+    /// </summary>
+    static void EnsureXrealSettings()
+    {
+        const string key = Unity.XR.XREAL.XREALSettings.k_SettingsKey;
+        const string path = "Assets/XR/Settings/XREALSettings.asset";
+        var xs = AssetDatabase.LoadAssetAtPath<Unity.XR.XREAL.XREALSettings>(path);
+        if (!xs)
+        {
+            Directory.CreateDirectory("Assets/XR/Settings");
+            xs = ScriptableObject.CreateInstance<Unity.XR.XREAL.XREALSettings>();
+            AssetDatabase.CreateAsset(xs, path);
+        }
+        xs.InitialTrackingType = Unity.XR.XREAL.TrackingType.MODE_6DOF;
+        xs.InitialInputSource = Unity.XR.XREAL.InputSource.Hands;
+        EditorUtility.SetDirty(xs);
+        EditorBuildSettings.AddConfigObject(key, xs, true);
+    }
+
+    static void SetGradlePropertiesTemplate()
+    {
+        var assets = AssetDatabase.LoadAllAssetsAtPath("ProjectSettings/ProjectSettings.asset");
+        if (assets.Length == 0) return;
+        var so = new SerializedObject(assets[0]);
+        var prop = so.FindProperty("useCustomGradlePropertiesTemplate");
+        if (prop != null && !prop.boolValue) { prop.boolValue = true; so.ApplyModifiedProperties(); }
     }
 
     static void SetActiveInputHandler(int value)

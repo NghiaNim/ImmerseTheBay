@@ -139,6 +139,17 @@ public static class SensorDebugSceneBuilder
         menu.xreal = xreal;
         imageMgr.referenceLibrary = EnsureReferenceImageLibrary();
 
+        // --- Visko (Reactor) live video screen, synced with the web portal (portal/)
+        var viskoScreen = GameObject.CreatePrimitive(PrimitiveType.Quad);
+        viskoScreen.name = "Visko Screen";
+        Object.DestroyImmediate(viskoScreen.GetComponent<Collider>());
+        viskoScreen.transform.position = new Vector3(0, 0.15f, 2.6f);
+        viskoScreen.transform.localScale = new Vector3(1.6f, 0.9f, 1);
+        viskoScreen.GetComponent<MeshRenderer>().sharedMaterial = AssetDatabase.LoadAssetAtPath<Material>($"{MatDir}/StereoScreen.mat");
+        var visko = new GameObject("Visko Session").AddComponent<ImmerseTheBay.Visko.ViskoSession>();
+        visko.screen = viskoScreen.GetComponent<MeshRenderer>();
+        menu.visko = visko;
+
         IncludeGltfShaders();
 
         EditorSceneManager.SaveScene(scene, ScenePath);

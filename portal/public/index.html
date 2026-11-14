@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Visko Test Portal</title>
+<style>
+  :root { --bg:#0d1117; --panel:#161b22; --line:#30363d; --fg:#e6edf3; --muted:#8b949e; --accent:#2f81f7; --ok:#3fb950; --warn:#d29922; --err:#f85149; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:14px/1.45 system-ui,-apple-system,"PingFang SC",sans-serif; background:var(--bg); color:var(--fg); }
+  header { display:flex; gap:12px; align-items:center; padding:12px 16px; border-bottom:1px solid var(--line); flex-wrap:wrap; }
+  header h1 { font-size:16px; margin:0 8px 0 0; }
+  .pill { padding:2px 8px; border-radius:999px; border:1px solid var(--line); color:var(--muted); font-size:12px; }
+  .pill.ok { color:var(--ok); border-color:var(--ok); } .pill.warn { color:var(--warn); border-color:var(--warn); } .pill.err { color:var(--err); border-color:var(--err); }
+  main { display:grid; grid-template-columns: minmax(0,1fr) 360px; gap:16px; padding:16px; }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+  .video { background:#000; border:1px solid var(--line); border-radius:8px; aspect-ratio:16/9; width:100%; display:block; }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:12px; display:flex; flex-direction:column; gap:10px; }
+  label { color:var(--muted); font-size:12px; display:block; margin-bottom:4px; }
+  select, input, textarea, button { font:inherit; color:var(--fg); background:#0d1117; border:1px solid var(--line); border-radius:6px; padding:6px 8px; width:100%; }
+  textarea { min-height:84px; resize:vertical; }
+  button { cursor:pointer; width:auto; }
+  button.primary { background:var(--accent); border-color:var(--accent); }
+  button:disabled { opacity:.45; cursor:not-allowed; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; }
+  .row > * { flex:1; }
+  .log { font:12px/1.4 ui-monospace,Menlo,monospace; background:#010409; border:1px solid var(--line); border-radius:6px; padding:8px; height:220px; overflow:auto; white-space:pre-wrap; }
+  .kv { font:12px ui-monospace,Menlo,monospace; color:var(--muted); word-break:break-all; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Visko Test Portal</h1>
+  <span id="hubPill" class="pill">sync: offline</span>
+  <span id="unityPill" class="pill">unity: —</span>
+  <span id="rtcPill" class="pill">reactor: disconnected</span>
+  <span id="genPill" class="pill">idle</span>
+</header>
+<main>
+  <section>
+    <video id="video" class="video" autoplay playsinline muted></video>
+    <div class="row" style="margin-top:8px">
+      <button id="unmute">Unmute</button>
+      <span class="kv" id="sessionInfo">no session</span>
+    </div>
+    <div class="log" id="log" style="margin-top:8px"></div>
+  </section>
+  <aside class="panel">
+    <div>
+      <label for="model">Model</label>
+      <select id="model">
+        <option value="dynamic">visko-orbis-dynamic</option>
+        <option value="stable">visko-orbis-stable</option>
+      </select>
+    </div>
+    <div class="row">
+      <button id="create" class="primary">New session</button>
+      <button id="join" disabled>Join Unity session</button>
+      <button id="leave" disabled>Leave</button>
+    </div>
+    <div>
+      <label for="prompt">Prompt</label>
+      <textarea id="prompt">A slow aerial shot over the Golden Gate Bridge at sunrise, fog rolling under the deck, cinematic.</textarea>
+    </div>
+    <div class="row">
+      <button id="setPrompt">Set prompt</button>
+      <button id="start" class="primary">Start</button>
+    </div>
+    <div class="row">
+      <button id="pause">Pause</button>
+      <button id="resume">Resume</button>
+      <button id="reset">Reset</button>
+    </div>
+    <div>
+      <label for="audioPrompt">Audio prompt (empty = sound from picture)</label>
+      <input id="audioPrompt" placeholder="e.g. wind and distant seagulls">
+    </div>
+    <div class="row">
+      <div><label for="resolution">Resolution (next start)</label><select id="resolution"><option value="">(default)</option></select></div>
+      <div><label for="seed">Seed</label><input id="seed" type="number" min="0" value="42"></div>
+    </div>
+    <div class="row">
+      <button id="applySettings">Apply audio / resolution / seed</button>
+    </div>
+    <div>
+      <label><input type="checkbox" id="viaUnity" style="width:auto"> Send commands through Unity (Unity owns the session)</label>
+    </div>
+    <div class="kv" id="stateView">state: —</div>
+  </aside>
+</main>
+<script type="module" src="./app.js"></script>
+</body>
+</html>

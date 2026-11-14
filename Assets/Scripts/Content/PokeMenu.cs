@@ -19,6 +19,7 @@ namespace ImmerseTheBay.Content
         public RecenterController recenter;
         public GameObject hud;
         public ImmerseTheBay.Xreal.XrealFeatures xreal;
+        public ImmerseTheBay.Visko.ViskoSession visko;
 
         [Header("Placement")]
         public float distance = 0.45f;
@@ -41,6 +42,7 @@ namespace ImmerseTheBay.Content
         }
 
         readonly List<Button> m_Buttons = new();
+        bool m_ViskoPaused;
         RectTransform m_Panel;
         Font m_Font;
         float m_LastPress;
@@ -51,6 +53,7 @@ namespace ImmerseTheBay.Content
             if (!spawner) spawner = FindAnyObjectByType<ContentSpawner>();
             if (!recenter) recenter = FindAnyObjectByType<RecenterController>();
             if (!xreal) xreal = FindAnyObjectByType<ImmerseTheBay.Xreal.XrealFeatures>();
+            if (!visko) visko = FindAnyObjectByType<ImmerseTheBay.Visko.ViskoSession>();
             m_Font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
             BuildCanvas();
             var manifest = await ContentLibrary.LoadAsync();
@@ -65,6 +68,12 @@ namespace ImmerseTheBay.Content
             AddButton("Recenter", new Color(0.35f, 0.25f, 0.55f, 0.9f), () => recenter?.Recenter());
             AddButton("Hands / Controller", new Color(0.2f, 0.4f, 0.45f, 0.9f), () => xreal?.SwitchInputSource());
             AddButton("6DoF / 3DoF / 0DoF", new Color(0.2f, 0.4f, 0.45f, 0.9f), () => xreal?.CycleTrackingType());
+            var viskoColor = new Color(0.45f, 0.2f, 0.5f, 0.9f);
+            AddButton("Visko: new session", viskoColor, () => visko?.CreateSession());
+            AddButton("Visko: join portal", viskoColor, () => visko?.JoinPortalSession());
+            AddButton("Visko: start", viskoColor, () => visko?.StartGeneration());
+            AddButton("Visko: pause/resume", viskoColor, () => { if (visko == null) return; if (m_ViskoPaused) visko.Resume(); else visko.Pause(); m_ViskoPaused = !m_ViskoPaused; });
+            AddButton("Visko: leave", viskoColor, () => visko?.Leave());
             AddButton("HUD on/off", new Color(0.3f, 0.3f, 0.3f, 0.9f), () => { if (hud) hud.SetActive(!hud.activeSelf); });
             Layout();
             PlaceInFront();
