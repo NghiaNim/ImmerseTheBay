@@ -42,3 +42,7 @@ portal/node_modules/
 Assets/XR/Temp/
 Assets/XR/Temp.meta
 Assets/Resources/PerformanceTestRun*
+
+# XREAL SDK samples are proprietary: re-import with Tools/XREAL/Import Official Samples
+Assets/Samples/XREAL XR Plugin/
+Assets/Samples/XREAL XR Plugin.meta

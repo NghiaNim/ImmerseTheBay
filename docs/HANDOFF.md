@@ -18,7 +18,11 @@ Batch mode works once the Hub license is active, e.g. `Unity -batchmode -quit -p
 2. Pull, open in Unity Hub with 6000.0.85f2 LTS. Accept "enable new Input System backend / restart" if asked.
 3. The setup script ticks XREAL under XR Plug-in Management > Android automatically. Run Project Validation > Fix All once.
 4. XREAL settings (defaults are fine): Tracking `MODE_6DOF`, Input Source `Hands`, Support Devices includes `XREAL_DEVICE_CATEGORY_REALITY`.
-5. **Tools > XREAL > Create Sensor Debug Scene** (re-run after pulling builder changes), then **Tools > XREAL > Build APK** -> `adb install -r Builds/ImmerseTheBay.apk`.
+5. **Tools > XREAL > Import Official Samples** (XRI Starter Assets + Hands Interaction Demo, XR Hands HandVisualizer, XREAL Interaction Basics + AR Features; XREAL samples are gitignored).
+6. **Tools > XREAL > Create Sensor Debug Scene** (re-run after pulling builder changes), then **Tools > XREAL > Build APK** -> `adb install -r Builds/ImmerseTheBay.apk`.
+
+## Rig
+The scene uses XREAL's official `Packages/com.xreal.xr/Runtime/Prefabs/XR Interaction Hands Setup.prefab` (XRI hands + controller interactors, EventSystem, Input Action Manager, XR Interaction Manager) plus `NotificationListener`. Our AR managers and modules are attached to its XR Origin; `HandInput` sits on its Camera Offset. The builder falls back to a minimal hand-made origin if the prefab is missing.
 
 ## XREAL SDK facts found in source (3.1.0)
 - Anchors: XREAL implements the AR Foundation 6 persistent-anchor API (`TrySaveAnchorAsync`, `TryLoadAnchorAsync`, `TryEraseAnchorAsync`) but does **not** set the descriptor `supports*` flags, so never gate on them. `TryRemap` / `GetAnchorQuality` are XREAL extension methods on `ARAnchorManager`.

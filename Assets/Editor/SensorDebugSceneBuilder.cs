@@ -33,27 +33,22 @@ public static class SensorDebugSceneBuilder
         // --- AR Session
         var session = new GameObject("AR Session", typeof(ARSession), typeof(ARInputManager));
 
-        // --- XR Origin / Camera Offset / Main Camera
-        var originGo = new GameObject("XR Origin", typeof(XROrigin));
-        var origin = originGo.GetComponent<XROrigin>();
-        var offset = new GameObject("Camera Offset");
-        offset.transform.SetParent(originGo.transform, false);
-        var camGo = new GameObject("Main Camera", typeof(Camera), typeof(AudioListener), typeof(TrackedPoseDriver));
-        camGo.tag = "MainCamera";
-        camGo.transform.SetParent(offset.transform, false);
-        var cam = camGo.GetComponent<Camera>();
+        // --- XR rig: XREAL's official "XR Interaction Hands Setup" (XRI hands + controller, poke / near-far / ray,
+        //     EventSystem, Input Action Manager, XR Interaction Manager). Fallback: minimal hand-built origin.
+        var (originGo, origin, offset, cam) = CreateRig();
         cam.clearFlags = CameraClearFlags.SolidColor;   // black = transparent on optical see-through glasses
         cam.backgroundColor = Color.black;
         cam.nearClipPlane = 0.1f;
         cam.fieldOfView = 25f;
-        origin.Camera = cam;
-        origin.CameraFloorOffsetObject = offset;
-        origin.RequestedTrackingOriginMode = XROrigin.TrackingOriginMode.Device;
+
+        // Official system notification popups (battery, temperature, tracking lost, ...)
+        var notif = AssetDatabase.LoadAssetAtPath<GameObject>($"{XrealPrefabs}/NotificationListener.prefab");
+        if (notif) PrefabUtility.InstantiatePrefab(notif);
 
         // --- AR managers (must live on / under the XR Origin)
-        var planes = originGo.AddComponent<ARPlaneManager>();
+        var planes = GetOrAdd<ARPlaneManager>(originGo);
         planes.planePrefab = CreatePlanePrefab();
-        originGo.AddComponent<ARAnchorManager>();
+        GetOrAdd<ARAnchorManager>(originGo);
         originGo.AddComponent<ImmerseTheBay.Anchors.SpatialAnchorController>();
         var meshGo = new GameObject("AR Mesh Manager");
         meshGo.transform.SetParent(originGo.transform, false);
@@ -115,8 +110,8 @@ public static class SensorDebugSceneBuilder
         net.webSocketUrl = "wss://echo.websocket.org"; // public echo server for testing; replace with your own
 
         // --- Hands, content placement (2D video / image / 3D model), image tracking, recenter, poke menu
-        offset.AddComponent<ImmerseTheBay.Tracking.HandInput>();
-        var imageMgr = originGo.AddComponent<ARTrackedImageManager>();
+        GetOrAdd<ImmerseTheBay.Tracking.HandInput>(offset);
+        var imageMgr = GetOrAdd<ARTrackedImageManager>(originGo);
         imageMgr.enabled = false; // ImageTrackingController enables it once its runtime library is built
         collector.imageManager = imageMgr;
 
@@ -158,6 +153,42 @@ public static class SensorDebugSceneBuilder
         list.Insert(0, new EditorBuildSettingsScene(ScenePath, true));
         EditorBuildSettings.scenes = list.ToArray();
         Debug.Log($"[ImmerseTheBay] Created {ScenePath} and set it as the first build scene.");
+    }
+
+    static T GetOrAdd<T>(GameObject go) where T : Component => go.TryGetComponent<T>(out var c) ? c : go.AddComponent<T>();
+
+    const string XrealPrefabs = "Packages/com.xreal.xr/Runtime/Prefabs";
+
+    static (GameObject originGo, XROrigin origin, GameObject offset, Camera cam) CreateRig()
+    {
+        var rigPrefab = AssetDatabase.LoadAssetAtPath<GameObject>($"{XrealPrefabs}/XR Interaction Hands Setup.prefab");
+        if (rigPrefab)
+        {
+            var rig = (GameObject)PrefabUtility.InstantiatePrefab(rigPrefab);
+            var o = rig.GetComponentInChildren<XROrigin>(true);
+            if (o && o.Camera)
+            {
+                o.RequestedTrackingOriginMode = XROrigin.TrackingOriginMode.Device;
+                Debug.Log("[ImmerseTheBay] Using official XREAL rig: XR Interaction Hands Setup");
+                var off = o.CameraFloorOffsetObject ? o.CameraFloorOffsetObject : o.Camera.transform.parent.gameObject;
+                return (o.gameObject, o, off, o.Camera);
+            }
+            Debug.LogWarning("[ImmerseTheBay] Official rig has no XROrigin/Camera; falling back to minimal rig");
+            Object.DestroyImmediate(rig);
+        }
+
+        var originGo = new GameObject("XR Origin", typeof(XROrigin));
+        var origin = originGo.GetComponent<XROrigin>();
+        var offset = new GameObject("Camera Offset");
+        offset.transform.SetParent(originGo.transform, false);
+        var camGo = new GameObject("Main Camera", typeof(Camera), typeof(AudioListener), typeof(TrackedPoseDriver));
+        camGo.tag = "MainCamera";
+        camGo.transform.SetParent(offset.transform, false);
+        var cam = camGo.GetComponent<Camera>();
+        origin.Camera = cam;
+        origin.CameraFloorOffsetObject = offset;
+        origin.RequestedTrackingOriginMode = XROrigin.TrackingOriginMode.Device;
+        return (originGo, origin, offset, cam);
     }
 
     /// <summary>
