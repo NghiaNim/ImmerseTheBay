@@ -1,0 +1,140 @@
+{
+  "id": "ja-home-001",
+  "title": "夕立を待つ茶の間 — An Afternoon at Home",
+  "level": "N1",
+  "scenePrompt": "An adult host with short black hair and a plain indigo cardigan sits beside a low wooden table in a cozy 1970s Tokyo suburban home, looking toward the visitor. Afternoon light falls across tatami, cream plaster walls and wooden sliding doors beneath exposed ceiling beams. Original anime-inspired rendering, eye-level medium-wide shot, static camera.",
+  "audioPrompt": "Soft cicadas outside, an occasional ceramic cup touching wood, and a light breeze rustling paper screens.",
+  "startImage": "lessons/images/tokyo-house-interior.jpg",
+  "beats": [
+    {
+      "goal": "Enter politely and notice how the old room is cared for; practice なり and だけあって in conversation.",
+      "lines": [
+        {
+          "jp": "戸を開けるなり、畳の香りがして、なんだかほっとしました。",
+          "kana": "とをあけるなり、たたみのかおりがして、なんだかほっとしました。",
+          "romaji": "To o akeru nari, tatami no kaori ga shite, nandaka hotto shimashita.",
+          "zh": "一拉开门就闻到了榻榻米的香气，不知怎么就放松下来了。",
+          "en": "As soon as I opened the sliding door, the smell of tatami made me feel at ease.",
+          "cue": "The host slides the wooden door open a little farther."
+        },
+        {
+          "jp": "長年大切に使ってきただけあって、床にも味わいがありますね。",
+          "kana": "ながねんたいせつにつかってきただけあって、ゆかにもあじわいがありますね。",
+          "romaji": "Naganen taisetsu ni tsukatte kita dake atte, yuka ni mo ajiwai ga arimasu ne.",
+          "zh": "不愧是多年精心爱护的家，连地板都很有韵味呢。",
+          "en": "You can tell this home has been cared for over the years; even the floor has character.",
+          "cue": "The host brushes a hand across the worn wooden threshold."
+        }
+      ],
+      "vocab": [
+        { "jp": "引き戸", "kana": "ひきど", "en": "sliding door", "objectHint": "door" },
+        { "jp": "畳", "kana": "たたみ", "en": "tatami mat", "objectHint": "floor" },
+        { "jp": "敷居", "kana": "しきい", "en": "sliding-door threshold", "objectHint": "door" }
+      ]
+    },
+    {
+      "goal": "Accept tea and make space at the table; practice とあって and ことだし without sounding like a written essay.",
+      "lines": [
+        {
+          "jp": "久しぶりにみんなが集まるとあって、母も朝から張り切っていました。",
+          "kana": "ひさしぶりにみんながあつまるとあって、ははもあさからはりきっていました。",
+          "romaji": "Hisashiburi ni minna ga atsumaru to atte, haha mo asa kara harikitte imashita.",
+          "zh": "难得大家久别重聚，妈妈从早上起就干劲十足。",
+          "en": "Since everyone is getting together for the first time in a while, my mother has been busy with excitement all morning.",
+          "cue": "The host places a ceramic teapot on the low table."
+        },
+        {
+          "jp": "お茶も入ったことだし、机の上を少し片付けて、ここに座りましょうか。",
+          "kana": "おちゃもはいったことだし、つくえのうえをすこしかたづけて、ここにすわりましょうか。",
+          "romaji": "Ocha mo haitta koto da shi, tsukue no ue o sukoshi katazukete, koko ni suwarimashou ka.",
+          "zh": "茶也泡好了，我们稍微收拾一下桌面，就坐在这里吧。",
+          "en": "Now that the tea is ready, shall we clear a little space on the table and sit here?",
+          "cue": "The host moves a folded cloth to the edge of the table."
+        }
+      ],
+      "vocab": [
+        { "jp": "ちゃぶ台", "kana": "ちゃぶだい", "en": "low dining table", "objectHint": "table" },
+        { "jp": "湯飲み", "kana": "ゆのみ", "en": "Japanese teacup", "objectHint": "table" },
+        { "jp": "座布団", "kana": "ざぶとん", "en": "floor cushion", "objectHint": "floor" }
+      ]
+    },
+    {
+      "goal": "Discuss a small repair with tact; practice とはいえ and わけにはいかない.",
+      "lines": [
+        {
+          "jp": "古い家とはいえ、この壁のひびは放っておくわけにはいきませんね。",
+          "kana": "ふるいいえとはいえ、このかべのひびはほうっておくわけにはいきませんね。",
+          "romaji": "Furui ie to wa ie, kono kabe no hibi wa houtte oku wake ni wa ikimasen ne.",
+          "zh": "虽说是老房子，这道墙上的裂缝也不能放着不管啊。",
+          "en": "Even if it is an old house, we really cannot leave this crack in the wall as it is.",
+          "cue": "The host points to a fine crack in the plaster wall."
+        },
+        {
+          "jp": "天井まで直すとなると、さすがに私たちだけでは手に負えません。",
+          "kana": "てんじょうまでなおすとなると、さすがにわたしたちだけではてにおえません。",
+          "romaji": "Tenjou made naosu to naru to, sasuga ni watashitachi dake de wa te ni oemasen.",
+          "zh": "如果连天花板也要修，光靠我们实在应付不了。",
+          "en": "If the ceiling needs repairs too, that really is more than we can handle ourselves.",
+          "cue": "The host tilts their head toward the ceiling beams."
+        }
+      ],
+      "vocab": [
+        { "jp": "壁", "kana": "かべ", "en": "wall", "objectHint": "wall" },
+        { "jp": "ひび", "kana": "ひび", "en": "crack", "objectHint": "wall" },
+        { "jp": "天井", "kana": "てんじょう", "en": "ceiling", "objectHint": "ceiling" }
+      ]
+    },
+    {
+      "goal": "React to an approaching shower and offer help; practice かと思ったら and ないことには.",
+      "lines": [
+        {
+          "jp": "急に涼しくなったかと思ったら、庭のほうから雨の音がしてきましたね。",
+          "kana": "きゅうにすずしくなったかとおもったら、にわのほうからあめのおとがしてきましたね。",
+          "romaji": "Kyuu ni suzushiku natta ka to omottara, niwa no hou kara ame no oto ga shite kimashita ne.",
+          "zh": "刚觉得突然凉快下来了，就听见院子那边传来雨声了。",
+          "en": "Just as I noticed it had suddenly cooled down, I started hearing rain from the garden.",
+          "cue": "Raindrops begin pattering on the garden stones beyond the open door."
+        },
+        {
+          "jp": "この戸を閉めないことには、床まで濡れてしまいます。私が閉めますね。",
+          "kana": "このとをしめないことには、ゆかまでぬれてしまいます。わたしがしめますね。",
+          "romaji": "Kono to o shimenai koto ni wa, yuka made nurete shimaimasu. Watashi ga shimemasu ne.",
+          "zh": "不把这扇门关上的话，连地板都会淋湿的。我来关吧。",
+          "en": "Unless we close this door, even the floor will get wet. I will close it.",
+          "cue": "The wooden sliding door slowly closes against the rain."
+        }
+      ],
+      "vocab": [
+        { "jp": "雨戸", "kana": "あまど", "en": "sliding storm shutter", "objectHint": "door" },
+        { "jp": "板の間", "kana": "いたのま", "en": "wooden-floored area", "objectHint": "floor" },
+        { "jp": "敷居", "kana": "しきい", "en": "sliding-door threshold", "objectHint": "door" }
+      ]
+    },
+    {
+      "goal": "Thank the host and arrange another visit; practice ずにはいられない and かたがた in a warm, slightly formal farewell.",
+      "lines": [
+        {
+          "jp": "こうしてお茶を飲んでいると、子どもの頃を思い出さずにはいられません。",
+          "kana": "こうしておちゃをのんでいると、こどものころをおもいださずにはいられません。",
+          "romaji": "Kou shite ocha o nonde iru to, kodomo no koro o omoidasazu ni wa iraremasen.",
+          "zh": "像这样坐着喝茶，就忍不住想起小时候。",
+          "en": "Drinking tea here like this, I cannot help remembering my childhood.",
+          "cue": "The host cups a warm teacup in both hands."
+        },
+        {
+          "jp": "今日はすっかり長居してしまいました。近いうちに、お礼かたがたまた伺います。",
+          "kana": "きょうはすっかりながいしてしまいました。ちかいうちに、おれいかたがたまたうかがいます。",
+          "romaji": "Kyou wa sukkari nagai shite shimaimashita. Chikai uchi ni, orei katagata mata ukagaimasu.",
+          "zh": "今天不知不觉打扰了这么久。过些日子我会再来拜访，也当面表达谢意。",
+          "en": "I have stayed much longer than I meant to today. I will visit again soon and thank you properly then.",
+          "cue": "The host gives a small farewell bow beside the doorway."
+        }
+      ],
+      "vocab": [
+        { "jp": "急須", "kana": "きゅうす", "en": "Japanese teapot", "objectHint": "table" },
+        { "jp": "戸口", "kana": "とぐち", "en": "doorway", "objectHint": "door" },
+        { "jp": "畳", "kana": "たたみ", "en": "tatami mat", "objectHint": "floor" }
+      ]
+    }
+  ]
+}
