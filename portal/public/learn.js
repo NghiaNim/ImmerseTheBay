@@ -15,12 +15,19 @@ let lesson, catalog = [], beat = 0, busy = false, active = false, finished = fal
 let closing = false, epoch = 0, apiAbort, photoFile, photoCaption = '', previewUrl, imageRef;
 let lastSdkError = null, lastPromptAt = 0, latestDecision = null;
 let availableResolutions = [], webResolution = 'native';
-let runtimeEvents = [], runtimeState = { lastChunkIndex: null, activePrompt: null, currentPrompt: null };
+let runtimeEvents = [], runtimeState = emptyRuntimeState();
 let mediaStream = new MediaStream();
 
 if (token) $('homeLink').href = `/?portal_token=${encodeURIComponent(token)}`;
 
+function emptyRuntimeState() {
+  return { lastChunkIndex: null, acceptedPrompt: null, activePrompt: null, currentPrompt: null, hasAppliedPromptTelemetry: false, framesEmitted: null, audioSamples: null, delivered: null };
+}
+function captureAcceptedPrompt(message) {
+  if (message?.type === 'prompt_accepted' && typeof message.data?.prompt === 'string') runtimeState.acceptedPrompt = message.data.prompt.slice(0, 1000);
+}
 function recordRuntime(kind, data = {}) {
+  runtimeState.hasAppliedPromptTelemetry = runtimeState.activePrompt !== null || runtimeState.currentPrompt !== null;
   runtimeEvents.push({ at: new Date().toISOString(), kind, ...data });
   runtimeEvents = runtimeEvents.slice(-16);
   $('runtimeTrace').textContent = JSON.stringify({ model, sessionId, resolution: webResolution, ...runtimeState, events: runtimeEvents }, null, 2);
@@ -145,7 +152,10 @@ async function command(name, data = {}, client = reactor) {
   if (!client) return;
   lastSdkError = null;
   const reply = await client.sendCommand(name, data);
-  if (client === reactor) recordRuntime('command_reply', { name, type: reply?.type || 'ack', ...(reply?.data?.reason ? { reason: String(reply.data.reason).slice(0, 1000) } : {}) });
+  if (client === reactor) {
+    captureAcceptedPrompt(reply);
+    recordRuntime('command_reply', { name, type: reply?.type || 'ack', ...(reply?.data?.reason ? { reason: String(reply.data.reason).slice(0, 1000) } : {}) });
+  }
   if (reply?.type === 'command_error') throw new Error(reply.data?.reason || `${name} was rejected.`);
   if (lastSdkError) throw new Error(lastSdkError.message || String(lastSdkError));
   return reply;
@@ -171,16 +181,20 @@ async function connectReactor(targetModel, joinId, run) {
   });
   client.on('message', (msg) => {
     if (client !== reactor || run !== epoch) return;
+    if (msg.type === 'prompt_accepted') { captureAcceptedPrompt(msg); recordRuntime('prompt_accepted', { acceptedPrompt: runtimeState.acceptedPrompt }); }
     if (msg.type === 'chunk_complete') {
       $('sceneStatus').textContent = `Live · ${webResolution} · chunk ${msg.data?.chunk_index ?? ''}`;
       runtimeState.lastChunkIndex = msg.data?.chunk_index ?? null;
       runtimeState.activePrompt = typeof msg.data?.active_prompt === 'string' ? msg.data.active_prompt.slice(0, 1000) : null;
-      recordRuntime('chunk_complete', { chunkIndex: runtimeState.lastChunkIndex, activePrompt: runtimeState.activePrompt });
+      runtimeState.framesEmitted = Number.isFinite(msg.data?.frames_emitted) ? msg.data.frames_emitted : null;
+      runtimeState.audioSamples = Number.isFinite(msg.data?.audio_samples) ? msg.data.audio_samples : null;
+      runtimeState.delivered = typeof msg.data?.delivered === 'string' ? msg.data.delivered.slice(0, 64) : null;
+      recordRuntime('chunk_complete', { chunkIndex: runtimeState.lastChunkIndex, activePrompt: runtimeState.activePrompt, framesEmitted: runtimeState.framesEmitted, audioSamples: runtimeState.audioSamples, delivered: runtimeState.delivered });
     }
     if (msg.type === 'command_error') { lastSdkError = new Error(msg.data?.reason || 'Scene command rejected'); notify(lastSdkError.message, true); recordRuntime('command_error', { reason: lastSdkError.message.slice(0, 1000) }); }
     if (msg.type === 'state') {
       if (Array.isArray(msg.data?.available_resolutions)) availableResolutions = msg.data.available_resolutions;
-      if (typeof msg.data?.current_prompt === 'string') runtimeState.currentPrompt = msg.data.current_prompt.slice(0, 1000);
+      runtimeState.currentPrompt = typeof msg.data?.current_prompt === 'string' ? msg.data.current_prompt.slice(0, 1000) : null;
       recordRuntime('state', { currentPrompt: runtimeState.currentPrompt, availableResolutions });
       hubSend({ type: 'state', sessionId, data: msg.data });
     }
@@ -195,7 +209,7 @@ async function connectReactor(targetModel, joinId, run) {
 async function begin() {
   if (busy || active || !lesson) return;
   busy = true; finished = false; preview = $('previewOnly').checked; beat = 0; imageRef = null; latestDecision = null; lastPromptAt = 0; availableResolutions = []; webResolution = 'native';
-  runtimeEvents = []; runtimeState = { lastChunkIndex: null, activePrompt: null, currentPrompt: null }; $('runtimeTrace').textContent = 'No live model activity.';
+  runtimeEvents = []; runtimeState = emptyRuntimeState(); $('runtimeTrace').textContent = 'No live model activity.';
   const run = ++epoch; apiAbort = new AbortController(); refresh(); notify('Preparing your scene…');
   try {
     const photo = photoFile ? await preparePhoto(photoFile) : null; assertCurrent(run);
