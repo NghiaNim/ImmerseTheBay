@@ -47,9 +47,36 @@ Why Visko: a real-time, steerable video "world" around the learner is the immers
   - Reference flow in the official sample: extract `Packages/com.xreal.xr.tar.gz` → `package/Samples~/Camera Features/RGBCameraAndCapture/`, or `Tools > XREAL > Import Official Samples` (imports into `Assets/Samples/XREAL XR Plugin/`, gitignored).
 - Bridge work needed: `Assets/Plugins/Android/ViskoReactorBridge.kt` has no upload yet. Add `uploadBytes(ByteBuffer direct, name, mime)` → `FileRef`, then `sendCommand("set_image", "{\"image\": ...}", uploads = ...)` (Android SDK: `reactor.uploadBytes(...)`, and `sendCommand(name, args, uploads)`; check exact `FileRef` JSON with `javap` on the AAR as done in this session). Web portal: file input → `reactor.uploadFile()` → `set_image`.
 
+## 3a. Agent-driven, no manual prompting
+Learners never type Visko prompts. A **lesson agent** (LLM, server-side in `portal/`) owns the scene:
+- **Inputs it sees each turn:** lesson state (current line, attempts, score), the learner's transcribed speech, the start photo (or a caption of it), and **XREAL context** (below).
+- **Outputs it emits** (strict JSON, validated before use): `visko` commands (`set_prompt`, `set_audio_prompt`, `set_image`, `start/pause/resume/reset`), `overlay` (next target line with kana/romaji/translation, hint level), `feedback` (pronunciation/grammar notes), `advance` (next beat / scene done).
+- **Loop:** scene start → agent writes the opening prompt from lesson data + photo → learner speaks → STT → agent scores and decides the next prompt (scene reacts to what was said) → repeat. Prompts follow Reactor's prompt guide (1–3 sentences, describe only what changes).
+- **Model/keys:** run the LLM call in the portal so keys stay server-side (`ANTHROPIC_API_KEY` in `portal/.env`; default to the latest Claude model). Keep a deterministic fallback (scripted prompts from the lesson file) when the LLM is unavailable.
+- **Guardrails:** cap prompt length, never put copyrighted characters/brands into prompts (section 3), rate-limit Visko commands (one prompt per chunk at most), log every agent decision for review.
+
+## 3b. XREAL inputs as assistive signals (feed the agent, not the learner's typing)
+| Signal | Source in this repo | How the agent uses it |
+|---|---|---|
+| Hand gestures | `Tracking/HandInput` (pinch, index tip, palm), XRI interactors | Pinch = "I'm ready / next line"; long pinch = "hint"; point at a scene element (ray from index) = "what is this?" → agent names it in Japanese and weaves it into the next prompt. |
+| Spatial mesh + classification | `ARMeshManager`, `Xreal/XrealFeatures` (labels: wall, floor, ceiling, table, door…) | Room context ("learner is next to a table and a door") → agent picks matching vocabulary/situations ("机", "ドアを開けてください") and grounds the scene. |
+| Planes | `ARPlaneManager` | Where to place the Visko screen / props; horizontal plane at desk height → "sitting at a table" context. |
+| Head pose / gaze | Head device pose, camera forward | What the learner looks at (Visko screen vs. overlay vs. room) → pause/hint when attention drifts; confirm comprehension by gaze on the target word. |
+| Anchors | `Anchors/SpatialAnchorController` | Pin a lesson "station" to a real spot (e.g. kitchen = food vocabulary); resuming at that spot resumes that lesson. |
+| Mic level / speech | `Audio/MicrophoneCapture` (RMS + PCM chunks) | Voice activity → start/stop STT; silence timeout → hint. |
+| Glasses buttons | `XREALCallbackHandler` key events | Hardware "next"/"repeat". |
+Package these as a compact JSON **context snapshot** sent with each agent turn (e.g. `{gesture:"pinch", pointedAt:"table", room:["wall","table","door"], gaze:"overlay", speech:"…", rms:0.12}`).
+
+## 3c. Web demo first
+Build and validate the whole loop **in the web portal before Unity**:
+- `portal/public/learn.html` (+ `learn.js`): pick lesson → upload/choose sample photo → agent starts Visko scene → sentence overlay → browser mic + Web Speech API (or server STT) → agent turn → Visko steers. Simulate XREAL signals with on-page controls (buttons for pinch/hint/point-at, checkboxes for mesh labels) so the agent contract is exercised without glasses.
+- Server: `portal/agent/` (lesson loader, agent prompt + JSON schema, Visko command executor via the existing session, STT/TTS adapters), endpoint `POST /api/agent/turn`, events over `/sync` so Unity can later join the same session and mirror the overlay.
+- Unity later reuses the same agent endpoint: it only sends the context snapshot + audio and renders overlay/Visko.
+
 ## 4. Agreed sequencing
 1. **Finish the original build and run the end-to-end test on the S25** (section 5) on `main`.
-2. Then create branch **`feat/immersive-learning`** for the MVP in section 3.
+2. Branch **`feat/immersive-learning`**: web demo first (3c) with the agent loop (3a) and simulated XREAL signals (3b).
+3. Then the Unity side: real XREAL signals → context snapshot, overlay UI, photo capture (S25 camera), shared session with the web demo.
 
 ## 5. E2E test plan (do this first)
 Pre-reqs: `Packages/com.xreal.xr.tar.gz` present; `portal/.env` has `REACTOR_API_KEY`; `Assets/StreamingAssets/visko.json` has the Mac's LAN IP as `portalUrl`; Mac and S25 on the same Wi-Fi.
@@ -86,8 +113,30 @@ Close the Unity editor GUI before batch runs on the same project. Unity Hub must
 - Not verified: whether `codex exec` runs show up in the Codex app UI.
 
 ## 9. Open follow-ups (prioritised)
+Codex prompt for the next phase (parallel workstreams A–E): [codex/PROMPT-immersive-learning.md](codex/PROMPT-immersive-learning.md).
+
 1. E2E on the S25 (section 5) and fix findings.
 2. `feat/immersive-learning`: lesson JSON + first Japanese home scene (original content), photo → `set_image` (sample images first, then S25 camera), sentence overlay, mic rehearse + scoring (choose STT: on-device Android `SpeechRecognizer` vs a cloud API), web portal image upload.
 3. Visko: per-scene `set_audio_prompt`; verify adopted-client command rights; retest dynamic model capacity.
 4. Place `RealtimeSession` in the scene if multi-user rooms are needed (server is ready).
 5. Replace remaining "Beam Pro" wording; smaller release build (strip glTF shader variants if 3D models aren't needed).
+
+## 10. References
+**XREAL**
+- SDK docs (3.1.0): https://docs.xreal.com/ — Getting Started https://docs.xreal.com/Getting%20Started%20with%20XREAL%20SDK · Camera https://docs.xreal.com/Camera/Camera · RGB camera https://docs.xreal.com/Camera/Access%20RGB%20Camera · Input https://docs.xreal.com/category/input-and-interactions · Controller https://docs.xreal.com/Input%20and%20Interactions/Controller · Hand tracking https://docs.xreal.com/Input%20and%20Interactions/Hand%20Tracking · Plane detection https://docs.xreal.com/Plane%20Detection · Meshing https://docs.xreal.com/Depth%20Mesh/NormalMesh · Mesh classification https://docs.xreal.com/Depth%20Mesh/MeshClassification · Image tracking https://docs.xreal.com/Image%20Tracking/intro · Spatial anchors https://docs.xreal.com/Spatial%20Anchor/intro , https://docs.xreal.com/Spatial%20Anchor/Anchors
+- SDK download (accept ToS): https://developer.xreal.com/download · API reference: https://developer.xreal.com/reference/nrsdk/overview · GitHub: https://github.com/nreal-ai
+- SDK source facts used (in `Packages/com.xreal.xr.tar.gz`): `Runtime/Scripts/XREALPlugin.cs` (input source, tracking type, device info), `XREALCallbackHandler` (glasses events), `Runtime/Scripts/Android/AR Features/XREALAnchorSubsystem*.cs` (ARF 6 persistent anchors, no descriptor flags), `XREALImageTrackingSubsystem.cs` (`supportsMutableLibrary=false`), `XREALMeshSubsystemExtensions` (`GetFaceClassifications`), `Editor/Android/XREALBuildProcessor.cs`, `Runtime/Prefabs/XR Interaction Hands Setup.prefab`, samples under `Samples~/`.
+
+**Visko / Reactor**
+- Visko: https://www.visko.ai (models page https://www.visko.ai/models)
+- Model docs: stable https://docs.reactor.inc/model-api-reference/visko-orbis-stable/overview (schema/tutorial/prompt-guide: same path + `/schema.md`, `/tutorial.md`, `/prompt-guide.md`) · dynamic https://docs.reactor.inc/model-api-reference/visko-orbis-dynamic/overview (same sub-pages)
+- Platform: auth https://docs.reactor.inc/authentication.md · quickstart https://docs.reactor.inc/quickstart.md · sessions (multi-client join) https://docs.reactor.inc/concepts/sessions.md · tracks https://docs.reactor.inc/concepts/tracks.md · JS SDK https://docs.reactor.inc/sdk-reference/reactor-class.md · Android SDK https://docs.reactor.inc/sdk-reference/android/installation.md , `/reactor.md`, `/track.md`, `/types.md` · rate limits https://docs.reactor.inc/resources/rate-limits.md · billing https://docs.reactor.inc/resources/billing.md · pricing JSON https://api.reactor.inc/pricing · docs index https://docs.reactor.inc/llms.txt · dashboard (API keys) https://reactor.inc/dashboard · status https://status.reactor.inc
+- Packages: npm `@reactor-team/js-sdk@3.4.0` (loaded via https://esm.sh/@reactor-team/js-sdk@3.4.0), Maven `inc.reactor:reactor-sdk-android:1.1.0` (https://repo1.maven.org/maven2/inc/reactor/reactor-sdk-android/1.1.0/), javadoc https://javadoc.io/doc/inc.reactor/reactor-sdk-android/1.1.0
+
+**Unity / packages**
+- AR Foundation 6.1: https://docs.unity3d.com/Packages/com.unity.xr.arfoundation@6.1/manual/index.html · XR Interaction Toolkit 3.0: https://docs.unity3d.com/Packages/com.unity.xr.interaction.toolkit@3.0/manual/index.html · XR Hands 1.5: https://docs.unity3d.com/Packages/com.unity.xr.hands@1.5/manual/index.html · XR Plug-in Management: https://docs.unity3d.com/Packages/com.unity.xr.management@4.5/manual/index.html · glTFast: https://docs.unity3d.com/Packages/com.unity.cloud.gltfast@6.8/manual/index.html · Android Gradle templates: https://docs.unity3d.com/6000.0/Documentation/Manual/gradle-templates.html · Unity CLI / Hub: https://docs.unity3d.com/hub/unity-cli · Unity release API used to pick LTS: https://services.api.unity.com/unity/editor/release/v1/releases
+- Sample assets: Khronos glTF samples https://github.com/KhronosGroup/glTF-Sample-Assets · sample video https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4
+
+**Tools**
+- Codex CLI (`codex exec`, `codex cloud`) — local version 0.166.0. Repo: https://github.com/NghiaNim/ImmerseTheBay
+
