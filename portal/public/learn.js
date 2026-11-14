@@ -20,7 +20,7 @@ if (token) $('homeLink').href = `/?portal_token=${encodeURIComponent(token)}`;
 
 function notify(text, error = false) { $('notice').textContent = text; $('notice').classList.toggle('error', error); }
 function refresh() {
-  $('begin').disabled = busy || active || !lesson || !photoFile;
+  $('begin').disabled = busy || active || !lesson;
   $('begin').textContent = $('previewOnly').checked ? 'Start practice' : 'Start live lesson';
   $('leave').disabled = !active && !busy && !reactor;
   for (const id of ['lesson', 'sample', 'photo', 'model', 'sessionId', 'previewOnly']) $(id).disabled = busy || active;
@@ -70,6 +70,7 @@ async function loadCatalog() {
     const data = await api('/api/agent/lessons'); catalog = data.lessons;
     if (!Array.isArray(catalog) || !catalog.length) throw new Error('No lessons are available yet.');
     $('lesson').replaceChildren(...catalog.map((item) => new Option(item.title, item.id)));
+    if (catalog.some((item) => item.id === 'ja-konbini-001')) $('lesson').value = 'ja-konbini-001';
     await chooseLesson();
   } catch (error) { notify(`Could not load lessons: ${error.message}`, true); }
 }
@@ -79,10 +80,29 @@ async function chooseLesson() {
     lesson = await api(`/api/agent/lessons/${encodeURIComponent($('lesson').value)}`);
     const count = lesson.beats.reduce((n, b) => n + b.lines.length, 0);
     $('lessonInfo').textContent = `${lesson.level} · ${lesson.beats.length} moments · ${count} spoken lines`;
+    const shopping = lesson.id === 'ja-konbini-001';
+    $('lessonLabel').textContent = shopping ? 'CONVENIENCE-STORE JAPANESE' : lesson.id === 'ja-home-001' ? 'JAPANESE AT HOME' : 'JAPANESE PRACTICE';
+    document.title = `${shopping ? 'Convenience-store Japanese' : lesson.title} · ImmerseTheBay`;
+    $('progress').textContent = $('lessonLabel').textContent;
+    $('jp').textContent = shopping ? '買い物のひとこまから。' : '日常のひとこまから。';
+    $('en').textContent = shopping ? 'Step into the shop. Practice a real conversation.' : 'Step into the scene. Practice a real conversation.';
+    for (const field of ['kana', 'romaji', 'zh', 'feedback']) $(field).textContent = '';
     const filename = String(lesson.startImage || '').split('/').pop();
-    if (SAMPLES.some((sample) => sample.file === filename)) { $('sample').value = filename; await chooseSample(); }
+    if (filename && !SAMPLES.some((sample) => sample.file === filename)) {
+      SAMPLES.push({ file: filename, label: shopping ? 'Convenience-store shopping' : `${lesson.title} · start photo`, caption: `Start photo for ${lesson.title}; visual contents have not been analyzed.` });
+      $('sample').add(new Option(SAMPLES.at(-1).label, filename));
+    }
+    clearPhoto();
+    if (filename) { $('sample').value = filename; await chooseSample(); } else $('sample').value = '';
+    $('scenePlaceholder').querySelector('span').textContent = shopping ? 'いらっしゃいませ。' : '日本語で話そう。';
+    $('scenePlaceholder').querySelector('p').textContent = shopping ? 'A small shop. An everyday conversation.' : 'Your next conversation starts here.';
   } catch (error) { lesson = null; notify(error.message, true); }
   finally { busy = false; refresh(); }
+}
+function clearPhoto() {
+  photoFile = null; photoCaption = '';
+  if (previewUrl) URL.revokeObjectURL(previewUrl); previewUrl = null;
+  $('photoPreview').hidden = true; $('sceneFocus').hidden = true; $('scenePlaceholder').hidden = false; $('photo').value = '';
 }
 function setPhoto(file, caption) {
   photoFile = file; photoCaption = caption;
@@ -93,7 +113,7 @@ function setPhoto(file, caption) {
 }
 async function chooseSample() {
   const sample = SAMPLES.find((item) => item.file === $('sample').value);
-  if (!sample) return;
+  if (!sample) { clearPhoto(); return; }
   const response = await fetch(`/lessons/images/${encodeURIComponent(sample.file)}`, { headers: authHeaders() });
   if (!response.ok) throw new Error('This sample is unavailable. Upload your own photo to continue.');
   const blob = await response.blob();
@@ -136,7 +156,7 @@ async function connectReactor(targetModel, joinId, run) {
     if (client !== reactor || run !== epoch) { track.stop(); return; }
     for (const previous of mediaStream.getTracks().filter((t) => t.kind === track.kind)) { mediaStream.removeTrack(previous); previous.stop(); }
     mediaStream.addTrack(track); $('video').srcObject = mediaStream;
-    if (track.kind === 'video') { $('photoPreview').hidden = false; $('sceneFocus').hidden = true; $('scenePlaceholder').hidden = true; }
+    if (track.kind === 'video') { $('photoPreview').hidden = !photoFile; $('sceneFocus').hidden = true; $('scenePlaceholder').hidden = true; }
     void $('video').play().catch(() => notify('Press Unmute scene to enable playback.'));
   });
   client.on('message', (msg) => {
@@ -156,14 +176,14 @@ async function connectReactor(targetModel, joinId, run) {
   return client;
 }
 async function begin() {
-  if (busy || active || !lesson || !photoFile) return;
+  if (busy || active || !lesson) return;
   busy = true; finished = false; preview = $('previewOnly').checked; beat = 0; imageRef = null; latestDecision = null; lastPromptAt = 0; availableResolutions = []; webResolution = 'native';
   const run = ++epoch; apiAbort = new AbortController(); refresh(); notify('Preparing your scene…');
   try {
-    const photo = await preparePhoto(photoFile); assertCurrent(run);
+    const photo = photoFile ? await preparePhoto(photoFile) : null; assertCurrent(run);
     if (preview) {
       sessionId = `practice-${crypto.randomUUID()}`; model = null;
-      imageRef = { id: photoFile.name, caption: photoCaption };
+      imageRef = photoFile ? { id: photoFile.name, caption: photoCaption } : null;
       $('sceneStatus').textContent = 'Practice · no live video';
     } else {
       const joinId = $('sessionId').value.trim();
@@ -181,9 +201,11 @@ async function begin() {
       // Joining for a new lesson explicitly resets the model before applying its start photo.
       if (joinId) await command('reset', {}, client);
       await api('/api/agent/reset', { sessionId, lessonId: lesson.id }, apiAbort.signal); assertCurrent(run);
-      const ref = await client.uploadFile(photo); assertCurrent(run);
-      await command('set_image', { image: ref }, client); assertCurrent(run);
-      imageRef = { id: ref.uploadId, caption: photoCaption };
+      if (photo) {
+        const ref = await client.uploadFile(photo); assertCurrent(run);
+        await command('set_image', { image: ref }, client); assertCurrent(run);
+        imageRef = { id: ref.uploadId, caption: photoCaption };
+      }
     }
     active = true; busy = false; setSetupOpen(false); refresh();
     if (!await turn({}, run)) throw new Error('The lesson guide could not start. Please try again.');
