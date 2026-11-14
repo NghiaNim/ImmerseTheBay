@@ -37,6 +37,8 @@ namespace ImmerseTheBay.SensorDebug
         public string SectionSensors { get; private set; } = "";
         public string SectionSystem { get; private set; } = "";
         public string SectionExtras { get; private set; } = "";
+        public string SectionXreal { get; private set; } = "";
+        public float FramesPerSecond => m_Fps;
 
         static readonly List<XRHandSubsystem> s_HandSubsystems = new();
         static readonly List<XRInputSubsystem> s_InputSubsystems = new();
@@ -56,6 +58,12 @@ namespace ImmerseTheBay.SensorDebug
         float m_FpsAccum; int m_FpsFrames; float m_Fps;
         int m_MeshesAdded, m_MeshesUpdated, m_MeshesRemoved;
         readonly StringBuilder m_Sb = new(4096);
+
+        void Awake()
+        {
+            // Existing generated scenes gain logging without changing the integration-owned builder or scene.
+            if (!GetComponent<SensorLogger>()) gameObject.AddComponent<SensorLogger>();
+        }
 
         void OnEnable()
         {
@@ -96,12 +104,84 @@ namespace ImmerseTheBay.SensorDebug
             m_FpsAccum += Time.unscaledDeltaTime; m_FpsFrames++;
             if (m_FpsAccum >= 0.5f) { m_Fps = m_FpsFrames / m_FpsAccum; m_FpsAccum = 0; m_FpsFrames = 0; }
 
-            if (m_Hands == null || !m_Hands.running)
-            {
-                SubsystemManager.GetSubsystems(s_HandSubsystems);
-                m_Hands = s_HandSubsystems.Find(s => s.running);
-            }
+            RefreshHands();
             if (drawHandJoints) UpdateJointVisuals();
+        }
+
+        void RefreshHands()
+        {
+            if (m_Hands != null && m_Hands.running) return;
+            SubsystemManager.GetSubsystems(s_HandSubsystems);
+            m_Hands = s_HandSubsystems.Find(s => s.running);
+        }
+
+        /// <summary>Numeric data for recording, captured on the main thread without rebuilding HUD text.</summary>
+        public struct Sample
+        {
+            public Vector3? headPosition, headVelocity;
+            public Quaternion? headRotation;
+            public HandSample left, right;
+            public string sessionState;
+            public int planeCount, meshChunks, meshVertices, anchorCount;
+        }
+
+        public struct HandSample
+        {
+            public bool tracked;
+            public Vector3? wrist, indexTip, thumbTip;
+            public float? pinchCm;
+        }
+
+        public Sample CaptureSample()
+        {
+            var sample = new Sample
+            {
+                sessionState = ARSession.state.ToString(),
+                planeCount = planeManager ? planeManager.trackables.count : 0,
+                anchorCount = anchorManager ? anchorManager.trackables.count : 0,
+            };
+            var head = InputDevices.GetDeviceAtXRNode(XRNode.Head);
+            if (head.isValid)
+            {
+                if (head.TryGetFeatureValue(XRCommonUsages.devicePosition, out Vector3 p)) sample.headPosition = p;
+                if (head.TryGetFeatureValue(XRCommonUsages.deviceRotation, out Quaternion q)) sample.headRotation = q;
+                if (head.TryGetFeatureValue(XRCommonUsages.deviceVelocity, out Vector3 v)) sample.headVelocity = v;
+            }
+            else if (Camera.main)
+            {
+                // Editor fallback: local camera pose; unavailable XR velocity remains empty in the CSV.
+                sample.headPosition = Camera.main.transform.localPosition;
+                sample.headRotation = Camera.main.transform.localRotation;
+            }
+
+            RefreshHands();
+            if (m_Hands != null)
+            {
+                sample.left = CaptureHand(m_Hands.leftHand);
+                sample.right = CaptureHand(m_Hands.rightHand);
+            }
+            if (meshManager)
+            {
+                sample.meshChunks = meshManager.meshes.Count;
+                foreach (var mesh in meshManager.meshes)
+                    if (mesh && mesh.sharedMesh) sample.meshVertices += mesh.sharedMesh.vertexCount;
+            }
+            return sample;
+        }
+
+        HandSample CaptureHand(XRHand hand)
+        {
+            var sample = new HandSample { tracked = hand.isTracked };
+            if (!hand.isTracked) return sample;
+            // Reuse the collector's existing XR Hands source. HandInput defines its world-space origin.
+            var hands = Tracking.HandInput.Instance;
+            var space = hands ? hands.transform : transform;
+            if (hand.GetJoint(XRHandJointID.Wrist).TryGetPose(out var w)) sample.wrist = space.TransformPoint(w.position);
+            if (hand.GetJoint(XRHandJointID.IndexTip).TryGetPose(out var i)) sample.indexTip = space.TransformPoint(i.position);
+            if (hand.GetJoint(XRHandJointID.ThumbTip).TryGetPose(out var t)) sample.thumbTip = space.TransformPoint(t.position);
+            if (sample.indexTip.HasValue && sample.thumbTip.HasValue)
+                sample.pinchCm = Vector3.Distance(sample.indexTip.Value, sample.thumbTip.Value) * 100f;
+            return sample;
         }
 
         /// <summary>Rebuilds all text sections. Called by the HUD at its refresh rate.</summary>
@@ -114,6 +194,7 @@ namespace ImmerseTheBay.SensorDebug
             SectionSensors = BuildSensors();
             SectionSystem = BuildSystem();
             SectionExtras = DebugRegistry.Build();
+            SectionXreal = DebugRegistry.Build("ImmerseTheBay.Xreal");
         }
 
         // ---------------------------------------------------------------- Head / tracking
