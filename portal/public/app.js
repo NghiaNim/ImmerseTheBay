@@ -95,7 +95,11 @@ async function connect({ model, sessionId }) {
     if (status === 'ready') {
       currentSessionId = reactor.getSessionId();
       log('ready, session', currentSessionId);
-      if (ownsSession) hubSend({ type: 'session', model, sessionId: currentSessionId, owner: 'web' });
+      if (ownsSession) {
+        hubSend({ type: 'session', model, sessionId: currentSessionId, owner: 'web' });
+        // Shared session: default to native so the glasses can keep up (frames cross JNI per frame).
+        if ($('resolution').value) runCommand('set_resolution', { resolution: $('resolution').value }, { relay: false });
+      }
       refreshButtons();
     }
     if (status === 'disconnected') cleanup();
@@ -132,9 +136,9 @@ function showState(s) {
   if (!s) return;
   $('stateView').textContent = 'state: ' + JSON.stringify(s);
   const sel = $('resolution');
-  if (Array.isArray(s.available_resolutions) && sel.options.length <= 1) {
-    for (const r of s.available_resolutions) sel.add(new Option(r, r));
-    if (s.resolution) sel.value = s.resolution;
+  if (Array.isArray(s.available_resolutions)) {
+    const have = new Set([...sel.options].map((o) => o.value));
+    for (const r of s.available_resolutions) if (!have.has(r)) sel.add(new Option(r, r));
   }
 }
 
@@ -166,7 +170,19 @@ function cleanup() {
 }
 
 // ---------------------------------------------------------------- wire UI
-$('create').onclick = () => connect({ model: MODELS[$('model').value] }).catch((e) => { log('connect failed', e.message); cleanup(); });
+async function createWithRetry(attempts = 3) {
+  for (let i = 1; i <= attempts; i++) {
+    try { await connect({ model: MODELS[$('model').value] }); return; }
+    catch (e) {
+      cleanup();
+      const capacity = /429|capacity/i.test(e.message);
+      log(`connect failed (${i}/${attempts})`, e.message);
+      if (!capacity || i === attempts) { if (capacity) log('Reactor has no capacity for this model right now; try again later or switch to stable.'); return; }
+      await new Promise((r) => setTimeout(r, 5000));
+    }
+  }
+}
+$('create').onclick = () => createWithRetry();
 $('join').onclick = () => unitySession && connect({ model: unitySession.model, sessionId: unitySession.sessionId }).catch((e) => { log('join failed', e.message); cleanup(); });
 $('leave').onclick = leave;
 $('setPrompt').onclick = () => runCommand('set_prompt', { prompt: $('prompt').value.trim() });

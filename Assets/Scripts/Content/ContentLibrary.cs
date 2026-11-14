@@ -18,6 +18,8 @@ namespace ImmerseTheBay.Content
         public string source;
         /// <summary>Mono | SideBySide | TopBottom (video / image only).</summary>
         public string layout = "Mono";
+        /// <summary>Flat | Dome180 | Sphere360 (video / image only).</summary>
+        public string projection = "Flat";
         /// <summary>Screen width (video / image) or largest dimension (model / primitive), metres.</summary>
         public float size = 0.5f;
     }

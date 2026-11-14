@@ -30,6 +30,12 @@ Target: XREAL Air 2 Ultra (6DoF) + Beam Pro / supported Android phone, Unity 600
 | Recenter | `Scripts/Tracking/RecenterController.cs` | `XRInputSubsystem.TryRecenter()` (same call XREALUtility wraps). |
 | XREAL-only features | `Scripts/Xreal/XrealFeatures.cs` | Device info, glasses events (wearing, temperature, brightness, volume, buttons, disconnect, errors), runtime switch Hands/Controller and 6DoF/3DoF/0DoF, glasses multi-key double-click = recenter, mesh classification label counts. Menu buttons + editor keys I / T. Anchor remap: M key in `SpatialAnchorController`. |
 | Visko (Reactor) live video | `Scripts/Visko/ViskoSession.cs`, `Plugins/Android/ViskoReactorBridge.kt`, `portal/` | Real-time generated video (dynamic + stable models) in the glasses, synced with the web test portal. API key in `portal/.env`. See [VISKO.md](VISKO.md). |
+| HUD pages + logging | `Scripts/SensorDebug/` | Six pages (Overview/Hands/AR/Devices/Sensors/Modules), PgUp/PgDn or quick pinch; `L` toggles CSV logging to `persistentDataPath/sensorlogs/`. See `Scripts/SensorDebug/README.md`. |
+| Immersive media | `Scripts/Media/`, `Shaders/StereoUnlit.shader` | `projection`: Flat / Dome180 / Sphere360 (content.json field), stereo per eye, Pause/Resume/Seek/Volume API. Mic emits 16-bit PCM chunks (`MicrophoneCapture.OnPcmChunk`). |
+| Realtime protocol | `Scripts/Net/Protocol.cs`, `RealtimeSession.cs`, `server/` | Rooms, state replay, events, ping/pong RTT, binary audio/JPEG frames. `cd server && npm start` (port 8787). Not yet placed in the debug scene. |
+| Content interaction (XRI) | `Scripts/Content/` | Placed content is `XRGrabInteractable` (hands + controller, two-hand scale); video screens get a poke control strip. Legacy pinch manipulator off by default. |
+| Anchor quality | `Scripts/Anchors/AnchorQualityGuide.cs` | 16-segment coverage ring from XREAL `GetAnchorQuality`; Save waits for 50% coverage (`SaveAll(true)` forces); remap after restore. |
+| First-person cast | `Scripts/Cast/`, `portal/cast/`, `portal/public/cast.html` | Left-eye render 640x360 @10 fps as JPEG over `/cast` to the portal viewer. Menu "Cast view on/off" or `V`. See [CAST.md](CAST.md). |
 | Build | `Editor/BuildScript.cs` | Tools > XREAL > Build APK, or batch `-executeMethod BuildScript.BuildAndroid` -> `Builds/ImmerseTheBay.apk`. |
 
 ### content.json

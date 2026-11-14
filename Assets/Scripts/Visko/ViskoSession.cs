@@ -36,6 +36,12 @@ namespace ImmerseTheBay.Visko
     {
         public Renderer screen;
         public ViskoConfig config = new();
+        [Tooltip("Resolution requested when the glasses create the session (applies at next start).")]
+        public string glassesResolution = "native";
+        [Tooltip("Retries when Reactor reports no capacity (HTTP 429) on session creation.")]
+        public int capacityRetries = 3;
+        int m_Retries;
+        string m_PendingModel, m_PendingSession;
 
         public string Status { get; private set; } = "idle";
         public string SessionId { get; private set; } = "";
@@ -166,6 +172,7 @@ namespace ImmerseTheBay.Visko
             string jwt;
             try { jwt = await MintToken(model, sessionId); }
             catch (Exception e) { m_LastError = "token: " + e.Message; Status = "DISCONNECTED"; return; }
+            m_PendingModel = model; m_PendingSession = sessionId;
             m_Backend.Connect(jwt, model, sessionId);
         }
 
@@ -192,8 +199,14 @@ namespace ImmerseTheBay.Visko
         internal void PostStatus(string s) => m_Main.Enqueue(() =>
         {
             Status = s;
+            if (s == "READY") m_Retries = 0;
             SendHubStatus();
-            if (s == "READY" && m_OwnsSession) AnnounceSession();
+            if (s == "READY" && m_OwnsSession)
+            {
+                // Frames cross JNI every frame: keep the shared session at 832x480 unless changed in the portal.
+                m_Backend?.SendCommand("set_resolution", "{\"resolution\":\"" + glassesResolution + "\"}");
+                AnnounceSession();
+            }
         });
 
         internal void PostSessionId(string id) => m_Main.Enqueue(() => { SessionId = id; if (m_OwnsSession && IsConnected) AnnounceSession(); });
@@ -208,7 +221,19 @@ namespace ImmerseTheBay.Visko
         });
 
         internal void PostReply(string command, string json) => m_Main.Enqueue(() => m_LastMessage = $"{command} ↩ {Trim(json, 100)}");
-        internal void PostError(string msg) => m_Main.Enqueue(() => { m_LastError = msg; _ = m_Hub?.SendText("{\"type\":\"log\",\"text\":\"" + Esc(msg) + "\"}"); });
+        internal void PostError(string msg) => m_Main.Enqueue(() =>
+        {
+            m_LastError = msg;
+            _ = m_Hub?.SendText("{\"type\":\"log\",\"text\":\"" + Esc(msg) + "\"}");
+            if (msg.Contains("429") && msg.Contains("capacity") && m_Retries < capacityRetries)
+            {
+                m_Retries++;
+                m_LastError = $"Reactor at capacity, retry {m_Retries}/{capacityRetries} in 5 s";
+                Invoke(nameof(RetryConnect), 5f);
+            }
+        });
+
+        void RetryConnect() => _ = ConnectInternal(m_PendingModel, m_PendingSession);
 
         // ------------------------------------------------------------ hub
         void OnHubMessage(string json)

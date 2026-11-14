@@ -9,6 +9,7 @@ import express from 'express';
 import http from 'node:http';
 import os from 'node:os';
 import { WebSocketServer } from 'ws';
+import { attachCast } from './cast/castHub.js';
 
 const PORT = Number(process.env.PORT || 8790);
 const API_KEY = process.env.REACTOR_API_KEY || '';
@@ -85,7 +86,13 @@ app.use(express.static(new URL('./public/', import.meta.url).pathname));
 //   command {name, data}                          -> relayed to the other clients (the session owner executes it)
 //   state / status / log {...}                    -> relayed to the other clients
 const server = http.createServer(app);
-const wss = new WebSocketServer({ server, path: '/sync', maxPayload: 1 << 20 });
+// noServer + explicit routing so /sync and /cast (first-person view relay) can share the HTTP server.
+const wss = new WebSocketServer({ noServer: true, maxPayload: 1 << 20 });
+server.on('upgrade', (req, socket, head) => {
+  if (new URL(req.url, 'http://x').pathname !== '/sync') return; // other paths (e.g. /cast) handle themselves
+  wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
+});
+attachCast(server, { portalToken: PORTAL_TOKEN });
 let currentSession = null; // {model, sessionId, owner, ts}
 const clients = new Map(); // ws -> {role, name}
 

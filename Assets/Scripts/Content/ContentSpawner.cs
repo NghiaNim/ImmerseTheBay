@@ -120,7 +120,8 @@ namespace ImmerseTheBay.Content
             player.playOnStart = false;
             if (!Enum.TryParse(item.layout, out StereoLayout layout)) layout = StereoLayout.Mono;
             player.layout = layout;
-            if (!string.IsNullOrEmpty(item.source)) player.Play(item.source, layout);
+            if (!Enum.TryParse(item.projection, true, out MediaProjection projection)) projection = MediaProjection.Flat;
+            if (!string.IsNullOrEmpty(item.source)) player.Play(item.source, layout, projection);
             if (item.type == "video")
             {
                 var controls = new GameObject("VideoControls", typeof(RectTransform));

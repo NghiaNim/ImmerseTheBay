@@ -145,6 +145,10 @@ public static class SensorDebugSceneBuilder
         visko.screen = viskoScreen.GetComponent<MeshRenderer>();
         menu.visko = visko;
 
+        // --- First-person view of the glasses to the portal (/cast, viewer at portal/cast.html)
+        var caster = new GameObject("First Person Caster").AddComponent<ImmerseTheBay.Cast.FirstPersonCaster>();
+        menu.caster = caster;
+
         IncludeGltfShaders();
 
         EditorSceneManager.SaveScene(scene, ScenePath);

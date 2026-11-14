@@ -20,6 +20,7 @@ namespace ImmerseTheBay.Content
         public GameObject hud;
         public ImmerseTheBay.Xreal.XrealFeatures xreal;
         public ImmerseTheBay.Visko.ViskoSession visko;
+        public ImmerseTheBay.Cast.FirstPersonCaster caster;
 
         [Header("Placement")]
         public float distance = 0.45f;
@@ -42,7 +43,7 @@ namespace ImmerseTheBay.Content
         }
 
         readonly List<Button> m_Buttons = new();
-        bool m_ViskoPaused;
+        bool m_ViskoPaused, m_Casting;
         RectTransform m_Panel;
         Font m_Font;
         float m_LastPress;
@@ -54,6 +55,7 @@ namespace ImmerseTheBay.Content
             if (!recenter) recenter = FindAnyObjectByType<RecenterController>();
             if (!xreal) xreal = FindAnyObjectByType<ImmerseTheBay.Xreal.XrealFeatures>();
             if (!visko) visko = FindAnyObjectByType<ImmerseTheBay.Visko.ViskoSession>();
+            if (!caster) caster = FindAnyObjectByType<ImmerseTheBay.Cast.FirstPersonCaster>();
             m_Font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
             BuildCanvas();
             var manifest = await ContentLibrary.LoadAsync();
@@ -74,6 +76,7 @@ namespace ImmerseTheBay.Content
             AddButton("Visko: start", viskoColor, () => visko?.StartGeneration());
             AddButton("Visko: pause/resume", viskoColor, () => { if (visko == null) return; if (m_ViskoPaused) visko.Resume(); else visko.Pause(); m_ViskoPaused = !m_ViskoPaused; });
             AddButton("Visko: leave", viskoColor, () => visko?.Leave());
+            AddButton("Cast view on/off", new Color(0.2f, 0.45f, 0.3f, 0.9f), () => { if (caster) { m_Casting = !m_Casting; caster.SetCasting(m_Casting); } });
             AddButton("HUD on/off", new Color(0.3f, 0.3f, 0.3f, 0.9f), () => { if (hud) hud.SetActive(!hud.activeSelf); });
             Layout();
             PlaceInFront();

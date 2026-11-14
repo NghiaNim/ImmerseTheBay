@@ -9,7 +9,7 @@ Unity 6 (6000.0.85f2 LTS) + XREAL Air 2 Ultra (6DoF) + Beam Pro. Architecture an
 | Mac toolchain | Unity **6000.0.85f2 LTS** (XREAL SDK 3.1 supports 6000.0.x LTS; 6000.5 is not LTS) with Android Build Support, SDK/NDK, OpenJDK. Unity Hub signed in with an activated Personal license. `adb` present. |
 | XREAL SDK | 3.1.0, referenced as `"com.xreal.xr": "file:com.xreal.xr.tar.gz"`. The tarball is **gitignored** (proprietary, public repo): each developer downloads it from developer.xreal.com/download and drops it in `Packages/`. |
 | Compilation | Clean under 6000.0.85f2 with AR Foundation 6.1.1 / XR Hands 1.5.1 / XRI 3.0.8 / Input System 1.14 / glTFast 6.8 / XREAL 3.1.0. XREAL loader enabled for Android, debug scene generated, APK build via `BuildScript`. |
-| Device test | Never run on hardware. |
+| Device test | Never run on hardware. Visko verified in the web portal (stable model, live 2560x1440 @18 fps, prompt steering); dynamic returned 429 no capacity at test time. |
 
 Batch mode works once the Hub license is active, e.g. `Unity -batchmode -quit -projectPath . -buildTarget Android -executeMethod BuildScript.BuildAndroid`.
 
