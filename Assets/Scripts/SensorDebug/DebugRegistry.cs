@@ -13,11 +13,15 @@ namespace ImmerseTheBay
         public static void Register(Func<string> provider) { if (!s_Providers.Contains(provider)) s_Providers.Add(provider); }
         public static void Unregister(Func<string> provider) => s_Providers.Remove(provider);
 
-        public static string Build()
+        public static string Build() => Build(null);
+
+        public static string Build(string providerNamespace)
         {
             s_Sb.Clear();
             foreach (var p in s_Providers)
             {
+                // Keep the unfiltered API for existing callers; pages can also select an area's providers.
+                if (providerNamespace != null && p?.Method.DeclaringType?.Namespace != providerNamespace) continue;
                 try { s_Sb.AppendLine(p()); }
                 catch (Exception e) { s_Sb.AppendLine($"<color=#f88>{e.GetType().Name}: {e.Message}</color>"); }
             }
