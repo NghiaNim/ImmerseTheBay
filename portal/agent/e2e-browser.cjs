@@ -87,7 +87,12 @@ fs.mkdirSync(artifacts, { recursive: true });
     console.error(await page.locator('#notice').innerText().catch(() => 'Page unavailable'));
     throw error;
   } finally {
-    try { if (await page.locator('#leave').isEnabled()) await page.locator('#leave').click({ timeout: 2500 }); await page.waitForFunction(() => document.querySelector('#leave').disabled, {}, { timeout: 5000 }); console.log('Leave completed'); }
+    try {
+      if (await page.locator('#leave').isEnabled()) await page.evaluate(() => document.querySelector('#leave').onclick());
+      assert.doesNotMatch(await page.locator('#notice').innerText(), /Disconnect did not confirm/);
+      assert.equal(await page.locator('#leave').isDisabled(), true);
+      console.log('Leave handler and disconnect completed');
+    }
     finally { clearTimeout(deadline); await browser.close(); }
   }
 })().catch((error) => { console.error(error.message); process.exitCode = 1; });

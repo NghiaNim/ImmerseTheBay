@@ -535,7 +535,7 @@ $('translationToggle').onclick = () => {
   $('translations').hidden = !$('translations').hidden;
   $('translationToggle').setAttribute('aria-expanded', String(!$('translations').hidden));
 };
-$('begin').onclick = begin; $('leave').onclick = () => void leave();
+$('begin').onclick = begin; $('leave').onclick = () => leave();
 $('listen').onclick = () => { if (!$('listen').disabled) void lessonSpeech.play({ text: latestDecision.overlay.jp, language: 'ja', role: 'learner' }); };
 $('clerkReplay').onclick = () => { if (!$('clerkReplay').disabled && clerkSpeech) void lessonSpeech.play(clerkSpeech); };
 $('speak').onclick = startSpeech; $('stopSpeech').onclick = stopSpeech;
