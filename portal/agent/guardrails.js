@@ -1,7 +1,18 @@
 // Deliberately small, reviewable denylist; not an exhaustive copyright detector.
 export const BANNED_TERMS = ['doraemon', 'ドラえもん', '哆啦a梦', '哆啦a夢', 'pokemon', 'pokémon', 'ポケモン', 'pikachu', 'ピカチュウ', 'disney', 'ディズニー', 'mickey mouse', 'ミッキーマウス', 'totoro', 'トトロ', 'ghibli', 'ジブリ', 'hello kitty', 'ハローキティ', 'naruto', 'ナルト', 'snoopy', 'スヌーピー', 'dragon ball', 'ドラゴンボール'];
-const canonical = (s) => String(s).normalize('NFKC').toLowerCase().replace(/[\s\p{P}\p{Cf}]/gu, '');
-export function hasBannedTerm(value) { const s = canonical(value); return BANNED_TERMS.some((term) => s.includes(canonical(term))); }
+const canonical = (s) => String(s).normalize('NFKC').toLowerCase().replace(/\p{Cf}/gu, '');
+const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const patterns = BANNED_TERMS.map((term) => {
+  const normalized = canonical(term);
+  // Keep word boundaries: stripping spaces turns ordinary romaji "naru to"
+  // into a character name. Still catch fullwidth/zero-width/punctuation disguises.
+  if (/^[\p{Script=Latin} ]+$/u.test(normalized)) {
+    const words = normalized.split(' ').map((word) => [...word].map(escapeRegex).join('[\\p{P}]*'));
+    return new RegExp('(?<![\\p{L}\\p{N}])' + words.join('[\\s\\p{P}]+') + '(?![\\p{L}\\p{N}])', 'u');
+  }
+  return new RegExp(escapeRegex(normalized), 'u');
+});
+export function hasBannedTerm(value) { const s = canonical(value); return patterns.some((pattern) => pattern.test(s)); }
 export function safePrompt(value, fallback) {
   if (typeof value !== 'string' || hasBannedTerm(value)) return fallback;
   const clean = value.replace(/[\u0000-\u001f]/g, ' ').trim();
