@@ -73,6 +73,8 @@ namespace ImmerseTheBay.Content
             root.transform.localScale = Vector3.one * scale;
             var content = root.AddComponent<PlaceableContent>();
             content.item = item;
+            // ImageTrackingController sets locked after awaiting Spawn; detect it before adding XRI.
+            content.locked = parent && parent.GetComponentInParent<ARTrackedImage>();
             m_Status = $"loading {item.label}...";
 
             try
@@ -84,6 +86,11 @@ namespace ImmerseTheBay.Content
                     case "model": await BuildModel(root.transform, item); break;
                     default: BuildPrimitive(root.transform, item); break;
                 }
+
+                content.RefreshRenderers();
+                content.ConfigureInteraction(this);
+                var legacy = FindAnyObjectByType<HandManipulator>();
+                content.SetLegacyInteraction(legacy && legacy.isActiveAndEnabled && legacy.useLegacyPinch);
             }
             catch (Exception e)
             {
@@ -92,7 +99,6 @@ namespace ImmerseTheBay.Content
                 return null;
             }
 
-            content.RefreshRenderers();
             Spawned.Add(content);
             m_Status = $"spawned {item.label}";
             OnSpawned?.Invoke(content);
@@ -115,6 +121,12 @@ namespace ImmerseTheBay.Content
             if (!Enum.TryParse(item.layout, out StereoLayout layout)) layout = StereoLayout.Mono;
             player.layout = layout;
             if (!string.IsNullOrEmpty(item.source)) player.Play(item.source, layout);
+            if (item.type == "video")
+            {
+                var controls = new GameObject("VideoControls", typeof(RectTransform));
+                controls.transform.SetParent(root, false);
+                controls.AddComponent<VideoControlStrip>().Initialize(player);
+            }
         }
 
         static async Task BuildModel(Transform root, ContentItem item)
@@ -160,6 +172,7 @@ namespace ImmerseTheBay.Content
         {
             if (!c) return;
             Spawned.Remove(c);
+            c.InvalidateAnchorRequest();
             if (c.anchor && anchorManager) anchorManager.TryRemoveAnchor(c.anchor);
             Destroy(c.gameObject);
         }
@@ -173,14 +186,21 @@ namespace ImmerseTheBay.Content
         /// <summary>Replaces the content's anchor with a new one at its current pose (call after moving it).</summary>
         public async void Reanchor(PlaceableContent c)
         {
-            if (!c || !anchorManager || anchorManager.subsystem == null) return;
+            if (!c || c.locked || c.IsSelected || !anchorManager || anchorManager.subsystem == null) return;
+            int revision = c.InvalidateAnchorRequest();
             var pose = new Pose(c.transform.position, c.transform.rotation);
             var scale = c.transform.lossyScale;
             var old = c.anchor;
+            c.anchor = null;
             c.transform.SetParent(null, true);
             if (old) anchorManager.TryRemoveAnchor(old);
             var r = await anchorManager.TryAddAnchorAsync(pose);
-            if (!c) return;
+            // A new grab, another request, deletion, or disabling can overtake this async call.
+            if (!c || c.AnchorRevision != revision || c.locked || c.IsSelected || !c.isActiveAndEnabled)
+            {
+                if (r.status.IsSuccess() && r.value && anchorManager) anchorManager.TryRemoveAnchor(r.value);
+                return;
+            }
             if (!r.status.IsSuccess()) { c.anchor = null; m_Status = $"anchor failed: {r.status}"; return; }
             c.anchor = r.value;
             c.transform.SetParent(r.value.transform, false);
