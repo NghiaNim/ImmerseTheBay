@@ -4,14 +4,14 @@ const object = (properties, required = Object.keys(properties)) => ({ type: 'obj
 export const PLAN_SCHEMA = object({ label: text, returnBeat: { type: 'number' }, nodes: { type: 'array', items: object({ jp: text, kana: text, romaji: text, zh: text, en: text, cue: text }) } });
 export const RESPONSE_SCHEMA = object({
   visko: { type: 'array', items: { anyOf: [
-    object({ name: { enum: ['set_prompt', 'set_audio_prompt'] }, data: object({ prompt: text }) }),
-    object({ name: { enum: ['set_resolution'] }, data: object({ resolution: text }) }),
-    object({ name: { enum: ['start', 'pause', 'resume', 'reset'] }, data: object({}) }),
+    object({ name: { type: 'string', enum: ['set_prompt', 'set_audio_prompt'] }, data: object({ prompt: text }) }),
+    object({ name: { type: 'string', enum: ['set_resolution'] }, data: object({ resolution: text }) }),
+    object({ name: { type: 'string', enum: ['start', 'pause', 'resume', 'reset'] }, data: object({}) }),
   ] } },
   overlay: { anyOf: [{ type: 'null' }, object({ jp: text, kana: text, romaji: text, zh: text, en: text, hintLevel: { type: 'number' } })] },
   feedback: { anyOf: [{ type: 'null' }, object({ score: { type: 'number' }, notes: { type: 'array', items: text } })] },
-  advance: { enum: ['stay', 'next_line', 'scene_done'] },
-  route: object({ kind: { enum: ['main', 'detour', 'rejoin'] }, nodeId: text, label: text, returnBeat: { type: 'number' }, step: { type: 'number' }, total: { type: 'number' } }),
+  advance: { type: 'string', enum: ['stay', 'next_line', 'scene_done'] },
+  route: object({ kind: { type: 'string', enum: ['main', 'detour', 'rejoin'] }, nodeId: text, label: text, returnBeat: { type: 'number' }, step: { type: 'number' }, total: { type: 'number' } }),
 }, ['visko', 'overlay', 'feedback', 'advance']);
 export function validateSchema(value, schema = RESPONSE_SCHEMA) {
   if (schema.anyOf) return schema.anyOf.some((s) => validateSchema(value, s));

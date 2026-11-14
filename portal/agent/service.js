@@ -4,7 +4,7 @@ import path from 'node:path';
 import { AgentError, createLessonStore, flattenLesson } from './lessons.js';
 import { hasBannedTerm, safePrompt, scoreTranscript } from './guardrails.js';
 import { validateSchema } from './schema.js';
-import { createClaudeClient, createClaudePlanner } from './llm.js';
+import { createLessonClient, createLessonPlanner } from './llm.js';
 import { initializeFlow, detectedIntent, scriptedPlan, validatePlan, startDetour, detourTurn, moveMain } from './flow.js';
 const LOG_ROOT = fileURLToPath(new URL('./logs/', import.meta.url));
 const plain = (v) => v && typeof v === 'object' && !Array.isArray(v);
@@ -88,7 +88,7 @@ function repairOutput(candidate, fallback) {
   if (notes.length) result.feedback = { score: result.feedback?.score ?? 0, notes: [...(result.feedback?.notes || []), ...notes].slice(0, 10) };
   return result;
 }
-export function createAgentService({ store = createLessonStore(), llm = createClaudeClient(), planner = createClaudePlanner(), log = writeDecision, now = Date.now, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)), promptIntervalMs = 2000, maxSessions = 500 } = {}) {
+export function createAgentService({ store = createLessonStore(), llm = createLessonClient(), planner = createLessonPlanner(), log = writeDecision, now = Date.now, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)), promptIntervalMs = 2000, maxSessions = 500 } = {}) {
   const sessions = new Map();
   async function turn(input) {
     const request = validateRequest(input);
