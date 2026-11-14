@@ -3,6 +3,7 @@
 const $ = (id) => document.getElementById(id);
 const MODELS = { stable: 'reactor/visko-orbis-stable', dynamic: 'reactor/visko-orbis-dynamic' };
 const SAMPLES = [
+  { file: 'konbini-checkout-original.png', label: 'Convenience-store checkout · original illustration', caption: 'Original illustrated convenience-store checkout with an adult clerk, a counter and shelves of plainly packaged food and drinks.' },
   { file: 'tokyo-house-interior.jpg', label: 'Tokyo home · tatami room', caption: 'Traditional Japanese house interior with wooden ceiling, sliding doors and floor.' },
   { file: 'historic-japanese-interior.jpg', label: 'Historic Japanese room', caption: 'Historic Japanese room with tatami floor and sliding screens.' },
   { file: 'tokyo-garden.jpg', label: 'Tokyo garden', caption: 'Japanese garden with a pine tree, stone lantern and pond.' },
@@ -14,10 +15,16 @@ let lesson, catalog = [], beat = 0, busy = false, active = false, finished = fal
 let closing = false, epoch = 0, apiAbort, photoFile, photoCaption = '', previewUrl, imageRef;
 let lastSdkError = null, lastPromptAt = 0, latestDecision = null;
 let availableResolutions = [], webResolution = 'native';
+let runtimeEvents = [], runtimeState = { lastChunkIndex: null, activePrompt: null, currentPrompt: null };
 let mediaStream = new MediaStream();
 
 if (token) $('homeLink').href = `/?portal_token=${encodeURIComponent(token)}`;
 
+function recordRuntime(kind, data = {}) {
+  runtimeEvents.push({ at: new Date().toISOString(), kind, ...data });
+  runtimeEvents = runtimeEvents.slice(-16);
+  $('runtimeTrace').textContent = JSON.stringify({ model, sessionId, resolution: webResolution, ...runtimeState, events: runtimeEvents }, null, 2);
+}
 function notify(text, error = false) { $('notice').textContent = text; $('notice').classList.toggle('error', error); }
 function refresh() {
   $('begin').disabled = busy || active || !lesson;
@@ -29,6 +36,8 @@ function refresh() {
   $('speak').disabled = !active || busy || finished || !SpeechRecognition || !!recognition;
   $('stopSpeech').disabled = !recognition;
   $('stopSpeech').hidden = !recognition;
+  $('speechMode').disabled = busy || !!recognition; $('intentLanguage').disabled = !!recognition;
+  $('speak').textContent = $('speechMode').value === 'intent' ? 'Tell guide' : 'Speak Japanese';
   $('sound').disabled = !reactor;
   $('sessionInfo').textContent = sessionId ? `${preview ? 'Practice' : model} · ${sessionId}` : sharedSession ? `Shared session available: ${sharedSession.sessionId}` : '';
 }
@@ -136,6 +145,7 @@ async function command(name, data = {}, client = reactor) {
   if (!client) return;
   lastSdkError = null;
   const reply = await client.sendCommand(name, data);
+  if (client === reactor) recordRuntime('command_reply', { name, type: reply?.type || 'ack', ...(reply?.data?.reason ? { reason: String(reply.data.reason).slice(0, 1000) } : {}) });
   if (reply?.type === 'command_error') throw new Error(reply.data?.reason || `${name} was rejected.`);
   if (lastSdkError) throw new Error(lastSdkError.message || String(lastSdkError));
   return reply;
@@ -145,8 +155,8 @@ async function connectReactor(targetModel, joinId, run) {
   assertCurrent(run);
   sdkPromise ||= import('https://esm.sh/@reactor-team/js-sdk@3.4.0');
   const { Reactor } = await sdkPromise; assertCurrent(run);
-  const client = new Reactor({ modelName: targetModel }); reactor = client; model = targetModel;
-  client.on('error', (error) => { if (client === reactor) lastSdkError = error; });
+  const client = new Reactor({ modelName: targetModel }); reactor = client; model = targetModel; recordRuntime('connect', { model: targetModel });
+  client.on('error', (error) => { if (client === reactor) { lastSdkError = error; recordRuntime('sdk_error', { message: String(error?.message || error).slice(0, 1000) }); } });
   client.on('statusChanged', (status) => {
     if (client !== reactor || run !== epoch) return;
     $('sceneStatus').textContent = `Visko ${status}`;
@@ -161,10 +171,17 @@ async function connectReactor(targetModel, joinId, run) {
   });
   client.on('message', (msg) => {
     if (client !== reactor || run !== epoch) return;
-    if (msg.type === 'chunk_complete') $('sceneStatus').textContent = `Live · ${webResolution} · chunk ${msg.data?.chunk_index ?? ''}`;
-    if (msg.type === 'command_error') { lastSdkError = new Error(msg.data?.reason || 'Scene command rejected'); notify(lastSdkError.message, true); }
+    if (msg.type === 'chunk_complete') {
+      $('sceneStatus').textContent = `Live · ${webResolution} · chunk ${msg.data?.chunk_index ?? ''}`;
+      runtimeState.lastChunkIndex = msg.data?.chunk_index ?? null;
+      runtimeState.activePrompt = typeof msg.data?.active_prompt === 'string' ? msg.data.active_prompt.slice(0, 1000) : null;
+      recordRuntime('chunk_complete', { chunkIndex: runtimeState.lastChunkIndex, activePrompt: runtimeState.activePrompt });
+    }
+    if (msg.type === 'command_error') { lastSdkError = new Error(msg.data?.reason || 'Scene command rejected'); notify(lastSdkError.message, true); recordRuntime('command_error', { reason: lastSdkError.message.slice(0, 1000) }); }
     if (msg.type === 'state') {
       if (Array.isArray(msg.data?.available_resolutions)) availableResolutions = msg.data.available_resolutions;
+      if (typeof msg.data?.current_prompt === 'string') runtimeState.currentPrompt = msg.data.current_prompt.slice(0, 1000);
+      recordRuntime('state', { currentPrompt: runtimeState.currentPrompt, availableResolutions });
       hubSend({ type: 'state', sessionId, data: msg.data });
     }
   });
@@ -178,6 +195,7 @@ async function connectReactor(targetModel, joinId, run) {
 async function begin() {
   if (busy || active || !lesson) return;
   busy = true; finished = false; preview = $('previewOnly').checked; beat = 0; imageRef = null; latestDecision = null; lastPromptAt = 0; availableResolutions = []; webResolution = 'native';
+  runtimeEvents = []; runtimeState = { lastChunkIndex: null, activePrompt: null, currentPrompt: null }; $('runtimeTrace').textContent = 'No live model activity.';
   const run = ++epoch; apiAbort = new AbortController(); refresh(); notify('Preparing your scene…');
   try {
     const photo = photoFile ? await preparePhoto(photoFile) : null; assertCurrent(run);
@@ -253,12 +271,18 @@ function renderDecision(decision, hasSpeech = false) {
   $('feedback').textContent = decision.feedback ? `${hasSpeech ? `${decision.feedback.score}/100 · ` : ''}${(decision.feedback.notes || []).join(' ')}` : '';
   const total = lesson?.beats.reduce((n, b) => n + b.lines.length, 0) || 0;
   $('progress').textContent = decision.advance === 'scene_done' ? 'SCENE COMPLETE' : `LINE ${Math.min(beat + 1, total)} / ${total}`;
+  const route = decision.route;
+  const onDetour = route?.kind === 'detour';
+  $('routeStatus').hidden = !onDetour && route?.kind !== 'rejoin';
+  $('routeStatus').textContent = onDetour
+    ? `支线 · ${route.label} ${route.step}/${route.total} → 主线 ${Number(route.returnBeat) + 1}`
+    : route?.kind === 'rejoin' ? `回到主线 · ${route.label}` : '';
 }
-async function turn({ gesture = null, transcript } = {}, run = epoch) {
+async function turn({ gesture = null, transcript, intent } = {}, run = epoch) {
   if (!active || busy || finished) return;
   busy = true; refresh();
   const context = contextSnapshot(gesture);
-  const request = { sessionId, lessonId: lesson.id, beat, imageRef, context, ...(transcript ? { transcript } : {}) };
+  const request = { sessionId, lessonId: lesson.id, beat, imageRef, context, ...(transcript ? { transcript } : {}), ...(intent ? { intent } : {}) };
   try {
     const decision = await api('/api/agent/turn', request, apiAbort.signal); assertCurrent(run);
     if (!Array.isArray(decision.visko) || !['stay', 'next_line', 'scene_done'].includes(decision.advance)) throw new Error('The lesson guide returned an invalid decision.');
@@ -272,7 +296,7 @@ async function turn({ gesture = null, transcript } = {}, run = epoch) {
     finished = decision.advance === 'scene_done'; latestDecision = decision;
     const execution = { mode: preview ? 'practice' : 'live', resolution: preview ? null : webResolution, visko: executed };
     renderDecision(decision, Boolean(transcript)); $('decision').textContent = JSON.stringify({ request, response: decision, execution }, null, 2);
-    hubSend({ type: 'learn', sessionId, lessonId: lesson.id, beat, context, ...(transcript ? { transcript } : {}), ...decision, execution });
+    hubSend({ type: 'learn', sessionId, lessonId: lesson.id, beat, context, ...(transcript ? { transcript } : {}), ...(intent ? { intent } : {}), ...decision, execution });
     notify(finished ? (preview ? 'Practice complete. Press Leave to start again.' : 'Lesson complete. Press Leave to end the billed session.') : preview ? 'Practice mode: speak a line or try the glasses signals.' : 'Your scene is ready. Speak the Japanese line, or ask for a hint.');
     return true;
   } catch (error) { if (run === epoch && error.name !== 'AbortError') notify(`Turn failed: ${error.message}`, true); return false; }
@@ -281,10 +305,10 @@ async function turn({ gesture = null, transcript } = {}, run = epoch) {
 function stopSpeech() { if (recognition) recognition.stop(); }
 function startSpeech() {
   if (!SpeechRecognition || recognition || busy || !active) return;
-  const speech = new SpeechRecognition(), run = epoch; recognition = speech;
-  speech.lang = 'ja-JP'; speech.interimResults = true; speech.continuous = false; speech.maxAlternatives = 1;
+  const speech = new SpeechRecognition(), run = epoch, intentMode = $('speechMode').value === 'intent'; recognition = speech;
+  speech.lang = intentMode ? $('intentLanguage').value : 'ja-JP'; speech.interimResults = true; speech.continuous = false; speech.maxAlternatives = 1;
   let finalText = '';
-  speech.onstart = () => { $('speechStatus').textContent = 'Listening in Japanese…'; refresh(); };
+  speech.onstart = () => { $('speechStatus').textContent = intentMode ? `Tell the guide what you want to do · ${speech.lang}…` : 'Listening in Japanese…'; refresh(); };
   speech.onresult = (event) => {
     if (run !== epoch) return;
     let interim = '';
@@ -298,7 +322,7 @@ function startSpeech() {
   speech.onend = () => {
     if (recognition === speech) recognition = null;
     $('speechStatus').textContent = 'Microphone stopped.'; refresh();
-    if (run === epoch && finalText.trim()) void turn({ transcript: finalText.trim() }, run);
+    if (run === epoch && finalText.trim()) void turn(intentMode ? { intent: finalText.trim() } : { transcript: finalText.trim() }, run);
   };
   try { speech.start(); refresh(); } catch (error) { recognition = null; notify(error.message, true); refresh(); }
 }
@@ -328,7 +352,7 @@ function unload() {
 
 $('sample').append(...SAMPLES.map((sample) => new Option(sample.label, sample.file)));
 $('lesson').onchange = () => void chooseLesson();
-$('sample').onchange = async () => { busy = true; refresh(); try { await chooseSample(); notify('Start photo selected.'); } catch (error) { notify(error.message, true); } finally { busy = false; refresh(); } };
+$('sample').onchange = async () => { busy = true; refresh(); try { await chooseSample(); notify('Start image selected.'); } catch (error) { notify(error.message, true); } finally { busy = false; refresh(); } };
 $('photo').onchange = () => {
   const file = $('photo').files[0]; if (!file) return;
   if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 10 * 1024 * 1024) { notify('Choose a JPEG, PNG or WebP photo under 10 MB.', true); $('photo').value = ''; return; }
@@ -337,6 +361,10 @@ $('photo').onchange = () => {
 $('setupToggle').onclick = () => setSetupOpen($('setupPanel').hidden);
 $('setupClose').onclick = () => { setSetupOpen(false); $('setupToggle').focus(); };
 $('previewOnly').onchange = refresh;
+$('speechMode').onchange = () => {
+  refresh();
+  $('speechStatus').textContent = $('speechMode').value === 'intent' ? 'Say what you want to do. The guide will lead you back to the lesson.' : 'Practice the Japanese line in the scene.';
+};
 $('translationToggle').onclick = () => {
   $('translations').hidden = !$('translations').hidden;
   $('translationToggle').setAttribute('aria-expanded', String(!$('translations').hidden));
