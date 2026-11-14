@@ -49,3 +49,10 @@ test('OpenAI env key wins for turns and planning; provider failure uses script, 
     for (const [env, value] of [['OPENAI_API_KEY', saved.openai], ['OPENAI_MODEL', saved.model], ['ANTHROPIC_API_KEY', saved.claude]]) { if (value === undefined) delete process.env[env]; else process.env[env] = value; }
   }
 });
+test('requested Luna default disables reasoning; older explicit overrides receive no reasoning parameter', async () => {
+  for (const [model, expected] of [[DEFAULT_OPENAI_MODEL, { effort: 'none' }], ['gpt-4o', undefined]]) {
+    let body; const client = createOpenAIClient({ apiKey: 'sk-fake', model, reasoningEffort: 'none', fetchImpl: async (_url, init) => { body = JSON.parse(init.body); return success({}); } });
+    await client(input); assert.equal(body.model, model); assert.deepEqual(body.reasoning, expected);
+  }
+  assert.equal(DEFAULT_OPENAI_MODEL, 'gpt-6-luna');
+});

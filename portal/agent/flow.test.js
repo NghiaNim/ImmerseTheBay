@@ -97,3 +97,10 @@ test('return clauses do not change simple goals; non-finding actions are never s
   assert.equal(scriptedPlan('我想请店员帮我把买的便当加热，然后回到结账', lesson, 6), null);
   assert.equal(scriptedPlan('Please refund this sandwich and go back to checkout', lesson, 6), null);
 });
+test('planner instructions enforce learner role and primary goal; known clerk-role output is rejected', async () => {
+  const { lessonSystemPrompt } = await import('./prompts.js');
+  const { validatePlan } = await import('./flow.js');
+  const prompt = lessonSystemPrompt(true);
+  assert.match(prompt, /spoken by the LEARNER/); assert.match(prompt, /ONLY the saved RETURN ANCHOR/); assert.match(prompt, /exact primary learner goal/); assert.match(prompt, /Do not introduce unrequested products/);
+  assert.throws(() => validatePlan({ ...generated, nodes: [{ ...generated.nodes[0], jp: 'お客様、ご案内いたしますね。' }] }, 6), /clerk role/);
+});

@@ -112,3 +112,9 @@ test('real home lesson romaji does not trigger character-name substrings', async
   assert.equal(hasBannedTerm('tonaruto'), false);
   for (const name of ['Naruto enters.', 'Ｄｏｒａｅｍｏｎ', 'Dora\u200bemon', 'D.o.r.a.e.m.o.n', 'Mickey Mouse', 'ドラえもん']) assert.equal(hasBannedTerm(name), true, name);
 });
+test('gesture navigation skips model latency while opening and speech still request feedback', async () => {
+  let calls = 0; const { service } = setup({ llm: async ({ fallback }) => { calls++; return fallback; } });
+  await service.turn(request()); assert.equal(calls, 1);
+  const next = await service.turn(request({ context: { gesture: 'pinch' } })); assert.equal(next.advance, 'next_line'); assert.equal(calls, 1);
+  await service.turn(request({ beat: 1, transcript: lesson.beats[0].lines[1].kana })); assert.equal(calls, 2);
+});

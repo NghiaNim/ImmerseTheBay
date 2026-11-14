@@ -47,6 +47,7 @@ export function scriptedPlan(intent, lesson, returnBeat) {
 export function validatePlan(plan, returnBeat) {
   if (!validateSchema(plan, PLAN_SCHEMA) || plan.returnBeat !== returnBeat || plan.nodes.length < 1 || plan.nodes.length > 3 || plan.label.length > 100 || !plan.label.trim() || hasBannedTerm(JSON.stringify(plan))) throw new Error('Unsafe detour plan');
   const nodes = plan.nodes.map((node) => {
+    if (/お客様|いらっしゃいませ|温めいたしましょうか|ご案内いたします/u.test(node.jp)) throw new Error('Detour line uses the clerk role');
     if (Object.values(node).some((v) => !v.trim() || v.length > 500)) throw new Error('Invalid detour line');
     if (/cut to|teleport|new scene|another store|different store|scene reset|restart the scene/iu.test(node.cue)) throw new Error('Detour breaks scene continuity');
     return { ...node, cue: safePrompt(node.cue, 'The assistant waits beside the shelf.') };
