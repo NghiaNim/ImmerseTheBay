@@ -44,3 +44,9 @@ Open `http://localhost:8790`, put the printed LAN URL into `Assets/StreamingAsse
 - Quotas: 5 concurrent sessions and 10 new sessions/min per account. A session cannot outlive its token (portal mints 6 h tokens).
 - The docs don't state explicitly whether a joined client may send commands; the relay path covers that case. Verify on first real run.
 - Frames cross JNI as a byte[] copy each frame; keep resolution at `native` (832×480) in the glasses for performance.
+
+## Dynamic capacity handling
+
+The learning page retries only new Dynamic connections that fail with HTTP 429 before a session is allocated. It uses up to four attempts within a 90-second budget, with approximately 8/16/32-second jittered waits when no provider delay is supplied. SDK retry hints and HTTP Retry-After take precedence; long hints retain the cooldown instead of retrying early. A countdown distinguishes capacity exhaustion from rate limiting. Leave cancels immediately, and starting again in the same page still honors its cooldown. Existing session joins, authorization failures, allocated sessions, and unconfirmed disconnects are not automatically retried. No automatic Stable substitution occurs. In-session prompt pacing remains separate.
+
+Verified using nine persistent unit tests and mocked browser SDK scenarios, including two 429s followed by success, exhaustion, cancellation, cooldown persistence and duplicate-session protection; no live capacity recovery was claimed.
