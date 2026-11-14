@@ -1,3 +1,4 @@
+import { connectWithCapacityRetry } from './dynamic-retry.js';
 import { installScenePoint } from './scene-point.js';
 // SDK 3.4.0 signatures verified against its published declarations and Reactor's
 // reactor-class / Visko stable schema docs. sendCommand reports errors via replies/events.
@@ -16,6 +17,7 @@ let lesson, catalog = [], beat = 0, busy = false, active = false, finished = fal
 let closing = false, epoch = 0, apiAbort, photoFile, photoCaption = '', previewUrl, imageRef;
 let lastSdkError = null, lastPromptAt = 0, latestDecision = null;
 let availableResolutions = [], webResolution = 'native';
+let nextAllowedConnectAt = 0, lastRateLimitReason = 'rate_limit';
 let runtimeEvents = [], runtimeState = emptyRuntimeState();
 let mediaStream = new MediaStream();
 let recording = null, micStarting = false, transcribing = false, speechAttempt = 0;
@@ -56,7 +58,10 @@ function authHeaders() { return token ? { portal_token: token } : {}; }
 async function api(path, body, signal) {
   const response = await fetch(path, { method: body === undefined ? 'GET' : 'POST', headers: { ...authHeaders(), ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) }, body: body === undefined ? undefined : JSON.stringify(body), signal });
   const data = await response.json();
-  if (!response.ok) throw new Error(data.error || `Portal returned ${response.status}`);
+  if (!response.ok) {
+    const error = new Error(data.error || `Portal returned ${response.status}`);
+    error.status = response.status; error.retryAfterHeader = response.headers.get('retry-after'); throw error;
+  }
   return data;
 }
 function hubSend(data) { if (hub?.readyState === WebSocket.OPEN) hub.send(JSON.stringify(data)); }
@@ -204,7 +209,18 @@ async function connectReactor(targetModel, joinId, run) {
     }
   });
   try { await client.connect(credentials.jwt, joinId ? { sessionId: joinId } : undefined); assertCurrent(run); }
-  catch (error) { if (reactor === client) reactor = null; await client.disconnect().catch(() => {}); throw error; }
+  catch (error) {
+    const allocatedSession = client.getSessionId();
+    let cleanupTimer, cleanupFailed = false;
+    try { await Promise.race([client.disconnect(), new Promise((_, reject) => { cleanupTimer = setTimeout(() => reject(new Error('Disconnect timeout')), 5000); })]); }
+    catch { cleanupFailed = true; }
+    finally { clearTimeout(cleanupTimer); if (reactor === client && !cleanupFailed) reactor = null; }
+    if (allocatedSession || cleanupFailed) {
+      const blocked = new Error(`${error?.message || 'Connection failed'}. Automatic retry stopped because ${allocatedSession ? 'a session was allocated' : 'disconnect was not confirmed'}.`);
+      Object.assign(blocked, { noRetry: true, status: error?.status, code: error?.code, retry_after_ms: error?.retry_after_ms, cause: error }); throw blocked;
+    }
+    throw error;
+  }
   sessionId = client.getSessionId() || joinId;
   if (!sessionId) throw new Error('Visko connected without a session ID.');
   hubSend({ type: 'session', model: targetModel, sessionId, owner: joinId ? sharedSession?.owner || 'unity' : 'web' });
@@ -224,7 +240,19 @@ async function begin() {
     } else {
       const joinId = $('sessionId').value.trim();
       const requestedModel = MODELS[$('model').value];
-      const client = await connectReactor(requestedModel, joinId, run);
+      const client = requestedModel === MODELS.dynamic && !joinId
+        ? await connectWithCapacityRetry({
+          connect: () => { assertCurrent(run); return connectReactor(requestedModel, '', run); }, signal: apiAbort.signal,
+          getCooldown: () => nextAllowedConnectAt, getReason: () => lastRateLimitReason,
+          setCooldown: (until, reason) => { nextAllowedConnectAt = until; lastRateLimitReason = reason; },
+          onWait: ({ seconds, attempt, maxAttempts, reason }) => {
+            if (run !== epoch) return;
+            $('retryStatus').hidden = false;
+            $('retryStatus').textContent = `Dynamic ${reason === 'capacity' ? 'has no capacity' : 'is rate limited'} (429) · retry in ${seconds}s · attempt ${attempt}/${maxAttempts}. Leave cancels.`;
+          },
+        })
+        : await connectReactor(requestedModel, joinId, run);
+      $('retryStatus').hidden = true;
       assertCurrent(run);
       // Joining for a new lesson explicitly resets the model before applying its start photo.
       if (joinId) await command('reset', {}, client);
@@ -440,7 +468,7 @@ function startSpeech() {
 }
 async function leave(message = 'You have left the lesson.') {
   scenePoint.clear();
-  ++epoch; apiAbort?.abort(); const client = reactor, oldId = sessionId, wasPreview = preview;
+  ++epoch; apiAbort?.abort(); $('retryStatus').hidden = true; const client = reactor, oldId = sessionId, wasPreview = preview;
   reactor = null; active = false; busy = false; sessionId = null; finished = false; latestDecision = null;
   cancelSpeech();
   if (oldId && !wasPreview) hubSend({ type: 'session_end', sessionId: oldId });
