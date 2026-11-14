@@ -82,3 +82,18 @@ test('detour planner adapter sends strict plan schema and saved anchor', async (
   await planner({ lesson, current: main[6], intent: 'warm tea', returnBeat: 6, context: {} });
   assert.ok(body.output_config.format.schema.properties.nodes); assert.equal(JSON.parse(body.messages[0].content).returnBeat, 6); assert.match(body.system, /never a scene reset/);
 });
+test('primary bento-heating goal reaches planner instead of matching its checkout rejoin clause', async () => {
+  const heated = { label: 'Heat the bento', returnBeat: 6, nodes: [{ jp: 'このお弁当を温めていただけますか。', kana: 'このおべんとうをあたためていただけますか。', romaji: 'Kono obentou o atatamete itadakemasu ka.', zh: '可以帮我加热这个便当吗？', en: 'Could you heat this bento for me?', cue: 'The assistant places the bento beside the microwave.' }] };
+  for (const intent of ['我想请店员帮我把买的便当加热，然后回到结账', 'Please heat my bento, then return to checkout', 'お弁当を温めてほしい。その後レジに戻りたい']) {
+    let observed; const { turn } = setup({ planner: async (input) => { observed = input.intent; return heated; } }); await turn();
+    const r = await turn({ intent }); assert.equal(observed, intent); assert.equal(r.overlay.jp, heated.nodes[0].jp); assert.equal(r.route.label, 'Heat the bento');
+    const resumed = await turn({ transcript: r.overlay.kana }); assert.equal(resumed.route.kind, 'rejoin'); assert.equal(resumed.overlay.jp, main[6].line.jp);
+  }
+});
+test('return clauses do not change simple goals; non-finding actions are never substituted with shopping templates', async () => {
+  const { scriptedPlan } = await import('./flow.js');
+  assert.match(scriptedPlan('I want a sandwich, then return to checkout', lesson, 6).label, /sandwich/);
+  assert.equal(scriptedPlan('I want warm tea, then return to checkout', lesson, 6), null);
+  assert.equal(scriptedPlan('我想请店员帮我把买的便当加热，然后回到结账', lesson, 6), null);
+  assert.equal(scriptedPlan('Please refund this sandwich and go back to checkout', lesson, 6), null);
+});

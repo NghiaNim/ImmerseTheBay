@@ -27,11 +27,21 @@ export function detectedIntent(request, target) {
   const item = /sandwich|サンドイッチ|さんどいっち|三明治|counter|checkout|レジ|れじ|收银|收銀|商品|product|item|货架|貨架/iu;
   return desire.test(transcript) && item.test(transcript) ? transcript : null;
 }
+export function primaryIntent(intent) {
+  // Returning to the lesson is a continuation instruction, not the shopping goal.
+  // Keep the original text for the planner; only deterministic classification uses this prefix.
+  return intent.split(/(?:[,;]\s*|\s+)(?:and\s+)?(?:then\s+)?(?:return to|go back to|rejoin|resume|back to)\b|[，,]?(?:然后|然後)(?:再)?(?:回到|返回|继续|繼續)|[，,]?(?:再)?(?:回到|返回)(?:主线|主線|结账|結帳|收银|收銀)|(?:その後|それから|そして)[^。]*(?:戻|もど)|(?:会計|レジ|本線|本筋)に(?:戻|もど)/iu)[0].trim();
+}
 export function scriptedPlan(intent, lesson, returnBeat) {
   if (!/konbini|convenience|コンビニ/iu.test(lesson.id + ' ' + lesson.title)) return null;
-  if (/sandwich|サンドイッチ|さんどいっち|三明治/iu.test(intent)) return { label: 'サンドイッチを選ぶ · Choose a sandwich', returnBeat, nodes: structuredClone(sandwich) };
-  if (/counter|checkout|レジ|れじ|收银|收銀|结账|結帳/iu.test(intent)) return { label: 'レジを探す · Find the counter', returnBeat, nodes: structuredClone(counter) };
-  if (/product|item|shelf|商品|货架|貨架/iu.test(intent)) return { label: '商品を探す · Find an item', returnBeat, nodes: structuredClone(product) };
+  const goal = primaryIntent(intent);
+  // These actions are not the built-in find/choose interaction, even if they
+  // mention a sandwich, shelf or counter. Let the bounded planner author them.
+  if (/\b(?:heat|reheat|microwave|refund|exchange|allerg(?:y|ies|en)|ingredients?)\b|warm[^.!?]*up|return[^.!?]*item|加热|加熱|热一下|熱一下|退货|退貨|退款|换货|換貨|过敏|過敏|配料|温め|あたため|返品|交換|アレルギー|原材料/iu.test(goal)) return null;
+  if (/sandwich|サンドイッチ|さんどいっち|三明治/iu.test(goal)) return { label: 'サンドイッチを選ぶ · Choose a sandwich', returnBeat, nodes: structuredClone(sandwich) };
+  const findCounter = /\b(?:find|locate|where is|where's|looking for|want(?: to go to)?|need to find|take me to|go to)\s+(?:the\s+)?(?:checkout(?:\s+counter)?|counter)\b|(?:找|去|到)(?:一下|那个|那個|这个|這個)?(?:收银台|收銀台|结账台|結帳台)|(?:我想|我要|想要)(?:去)?(?:结账|結帳|结帐)|(?:收银台|收銀台|结账台|結帳台)(?:在哪|在哪里|在哪裡)|(?:レジ|会計)[^。]*(?:どこ|探|行きたい|いきたい)/iu;
+  if (findCounter.test(goal)) return { label: 'レジを探す · Find the counter', returnBeat, nodes: structuredClone(counter) };
+  if (/product|item|shelf|商品|货架|貨架/iu.test(goal)) return { label: '商品を探す · Find an item', returnBeat, nodes: structuredClone(product) };
   return null;
 }
 export function validatePlan(plan, returnBeat) {
