@@ -158,7 +158,9 @@ export function createAgentService({ store = createLessonStore(), llm = createLe
       }
       fallback.route = { ...state.flow.current };
       let response = fallback;
-      if (llm && !branchTurn && !intent) {
+      // Gesture-only/context-only navigation uses authored deltas immediately;
+      // reserve optional model refinement for opening and actual spoken practice.
+      if (llm && !branchTurn && !intent && (!state.started || request.transcript?.trim())) {
         try {
           response = repairOutput(await llm({ lesson, current, transcript: request.transcript || '', context: request.context, photoCaption: plain(request.imageRef) ? request.imageRef.caption || '' : '', attempts: state.attempts, fallback: structuredClone(fallback) }), fallback);
           source = 'llm';
