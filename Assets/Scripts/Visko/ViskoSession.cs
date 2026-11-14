@@ -135,6 +135,8 @@ namespace ImmerseTheBay.Visko
 
         public void StartGeneration(string prompt = null)
         {
+            // Always native 832x480: resolution applies at the next start, so set it right before starting.
+            Command("set_resolution", "{\"resolution\":\"" + glassesResolution + "\"}");
             Command("set_prompt", "{\"prompt\":\"" + Esc(string.IsNullOrEmpty(prompt) ? config.defaultPrompt : prompt) + "\"}");
             Command("start", null);
         }

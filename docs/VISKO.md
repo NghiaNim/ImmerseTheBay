@@ -7,7 +7,7 @@ Visko Orbis models run on Reactor (docs.reactor.inc) and stream real-time genera
 | Dynamic (default) | `reactor/visko-orbis-dynamic` | `max_chunks` up to 229 (~7 min/run). State has `current_prompt`; `chunk_complete` has `active_prompt`. No `passthrough` on `set_prompt`. |
 | Stable | `reactor/visko-orbis-stable` | up to 2000 chunks (~61 min/run). `set_prompt` accepts `passthrough`. |
 
-Common: 832×480 generation upscaled to `available_resolutions` (native/1080p/2k/4k), 18 fps `main_video`, 48 kHz mono `main_audio`, 33-frame chunks (~1.8 s); a new prompt morphs at the next chunk. Commands: `set_prompt`, `set_audio_prompt`, `set_image`, `set_seed`, `set_resolution`, `set_audio_enabled`, `start`, `pause`, `resume`, `reset`. Billing runs from `ready` until the session ends, even when idle — always Leave when done.
+Common: 832×480 generation upscaled to `available_resolutions` (native/1080p/2k/4k). **We always run at `native` (832×480)**: both the web Start button and the glasses send `set_resolution native` before every `start`. Streams: 18 fps `main_video`, 48 kHz mono `main_audio`, 33-frame chunks (~1.8 s); a new prompt morphs at the next chunk. Commands: `set_prompt`, `set_audio_prompt`, `set_image`, `set_seed`, `set_resolution`, `set_audio_enabled`, `start`, `pause`, `resume`, `reset`. Billing runs from `ready` until the session ends, even when idle — always Leave when done.
 
 ## Where the API key goes
 **`portal/.env`** (gitignored; copy from `portal/.env.example`):

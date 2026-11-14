@@ -186,7 +186,12 @@ $('create').onclick = () => createWithRetry();
 $('join').onclick = () => unitySession && connect({ model: unitySession.model, sessionId: unitySession.sessionId }).catch((e) => { log('join failed', e.message); cleanup(); });
 $('leave').onclick = leave;
 $('setPrompt').onclick = () => runCommand('set_prompt', { prompt: $('prompt').value.trim() });
-$('start').onclick = async () => { await runCommand('set_prompt', { prompt: $('prompt').value.trim() }); await runCommand('start'); };
+// Everything runs at native 832x480 (glasses-friendly); resolution applies at the next start, so send it every time.
+$('start').onclick = async () => {
+  await runCommand('set_resolution', { resolution: $('resolution').value || 'native' });
+  await runCommand('set_prompt', { prompt: $('prompt').value.trim() });
+  await runCommand('start');
+};
 $('pause').onclick = () => runCommand('pause');
 $('resume').onclick = () => runCommand('resume');
 $('reset').onclick = () => runCommand('reset');
