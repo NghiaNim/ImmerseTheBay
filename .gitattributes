@@ -3,5 +3,4 @@
 *.prefab text merge=unityyamlmerge eol=lf
 *.asset text merge=unityyamlmerge eol=lf
 *.meta text eol=lf
-* !text !filter !merge !diff
 # Git LFS is disabled on the GitHub repo; keep binary assets small and commit them normally.
