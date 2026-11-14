@@ -4,17 +4,19 @@ import path from 'node:path';
 import { AgentError, createLessonStore, flattenLesson } from './lessons.js';
 import { hasBannedTerm, safePrompt, scoreTranscript } from './guardrails.js';
 import { validateSchema } from './schema.js';
-import { createClaudeClient } from './llm.js';
+import { createClaudeClient, createClaudePlanner } from './llm.js';
+import { initializeFlow, detectedIntent, scriptedPlan, validatePlan, startDetour, detourTurn, moveMain } from './flow.js';
 const LOG_ROOT = fileURLToPath(new URL('./logs/', import.meta.url));
 const plain = (v) => v && typeof v === 'object' && !Array.isArray(v);
 const bounded = (v, n) => typeof v === 'string' && v.length <= n;
 function invalid(message) { throw new AgentError(400, message); }
 export function validateRequest(body) {
   if (!plain(body)) invalid('JSON object required');
-  if (Object.keys(body).some((k) => !['sessionId', 'lessonId', 'beat', 'transcript', 'imageRef', 'context'].includes(k))) invalid('Unknown request field');
+  if (Object.keys(body).some((k) => !['sessionId', 'lessonId', 'beat', 'transcript', 'intent', 'imageRef', 'context'].includes(k))) invalid('Unknown request field');
   if (!bounded(body.sessionId, 160) || !/^[a-zA-Z0-9_.:-]+$/.test(body.sessionId)) invalid('Invalid sessionId');
   if (!bounded(body.lessonId, 80) || !/^[a-z0-9][a-z0-9-]*$/.test(body.lessonId)) invalid('Invalid lessonId');
   if (!Number.isInteger(body.beat) || body.beat < 0 || body.beat > 5000) invalid('beat must be a nonnegative flattened line index');
+  if (body.intent !== undefined && (!bounded(body.intent, 500) || !body.intent.trim())) invalid('intent must be 1 to 500 characters');
   if (body.transcript !== undefined && !bounded(body.transcript, 1000)) invalid('transcript must be at most 1000 characters');
   if (body.imageRef !== undefined && body.imageRef !== null) {
     const ref = body.imageRef;
@@ -67,7 +69,7 @@ function scriptTurn(request, lesson, state) {
   let prompt = first ? lesson.scenePrompt : target.line.cue;
   if (!first && point && vocab) prompt = `The camera moves closer to the ${vocab.objectHint}.`;
   else if (!first && nearby) prompt = `${target.line.cue} The ${nearby.objectHint} stays in view.`;
-  if (first && plain(request.imageRef) && request.imageRef.caption && !hasBannedTerm(request.imageRef.caption)) notes.push('The selected photo anchors the opening scene.');
+  if (first && plain(request.imageRef) && request.imageRef.caption && !hasBannedTerm(request.imageRef.caption)) notes.push('The selected image anchors the opening scene.');
   prompt = safePrompt(prompt, NEUTRAL_PROMPT);
   const visko = done ? [{ name: 'pause', data: {} }] : [{ name: 'set_prompt', data: { prompt } }];
   if (first) visko.push({ name: 'set_audio_prompt', data: { prompt: safePrompt(lesson.audioPrompt, 'Quiet room ambience.') } }, { name: 'set_resolution', data: { resolution: 'native' } }, { name: 'start', data: {} });
@@ -86,7 +88,7 @@ function repairOutput(candidate, fallback) {
   if (notes.length) result.feedback = { score: result.feedback?.score ?? 0, notes: [...(result.feedback?.notes || []), ...notes].slice(0, 10) };
   return result;
 }
-export function createAgentService({ store = createLessonStore(), llm = createClaudeClient(), log = writeDecision, now = Date.now, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)), promptIntervalMs = 2000, maxSessions = 500 } = {}) {
+export function createAgentService({ store = createLessonStore(), llm = createClaudeClient(), planner = createClaudePlanner(), log = writeDecision, now = Date.now, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)), promptIntervalMs = 2000, maxSessions = 500 } = {}) {
   const sessions = new Map();
   async function turn(input) {
     const request = validateRequest(input);
@@ -102,13 +104,61 @@ export function createAgentService({ store = createLessonStore(), llm = createCl
     session.pending++;
     const run = session.tail.then(async () => {
       const lesson = await store.load(request.lessonId);
-      const state = { ...(session.lessons.get(request.lessonId) || { started: false, hintLevel: 0, attempts: 0 }) };
+      const state = structuredClone(session.lessons.get(request.lessonId) || { started: false, hintLevel: 0, attempts: 0 });
       state.attempts++;
-      const { current, result: fallback } = scriptTurn(request, lesson, state);
-      let response = fallback;
+      const lines = flattenLesson(lesson);
+      if (request.beat >= lines.length) throw new AgentError(400, 'beat is outside this lesson');
+      initializeFlow(state, request.beat);
+      if (request.beat !== state.flow.mainBeat) throw new AgentError(409, 'beat must match the saved main checkpoint');
+      if (state.complete) throw new AgentError(409, 'Lesson complete; reset before starting another run');
+      const mainTarget = lines[state.flow.mainBeat];
+      const activeTarget = state.flow.active?.nodes[state.flow.active.index] || mainTarget.line;
+      const intent = detectedIntent(request, activeTarget);
+      let entered = false;
+      let intentNote = null;
       let source = 'scripted';
       let failure = null;
-      if (llm) {
+      if (intent && !state.flow.active) {
+        if (state.flow.detoursUsed >= 6) intentNote = 'Six side interactions have been used in this run. Continue the main lesson or begin a new run.';
+        else if (hasBannedTerm(intent)) intentNote = 'Please describe an ordinary original shopping goal without a character or brand.';
+        else {
+          let plan = scriptedPlan(intent, lesson, state.flow.mainBeat);
+          // Known shopping branches work without a key; other explicit goals may be
+          // planned by Claude. The LLM never controls the saved return checkpoint.
+          if (!plan && planner) {
+            try {
+              plan = validatePlan(await planner({ lesson, current: mainTarget, intent, returnBeat: state.flow.mainBeat, context: request.context }), state.flow.mainBeat);
+              source = 'llm-detour';
+            } catch { failure = 'Detour planner unavailable or unsafe response'; }
+          }
+          if (plan) {
+            plan = validatePlan(plan, state.flow.mainBeat);
+            startDetour(state, plan); entered = true;
+            if (source !== 'llm-detour') source = 'scripted-detour';
+          } else intentNote = 'That side interaction is unavailable right now. Try a sandwich, a product shelf, or the checkout counter; your lesson is saved.';
+        }
+      }
+      let current, fallback;
+      const branchTurn = Boolean(state.flow.active);
+      if (branchTurn) {
+        const branchRequest = intent ? { ...request, intent } : request;
+        const branch = detourTurn(branchRequest, state, mainTarget, entered);
+        current = { line: branch.current, beat: mainTarget.beat };
+        const visko = [{ name: 'set_prompt', data: { prompt: safePrompt(state.started ? branch.cue : lesson.scenePrompt, 'The assistant waits beside the shelf.') } }];
+        if (!state.started) visko.push({ name: 'set_audio_prompt', data: { prompt: safePrompt(lesson.audioPrompt, 'Quiet store ambience.') } }, { name: 'set_resolution', data: { resolution: 'native' } }, { name: 'start', data: {} });
+        fallback = { visko, overlay: makeOverlay(branch.line, state.hintLevel), feedback: branch.notes.length ? { score: branch.score ?? 0, notes: branch.notes } : null, advance: 'stay' };
+      } else {
+        // Explicit/off-script goals are not scored as failed pronunciation or
+        // allowed to accidentally advance the interrupted main line.
+        const scripted = scriptTurn(intent ? { ...request, transcript: '', context: { ...request.context, gesture: null, glassesKey: null } } : request, lesson, state);
+        current = scripted.current; fallback = scripted.result;
+        if (fallback.advance === 'next_line') moveMain(state, request.beat + 1);
+        if (fallback.advance === 'scene_done') state.complete = true;
+        if (intentNote) fallback.feedback = { score: 0, notes: [...(fallback.feedback?.notes || []), intentNote] };
+      }
+      fallback.route = { ...state.flow.current };
+      let response = fallback;
+      if (llm && !branchTurn && !intent) {
         try {
           response = repairOutput(await llm({ lesson, current, transcript: request.transcript || '', context: request.context, photoCaption: plain(request.imageRef) ? request.imageRef.caption || '' : '', attempts: state.attempts, fallback: structuredClone(fallback) }), fallback);
           source = 'llm';
@@ -120,7 +170,7 @@ export function createAgentService({ store = createLessonStore(), llm = createCl
         if (remaining > 0) await sleep(remaining);
         session.lastPrompt = now();
       }
-      await log({ at: new Date(now()).toISOString(), sessionId: request.sessionId, lessonId: request.lessonId, beat: request.beat, transcript: request.transcript || '', context: request.context, photoCaption: plain(request.imageRef) ? request.imageRef.caption || '' : '', source, failure, response });
+      await log({ at: new Date(now()).toISOString(), sessionId: request.sessionId, lessonId: request.lessonId, beat: request.beat, transcript: request.transcript || '', intent: intent || null, context: request.context, photoCaption: plain(request.imageRef) ? request.imageRef.caption || '' : '', source, failure, route: response.route, graph: { nodes: state.flow.nodes, edges: state.flow.edges }, response });
       state.started = true;
       session.lessons.set(request.lessonId, state);
       session.touched = now();

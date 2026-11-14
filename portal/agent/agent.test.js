@@ -14,7 +14,7 @@ const lesson = { id: 'ja-test', title: 'Original home', level: 'N1', startImage:
   { goal: 'Leave', lines: [line('失礼します。', 'しつれいします。', 'The host slides the door open.')], vocab: [{ jp: '戸', kana: 'と', en: 'door', objectHint: 'door' }] },
 ] };
 const request = (overrides = {}) => ({ sessionId: 'test-session', lessonId: 'ja-test', beat: 0, context: {}, ...overrides });
-const setup = (options = {}) => { const logs = []; return { logs, service: createAgentService({ store: { load: async () => structuredClone(lesson) }, llm: null, promptIntervalMs: 0, log: async (e) => logs.push(e), ...options }) }; };
+const setup = (options = {}) => { const logs = []; return { logs, service: createAgentService({ store: { load: async () => structuredClone(lesson) }, llm: null, planner: null, promptIntervalMs: 0, log: async (e) => logs.push(e), ...options }) }; };
 test('first turn is native before start, no key required, canonical overlay', async () => {
   const { service, logs } = setup(); const r = await service.turn(request());
   assert.deepEqual(r.visko.map((c) => c.name), ['set_prompt', 'set_audio_prompt', 'set_resolution', 'start']);
