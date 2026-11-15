@@ -66,11 +66,11 @@ export function createRecordStore({ root = DATA_ROOT, now = () => new Date() } =
       return record;
     } catch (e) { if (missing(e)) throw notFound('Session'); throw e; }
   }
-  async function ensureRecord(fields) {
+  async function ensureRecord(fields, initialize = () => ({})) {
     if (!RECORD_ID.test(fields.id)) throw new Error('Invalid record id');
     const file = dir('sessions', fields.id, 'record.json');
     try { return await readJson(file); } catch (e) { if (!missing(e)) throw e; }
-    const record = { status: 'active', ...fields, startedAt: now().toISOString(), updatedAt: now().toISOString() };
+    const record = { status: 'active', ...fields, ...initialize(), startedAt: now().toISOString(), updatedAt: now().toISOString() };
     await writeJson(file, record);
     return record;
   }

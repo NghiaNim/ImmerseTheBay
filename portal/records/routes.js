@@ -1,9 +1,10 @@
 import express from 'express';
 import { sanitizeJpeg, decodeDataUrl, PhotoError } from './jpeg.js';
-import { summarizeEvents, compileReplay } from './compile.js';
+import { summarizeEvents, compileReplay, replayStartImage } from './compile.js';
 import { LOCAL_USER } from './store.js';
 export const MAX_PHOTO_BYTES = 4 * 1024 * 1024;
 const MAX_THUMB_BYTES = 256 * 1024;
+const publicRecord = ({ replaySource: _source, ...record }) => record;
 
 /**
  * Photos, saved session records and replay compilation. Register BEFORE the
@@ -39,20 +40,27 @@ export function registerRecordRoutes(app, { authorized = () => true, store, less
   app.get('/api/sessions', protect, route(async (_req, res, userId) => {
     const records = await store.listRecords(userId);
     const sessions = [];
-    for (const record of records) sessions.push({ ...record, stats: summarizeEvents(await store.events(userId, record.id)).stats });
+    for (const record of records) sessions.push({ ...publicRecord(record), stats: summarizeEvents(await store.events(userId, record.id)).stats });
     res.json({ sessions });
   }));
   app.get('/api/sessions/:id', protect, route(async (req, res, userId) => {
     const record = await store.getRecord(userId, req.params.id);
-    res.json({ record, ...summarizeEvents(await store.events(userId, record.id)) });
+    res.json({ record: publicRecord(record), ...summarizeEvents(await store.events(userId, record.id)) });
   }));
   app.delete('/api/sessions/:id', protect, route(async (req, res, userId) => { await store.deleteRecord(userId, req.params.id); res.json({ ok: true }); }));
   app.post('/api/sessions/:id/replay', protect, express.json({ limit: '1kb' }), route(async (req, res, userId) => {
     const deck = req.body?.deck ?? 'all';
     const record = await store.getRecord(userId, req.params.id);
     const summary = summarizeEvents(await store.events(userId, record.id));
-    const original = await lessons.load(record.lessonId);
-    const lesson = await store.putReplay(userId, (id) => compileReplay({ id, record, summary, original, deck }));
+    const snapshot = record.replaySource?.version === 1 ? record.replaySource : null;
+    // Old records continue to load their original lesson while it is available.
+    const original = snapshot ? null : await lessons.load(record.lessonId);
+    let startImage = replayStartImage(record, snapshot || original);
+    if (startImage.startsWith('photos/')) {
+      try { await store.getPhoto(userId, startImage.slice('photos/'.length)); }
+      catch (error) { if (error.status !== 404) throw error; startImage = ''; }
+    }
+    const lesson = await store.putReplay(userId, (id) => compileReplay({ id, record, summary, original, startImage, deck }));
     res.status(201).json({ lessonId: lesson.id, title: lesson.title, lineCount: lesson.beats.reduce((n, b) => n + b.lines.length, 0) });
   }));
 }

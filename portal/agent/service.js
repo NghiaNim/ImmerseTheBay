@@ -281,7 +281,14 @@ export function createAgentService({ store = createLessonStore(), llm = createLe
       await log({ at: new Date(now()).toISOString(), sessionId: request.sessionId, lessonId: request.lessonId, beat: request.beat, transcript: request.transcript || '', intent: intent || null, context: request.context, photoCaption: plain(request.imageRef) ? request.imageRef.caption || '' : '', source, failure, route: response.route, graph: { nodes: state.flow.nodes, edges: state.flow.edges }, response });
       if (recorder) {
         // Recording is best-effort: a disk problem must never block the lesson.
-        try { await recorder({ runId: state.flow.runId, sessionId: request.sessionId, lesson, imageReference: state.sceneContext.referenceId, request, intent, practiced: request.action ? null : activeTarget, practicedSegment, presented, response, plan: enteredPlan }); }
+        const practiced = summaryBefore.started && !request.action ? activeTarget : null;
+        try {
+          await recorder({
+            runId: state.flow.runId, sessionId: request.sessionId, lesson, imageReference: state.originalReferenceId,
+            request, intent, practiced, practicedSegment, practicedTargetId: practiced ? summaryBefore.id : null,
+            presented, presentedTargetId: presented ? targetId(state.flow) : null, response, plan: enteredPlan,
+          });
+        }
         catch (e) { console.warn(`[records] could not record turn: ${e.message}`); }
       }
       const visual = response.visko.find((command) => command.name === 'set_prompt');

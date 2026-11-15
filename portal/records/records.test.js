@@ -9,6 +9,7 @@ import { createRecordStore, withReplays } from './store.js';
 import { createSessionRecorder } from './recorder.js';
 import { registerRecordRoutes } from './routes.js';
 import { summarizeEvents, compileReplay } from './compile.js';
+import { createLessonStore } from '../agent/lessons.js';
 import { createAgentService } from '../agent/service.js';
 
 const segment = (marker, payload) => { const b = Buffer.alloc(4 + payload.length); b[0] = 0xff; b[1] = marker; b.writeUInt16BE(payload.length + 2, 2); payload.copy(b, 4); return b; };
@@ -128,8 +129,10 @@ test('HTTP photo library, session list/detail/replay/delete honor auth and owner
     await h.service.turn(turnRequest({ transcript: 'こんにちは' }));
     const id = first.operation.runId;
     const list = await (await call('/api/sessions')).json();
+    assert.equal(list.sessions[0].replaySource, undefined);
     assert.equal(list.sessions.length, 1); assert.equal(list.sessions[0].stats.passed, 1);
     const detail = await (await call(`/api/sessions/${id}`)).json();
+    assert.equal(detail.record.replaySource, undefined);
     assert.equal(detail.record.photoId, photo.id); assert.equal(detail.lines[0].attempts[0].score, 100);
     const replay = await call(`/api/sessions/${id}/replay`, { method: 'POST', body: { deck: 'all' } });
     assert.equal(replay.status, 201);
@@ -143,9 +146,82 @@ test('HTTP photo library, session list/detail/replay/delete honor auth and owner
     assert.equal((await (await call('/api/sessions')).json()).sessions.length, 0);
     user = 'local';
 
+    const legacyId = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+    await h.records.ensureRecord({ id: legacyId, userId: user, lessonId: lesson.id, lessonTitle: lesson.title });
+    await h.records.appendEvent(legacyId, { type: 'turn', route: { kind: 'main' }, presented: lesson.beats[0].lines[0] });
+    const legacy = await call(`/api/sessions/${legacyId}/replay`, { method: 'POST' });
+    assert.equal(legacy.status, 201);
+    assert.equal((await h.lessons.load((await legacy.json()).lessonId)).beats[0].goal, 'Greet');
+
+    assert.equal((await call(`/api/photos/${photo.id}`, { method: 'DELETE' })).status, 200);
+    const withoutPhoto = await call(`/api/sessions/${id}/replay`, { method: 'POST' });
+    assert.equal(withoutPhoto.status, 201);
+    assert.equal((await h.lessons.load((await withoutPhoto.json()).lessonId)).startImage, '');
     assert.equal((await call(`/api/sessions/${id}`, { method: 'DELETE' })).status, 200);
     assert.equal((await call(`/api/sessions/${id}`)).status, 404);
-    assert.equal((await call(`/api/photos/${photo.id}`, { method: 'DELETE' })).status, 200);
     assert.deepEqual(await readdir(path.join(h.root, 'photos')), []);
   } finally { server.close(); await h.cleanup(); }
+});
+
+
+test('photo replay survives expiration and restart with separate repeated targets and no private photo', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'records-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  let now = 0;
+  const liveStore = createLessonStore(undefined, { now: () => now, ttlMs: 1000 });
+  const records = createRecordStore({ root });
+  const photoId = 'practice-12345678-1234-1234-1234-123456789012';
+  const firstLine = line('お願いします。', 'おねがいします。', 'The partner nods.');
+  const secondLine = { ...firstLine, cue: 'The partner gestures at the door.' };
+  const original = {
+    ...lesson, id: photoId, startImage: `/api/practice/images/${photoId}`,
+    partnerRole: { ja: '店員', en: 'Clerk' }, visiblePartner: false,
+    beats: [
+      { goal: 'Make a request', lines: [firstLine], vocab: [] },
+      { goal: 'Confirm the request', lines: [secondLine], vocab: [{ jp: 'お願い', kana: 'おねがい', en: 'request', objectHint: 'door' }] },
+    ],
+  };
+  liveStore.addEphemeral(original, { bytes: fixtureJpeg(), mimeType: 'image/jpeg' });
+  const service = createAgentService({ store: liveStore, llm: null, planner: null, promptIntervalMs: 0, log: async () => {}, recorder: createSessionRecorder(records) });
+  const first = await service.turn(turnRequest({ lessonId: photoId, operation: { requestId: 'open', expectedRevision: 0 } }));
+  const runId = first.operation.runId;
+  const scored = await service.turn(turnRequest({ lessonId: photoId, transcript: firstLine.kana }));
+  assert.equal(scored.advance, 'next_line');
+  await service.turn(turnRequest({ lessonId: photoId, beat: 1, transcript: 'ちがう' }));
+  now = 1001;
+  await assert.rejects(liveStore.load(photoId), { status: 404 });
+  assert.throws(() => liveStore.ephemeralImage(photoId), { status: 404 });
+
+  const restartedRecords = createRecordStore({ root });
+  const restartedLessons = withReplays(createLessonStore(), restartedRecords);
+  const app = express();
+  registerRecordRoutes(app, { store: restartedRecords, lessons: restartedLessons });
+  const server = app.listen(0, '127.0.0.1');
+  await new Promise((resolve) => server.once('listening', resolve));
+  t.after(() => server.close());
+  const endpoint = `http://127.0.0.1:${server.address().port}/api/sessions/${runId}`;
+  const detail = await (await fetch(endpoint)).json();
+  assert.deepEqual(detail.lines.map(({ targetId, line, passed }) => [targetId, line.cue, passed]), [
+    ['main:0', firstLine.cue, true],
+    ['main:1', secondLine.cue, false],
+  ]);
+  function replay(deck) {
+    return fetch(endpoint + '/replay', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ deck }) });
+  }
+  const response = await replay('all');
+  assert.equal(response.status, 201);
+  const compiled = await restartedLessons.load((await response.json()).lessonId);
+  assert.equal(compiled.startImage, '');
+  assert.equal(compiled.visiblePartner, false);
+  assert.deepEqual(compiled.partnerRole, original.partnerRole);
+  assert.equal(compiled.scenePrompt, original.scenePrompt);
+  assert.deepEqual(compiled.beats, original.beats);
+  const missed = await replay('missed');
+  assert.equal(missed.status, 201);
+  assert.deepEqual((await restartedLessons.load((await missed.json()).lessonId)).beats, [original.beats[1]]);
+
+  // A replay remains executable through the ordinary turn engine after the restart.
+  const replayService = createAgentService({ store: restartedLessons, llm: null, planner: null, promptIntervalMs: 0, log: async () => {} });
+  const opened = await replayService.turn(turnRequest({ sessionId: 'practice-after-restart', lessonId: compiled.id }));
+  assert.equal(opened.overlay.jp, firstLine.jp);
 });
