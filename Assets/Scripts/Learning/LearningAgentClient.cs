@@ -739,7 +739,7 @@ namespace ImmerseTheBay.Learning
                         Debug.LogWarning("[Learning] Clerk speech could not be loaded.");
                         return;
                     }
-                    m_ClerkAudio = DownloadHandlerAudioClip.GetContent(request);
+                    m_ClerkAudio = ReadSpeechClip(request);
                     if (!m_ClerkAudio) return;
                     while (IsCurrent(generation) && m_ClerkAudioRequest == request && Time.unscaledTime < m_FeedbackUntil)
                         await Task.Yield();
@@ -827,7 +827,7 @@ namespace ImmerseTheBay.Learning
                     Debug.LogWarning("[Learning] Pronunciation example unavailable; continuing without it.");
                     return;
                 }
-                m_ExampleAudio = DownloadHandlerAudioClip.GetContent(request);
+                m_ExampleAudio = ReadSpeechClip(request);
                 if (!m_ExampleAudio) return;
                 while (IsCurrent(generation) && m_ExampleAudioRequest == request &&
                     (IsClerkSpeaking || IsFeedbackPlaying || Time.unscaledTime < m_TutorAfterClerkAt))
@@ -890,6 +890,30 @@ namespace ImmerseTheBay.Learning
                 : (m_RetryCue ??= BuildCue("Try again", 520, 390)));
         }
 
+        static AudioClip ReadSpeechClip(UnityWebRequest request)
+        {
+            var clip = DownloadHandlerAudioClip.GetContent(request);
+            if (!clip) return clip;
+            var samples = new float[clip.samples * clip.channels];
+            if (clip.GetData(samples, 0))
+            {
+                for (int i = 0; i < samples.Length; i++) samples[i] = BoostSpeechSample(samples[i]);
+                clip.SetData(samples, 0);
+            }
+            return clip;
+        }
+
+        internal static float BoostSpeechSample(float sample)
+        {
+            const float gain = 1.35f;
+            const float knee = 0.72f;
+            const float headroom = 0.26f;
+            float magnitude = Math.Abs(sample) * gain;
+            float above = magnitude - knee;
+            if (above > 0f) magnitude = knee + headroom * above / (headroom + above);
+            return sample < 0f ? -magnitude : magnitude;
+        }
+
         void PlayFeedbackCue(AudioClip cue)
         {
             if (!m_FeedbackSpeaker)
@@ -914,7 +938,7 @@ namespace ImmerseTheBay.Learning
                 int offset = frame % segment;
                 float envelope = Mathf.Sin(Mathf.PI * offset / segment);
                 float tone = tones[frame / segment];
-                float sample = 0.15f * envelope * envelope * Mathf.Sin(2 * Mathf.PI * tone * offset / rate);
+                float sample = 0.21f * envelope * envelope * Mathf.Sin(2 * Mathf.PI * tone * offset / rate);
                 samples[frame * 2] = samples[frame * 2 + 1] = sample;
             }
             var clip = AudioClip.Create(name, frames, 2, rate, false);
@@ -1056,7 +1080,7 @@ namespace ImmerseTheBay.Learning
             var stereo = new float[frames * 2];
             for (int indexInClip = 0; indexInClip < frames; indexInClip++)
             {
-                float sample = BitConverter.ToInt16(wav, 44 + indexInClip * 2) / 32768f;
+                float sample = BoostSpeechSample(BitConverter.ToInt16(wav, 44 + indexInClip * 2) / 32768f);
                 stereo[indexInClip * 2] = stereo[indexInClip * 2 + 1] = sample;
             }
             if (!m_ReviewSpeaker)

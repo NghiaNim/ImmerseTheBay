@@ -30,8 +30,8 @@ namespace ImmerseTheBay.Learning
         bool retryAvailable;
         string startupError = "";
         bool sceneSound = true;
-        const float QuietSceneGain = 0.18f;
-        const float SpeakingSceneGain = 0.04f;
+        const float QuietSceneGain = 0.22f;
+        const float SpeakingSceneGain = 0.05f;
         const string VoiceExampleSetting = "tenin.voiceExample";
         float connectDeadline;
         static readonly int SceneOpacity = Shader.PropertyToID("_SceneOpacity");
