@@ -65,7 +65,9 @@ def record(adb, display, seconds, size, output):
     connected = re.findall(r"^Display\s+(\d+)\b", display_listing(adb), re.MULTILINE)
     if display not in connected:
         raise ValueError("Physical display is unavailable. Run the displays command while the glasses are connected.")
-    help_text = command([*adb, "shell", "screenrecord", "--help"], read=True)
+    # Samsung's screenrecord writes its help to stderr.
+    help_text = subprocess.run([*adb, "shell", "screenrecord", "--help"], check=True,
+                               text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT).stdout
     if "--display-id" not in help_text:
         raise ValueError("This phone's screenrecord does not support physical display selection.")
 
