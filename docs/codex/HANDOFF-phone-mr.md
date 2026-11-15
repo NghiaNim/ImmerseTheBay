@@ -19,6 +19,12 @@ Use the development app (`com.immersethebay.app`) on Galaxy S25 with Air 2 Ultra
 
 The dev build hides sample scenery. The video is a feathered overlay with horizontal head following and fades as you look down. Subtitle and control panels are separate. **Place controls** on the phone raycasts at a nearby upward horizontal plane; it requires a detected surface. The first store lesson highlights vocabulary such as おにぎり. Cartesia handles the clerk voice separately from the generated video track.
 
+## Android signing on a shared device
+
+Each developer can build and install on a fresh device with a locally generated debug keystore. To update an existing `com.immersethebay.app` installation with `adb install -r`, use an APK signed with the same certificate as the installed build. A different debug key causes `INSTALL_FAILED_UPDATE_INCOMPATIBLE`. Compare the APK certificate fingerprints with `apksigner verify --print-certs <apk>`.
+
+For an in-place update on the shared S25, use an APK signed by the current build owner. For ongoing team builds, use a dedicated development signing key in a team secret manager or a signing job. Keep private keystores out of Git. If the existing S25 build can be discarded, back up any needed app data and uninstall `com.immersethebay.app` before installing a build signed with a different key. Uninstalling deletes that app's local data.
+
 ## Evidence and next steps
 
 - Portal: 183 tests passed, including a regression that supplies an oversized model response and verifies a single bounded retry. A real JPEG request with a Chinese goal generated three lines and returned the original photo over HTTP 200. The retry covers invalid model output; provider outages can still return an error.
