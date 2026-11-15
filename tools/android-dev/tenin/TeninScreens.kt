@@ -155,7 +155,7 @@ class TeninScreens(private val context: Context, private val bindPreview: (Strin
         card(*phrases.flatMapIndexed { i, p ->
             listOfNotNull(if (i > 0) divider().margins(top = 14f, bottom = 14f) else null, row(
                 column(eyebrow(if (p.mine) "You’ll say" else "You’ll hear"),
-                    phraseText(p, 22f).margins(top = 4f)).weighted(),
+                    phraseText(p, 22f).fillWidth().margins(top = 4f)).weighted(),
                 roundButton(TeninIcon.SPEAKER) { onSpeak(p) }.margins(left = 10f).apply { contentDescription = "Listen" },
             ).fillWidth())
         }.toTypedArray(), padding = 18f)

@@ -498,6 +498,9 @@ class TeninActivity : Activity() {
                 if (lesson.has("graph")) "Side trips can happen, like asking for something else." else "",
                 partnerVoice = lesson.optString("partnerVoice"))
         }.getOrNull()
+    }.let { catalog ->
+        if (catalog.any { it.id == "ja-konbini-demo-001" }) catalog.filterNot { it.id == "ja-konbini-001" }
+        else catalog
     } }.getOrDefault(emptyList())
 
     /** GET, or POST when `body` is given, against the portal named in the bundled visko.json. */

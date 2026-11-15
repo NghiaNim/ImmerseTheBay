@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Linq;
 using ImmerseTheBay.Learning.Voice;
 using System.Text;
 using System.Threading.Tasks;
@@ -28,6 +29,8 @@ namespace ImmerseTheBay.Learning
         public CartesiaConversationClient conversation;
         public bool IsConversationActive => m_VoiceActive || m_VoiceConnecting || m_Reconciling;
         string m_RunId;
+        string m_ActiveSceneId, m_PrefetchedSceneId;
+        Task<byte[]> m_ScenePrefetch;
         LearningResponse m_LastResponse;
         LearningAttempt m_LastAttempt;
         string m_LastPublishedAttemptId;
@@ -379,6 +382,23 @@ namespace ImmerseTheBay.Learning
                 ShowClerkDialogue(response.speech);
                 PlayClerkAudio(response.speech, generation);
             }
+            string sceneId = response.scene?.id;
+            bool switchScene = !string.IsNullOrEmpty(m_ActiveSceneId) &&
+                !string.IsNullOrEmpty(sceneId) && sceneId != m_ActiveSceneId;
+            if (switchScene)
+            {
+                if (response.visko.All(command => command.name != "set_prompt"))
+                    throw new InvalidOperationException("The new lesson scene has no video prompt.");
+                byte[] image = m_PrefetchedSceneId == sceneId && m_ScenePrefetch != null
+                    ? await m_ScenePrefetch : null;
+                image ??= await visko.PrefetchLessonScene(sceneId);
+                EnsureCurrent(generation);
+                visko.PrepareScenePreview(image);
+                await visko.CommandAsync("reset", "{}");
+                EnsureCurrent(generation);
+                await visko.SetImage(image);
+                EnsureCurrent(generation);
+            }
             foreach (var command in response.visko)
             {
                 EnsureCurrent(generation);
@@ -400,6 +420,25 @@ namespace ImmerseTheBay.Learning
                 await visko.CommandAsync(command.name, command.Arguments());
                 EnsureCurrent(generation);
             }
+            if (switchScene)
+            {
+                await visko.CommandAsync("start", "{}");
+                EnsureCurrent(generation);
+                double deadline = Time.realtimeSinceStartupAsDouble + 22;
+                while (!visko.HasLiveFrame)
+                {
+                    if (Time.realtimeSinceStartupAsDouble >= deadline)
+                        throw new TimeoutException("The next live scene did not arrive. Please retry.");
+                    await Task.Yield();
+                    EnsureCurrent(generation);
+                }
+            }
+            m_ActiveSceneId = sceneId;
+            if (m_PrefetchedSceneId != response.nextSceneId)
+            {
+                m_PrefetchedSceneId = response.nextSceneId;
+                m_ScenePrefetch = string.IsNullOrEmpty(m_PrefetchedSceneId) ? null : PreloadScene(m_PrefetchedSceneId);
+            }
             int nextBeat = Beat + (response.advance == "next_line" ? 1 : 0);
             // Do not publish success until ALL native acknowledgements have completed.
             await visko.SendLearningEvent(LearningContract.SyncJson(json, m_Session, m_RunLesson, nextBeat));
@@ -410,6 +449,12 @@ namespace ImmerseTheBay.Learning
             SetStatus(IsDone ? "Lesson complete." : "");
             if (nextTarget && !IsDone && !IsConversationActive && PlayExamples)
                 PlayExample(response.overlay.jp, generation);
+        }
+
+        async Task<byte[]> PreloadScene(string sceneId)
+        {
+            try { return await visko.PrefetchLessonScene(sceneId); }
+            catch (Exception) { return null; } // A cache miss is retried only when this scene is needed.
         }
 
         void OnLearnMessage(string json)
@@ -517,6 +562,8 @@ namespace ImmerseTheBay.Learning
 
         void CancelWork()
         {
+            m_ActiveSceneId = m_PrefetchedSceneId = null;
+            m_ScenePrefetch = null;
             m_Cancelling = true;
             conversation?.Disconnect();
             m_VoiceActive = m_VoiceConnecting = m_Reconciling = false;

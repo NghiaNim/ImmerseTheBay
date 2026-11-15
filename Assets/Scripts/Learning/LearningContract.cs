@@ -74,7 +74,13 @@ namespace ImmerseTheBay.Learning
     [Serializable]
     public sealed class LearningResponse
     {
+        [Serializable]
+        public sealed class Scene
+        { public string id, startImage; }
+
         public LearningCommand[] visko;
+        public Scene scene;
+        public string nextSceneId;
         public LearningOverlayData overlay;
         public LearningFeedback feedback;
         public LearningAttempt attempt;

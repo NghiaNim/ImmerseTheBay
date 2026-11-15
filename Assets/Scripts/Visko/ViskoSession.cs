@@ -321,6 +321,25 @@ namespace ImmerseTheBay.Visko
 
         async Task LoadAndSetImage(string path, int version)
         {
+            byte[] bytes = await ReadSceneImage(path, version);
+            CheckVersion(version);
+            await UploadAndDisplayImage(bytes);
+        }
+
+        public Task<byte[]> PrefetchLessonScene(string sceneId)
+        {
+            string path = sceneId switch
+            {
+                "sandwiches" => "lessons/images/konbini-sandwiches.png",
+                "drinks" => "lessons/images/konbini-drinks.png",
+                "checkout" => "lessons/images/konbini-checkout-original.png",
+                _ => throw new ArgumentException("Unknown bundled lesson scene", nameof(sceneId)),
+            };
+            return ReadSceneImage(path, m_ConnectVersion);
+        }
+
+        async Task<byte[]> ReadSceneImage(string path, int version)
+        {
             using var request = UnityWebRequest.Get(ContentLibrary.ToUrl(path));
             request.timeout = 20;
             var operation = request.SendWebRequest();
@@ -329,7 +348,7 @@ namespace ImmerseTheBay.Visko
             CheckVersion(version);
             byte[] bytes = request.downloadHandler.data;
             if (bytes.Length == 0 || bytes.Length > 16 * 1024 * 1024) throw new IOException("Image must be between 1 byte and 16 MiB");
-            await UploadAndDisplayImage(bytes);
+            return bytes;
         }
 
         async Task UploadAndDisplayImage(byte[] bytes)
