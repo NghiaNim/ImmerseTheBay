@@ -32,7 +32,7 @@ test('trusted lesson binding is sent only from server snapshot',async t=>{
  const r=await call('token',input);assert.equal(r.status,200);
  assert.deepEqual(await r.json(),{url:session.url,token:session.token,callId:session.call_id,agentId:'agent_test',version:'2026-08-14',runId:'run-test',revision:3});
  assert.equal(request.headers['X-API-Key'],env.CARTESIA_API_KEY);
- assert.deepEqual(JSON.parse(request.body),{dynamic_variables:{...input,runId:'run-test',revision:'3',beat:'1',language:'ja'}});
+ assert.deepEqual(JSON.parse(request.body),{dynamic_variables:{...input,runId:'run-test',revision:'3',beat:'1',language:'ja',practiceContext:JSON.stringify({scene:'',goal:'',learnerLine:''}),opening:'いらっしゃいませ。何をお探しですか？'}});
 });
 test('reset during mint rejects stale session; provider errors are redacted',async t=>{
  let reads=0;

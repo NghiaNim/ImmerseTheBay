@@ -112,7 +112,7 @@ test('model identity edits and provider failure fall back to the authored action
     const { turn } = setup({ llm });
     const opening = await turn();
     assertAnchored(opening);
-    assert.equal(opening.visko[0].data.prompt, composeVisualPrompt(lesson.scenePrompt));
+    assert.equal(opening.visko[0].data.prompt, composeVisualPrompt(lesson.scenePrompt, undefined, { speaking: true }));
     assert.doesNotMatch(opening.visko[0].data.prompt, /Replace the clerk|another person/);
   }
 });

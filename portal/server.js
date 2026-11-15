@@ -12,6 +12,8 @@ import { WebSocketServer } from 'ws';
 import { attachCast } from './cast/castHub.js';
 import { registerAgentRoutes } from './agent/routes.js';
 import { createAgentService } from './agent/service.js';
+import { createLessonStore } from './agent/lessons.js';
+import { registerPracticeRoutes } from './practice/routes.js';
 import { registerVoiceRoutes } from './voice/routes.js';
 import { registerVisionRoutes } from './vision/routes.js';
 
@@ -31,6 +33,8 @@ if (!API_KEY || API_KEY.startsWith('rk_your')) {
 }
 
 const app = express();
+const lessonStore = createLessonStore();
+registerPracticeRoutes(app, { authorized, store: lessonStore });
 registerVisionRoutes(app, { authorized });
 app.use(express.json({ limit: '64kb' }));
 
@@ -39,8 +43,8 @@ function authorized(req) {
   return req.get('portal_token') === PORTAL_TOKEN || req.query.portal_token === PORTAL_TOKEN;
 }
 
-const lessonService = createAgentService();
-registerAgentRoutes(app, { authorized, service: lessonService });
+const lessonService = createAgentService({ store: lessonStore });
+registerAgentRoutes(app, { authorized, store: lessonStore, service: lessonService });
 registerVoiceRoutes(app, { authorized, snapshot: input => lessonService.snapshot(input) });
 
 app.get('/api/models', (_req, res) => res.json(MODELS));

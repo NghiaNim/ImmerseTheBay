@@ -1,0 +1,57 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import express from 'express';
+import { createLessonStore } from '../agent/lessons.js';
+import { createPracticeService, buildPracticeLesson, parsePracticeInput } from './service.js';
+import { registerPracticeRoutes } from './routes.js';
+const photo = 'data:image/png;base64,iVBORw0KGgo=';
+const line = { jp: '水をください。', kana: 'みずをください。', romaji: 'Mizu o kudasai.', en: 'Water, please.', zh: '请给我水。', cue: 'The visible partner nods slightly.' };
+const output = { visiblePartner: false, title: 'Ask for water', scenePrompt: 'The photographed room remains stationary at eye level.', audioPrompt: 'Quiet room ambience.', goal: 'Ask for water politely', lines: [line, line], vocab: [{ jp: '水', kana: 'みず', en: 'water', objectHint: 'water' }] };
+const generated = () => ({ ok: true, json: async () => ({ status: 'completed', output: [{ type: 'message', content: [{ type: 'output_text', text: JSON.stringify(output) }] }] }) });
+test('real image and goal are separate structured multimodal inputs; lesson remains photo-free', async () => {
+  const store = createLessonStore(); let request;
+  const service = createPracticeService({ store, apiKey: 'test', fetchImpl: async (_url, req) => { request = JSON.parse(req.body); return generated(); } });
+  const result = await service.generate({ image: photo, goal: 'Ask for water' });
+  assert.equal(request.input[0].content[1].image_url, photo);
+  assert.equal(request.model, 'gpt-6-luna'); assert.equal(request.store, false);
+  assert.equal(result.lesson.beats[0].lines.length, 2);
+  assert.equal(result.lesson.visiblePartner, false);
+  assert.equal(request.text.format.schema.properties.visiblePartner.type, 'boolean');
+  assert.ok(request.text.format.schema.required.includes('visiblePartner'));
+  assert.equal(JSON.stringify(result.lesson).includes('base64'), false);
+  assert.deepEqual(await store.load(result.lesson.id), result.lesson);
+  assert.equal(store.ephemeralImage(result.lesson.id).mimeType, 'image/png');
+  assert.ok(!(await store.list()).some(l => l.id === result.lesson.id));
+});
+test('ephemeral image and lesson share TTL and bounded eviction, load copies cannot mutate store', async () => {
+  let now = 0; const store = createLessonStore(undefined, { now: () => now, ttlMs: 1000, maxEphemeral: 1 });
+  const first = buildPracticeLesson(output), second = buildPracticeLesson(output);
+  const image = { bytes: Buffer.from('test'), mimeType: 'image/png' };
+  store.addEphemeral(first, image); const copy = await store.load(first.id); copy.title = 'mutated';
+  assert.equal((await store.load(first.id)).title, first.title);
+  store.addEphemeral(second, image); await assert.rejects(store.load(first.id), { status: 404 });
+  assert.throws(() => store.ephemeralImage(first.id), { status: 404 });
+  now = 1001; await assert.rejects(store.load(second.id), { status: 404 });
+  assert.throws(() => store.ephemeralImage(second.id), { status: 404 });
+});
+test('input and provider output bounds reject malformed, excessive and incomplete data', async () => {
+  for (const body of [{ image: 'https://example.test', goal: 'hello' }, { image: photo, goal: 'x'.repeat(501) }, { image: photo, goal: 'hello', extra: true }, { image: 'data:image/jpeg;base64,iVBORw0KGgo=', goal: 'hello' }]) assert.throws(() => parsePracticeInput(body));
+  assert.throws(() => buildPracticeLesson({ ...output, visiblePartner: 'false' }), { status: 502 });
+  assert.throws(() => buildPracticeLesson({ ...output, visiblePartner: undefined }), { status: 502 });
+  assert.throws(() => buildPracticeLesson({ ...output, lines: [line] }), { status: 502 });
+  assert.throws(() => buildPracticeLesson({ ...output, lines: [{ ...line, romaji: '' }, line] }), { status: 502 });
+  const service = createPracticeService({ store: createLessonStore(), apiKey: 'test', fetchImpl: async () => ({ ok: false }) });
+  await assert.rejects(service.generate({ image: photo, goal: 'hello' }), { status: 502 });
+  await assert.rejects(service.generate({ image: photo, goal: 'hello' }), { status: 429 });
+});
+test('route authenticates before large parser and serves transient photo without caching', async t => {
+  const store = createLessonStore(); const service = createPracticeService({ store, apiKey: 'test', fetchImpl: async () => generated() });
+  const app = express(); registerPracticeRoutes(app, { store, service, authorized: req => req.get('portal_token') === 'test' });
+  app.use(express.json({ limit: '64kb' }));
+  const server = app.listen(0, '127.0.0.1'); await new Promise(r => server.once('listening', r)); t.after(() => server.close());
+  const url = `http://127.0.0.1:${server.address().port}`;
+  const denied = await fetch(url + '/api/practice/generate', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ image: photo, goal: 'hello' }) }); assert.equal(denied.status, 401);
+  const response = await fetch(url + '/api/practice/generate', { method: 'POST', headers: { 'content-type': 'application/json', portal_token: 'test' }, body: JSON.stringify({ image: photo, goal: 'hello' }) });
+  assert.equal(response.status, 200); const { lesson } = await response.json();
+  const image = await fetch(url + lesson.startImage, { headers: { portal_token: 'test' } }); assert.equal(image.status, 200); assert.equal(image.headers.get('cache-control'), 'no-store');
+});

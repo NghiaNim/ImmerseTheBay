@@ -126,3 +126,27 @@ test('authored recipient cues remain first-person instead of summoning a visible
   assert.match(next, /near counter edge/);
   assert.doesNotMatch(next, /visitor/);
 });
+
+ test('speaking movement is visual only, bounded and keeps the fixed camera', () => {
+  for (const action of ['The clerk nods', 'word '.repeat(300)]) {
+    const p = composeVisualPrompt(action, undefined, { speaking: true });
+    checkBounds(p);
+    assert.match(p, /moves their lips naturally, with listening pauses/);
+    assert.equal(composeVisualPrompt(p, undefined, { speaking: true }), p);
+  }
+  assert.doesNotMatch(composeVisualPrompt('The clerk nods'), /lips/);
+  assert.match(composeAmbientPrompt('The clerk speaks'), /no speech/);
+});
+test('off-camera partner keeps photo environment stable through authored and dynamic branches', () => {
+  for (const action of ['The clerk points at the sandwich.', 'A person smiles and moves their lips.', 'The room is quiet.', '店員がうなずく。', null]) {
+    const prompt = composeVisualPrompt(action, 'The host waves at the customer.', {
+      initial: true, subject: 'A visible clerk behind the counter', speaking: true, visiblePartner: false,
+    });
+    assert.equal(prompt, `The photographed environment retains its original layout and lighting. Existing objects remain stationary. ${SCENE_ANCHOR}`);
+    assert.ok(!prompt.includes(CHARACTER_ANCHOR));
+    assert.doesNotMatch(prompt, /clerk|host|speaker|face|hair|clothing|lips|mouth|customer|person\b(?! POV)/i);
+    assert.ok(prompt.length <= 600); assert.ok(prompt.split(/\s+/u).length <= 95);
+    assert.equal((prompt.match(/[.!?。！？]/gu) || []).length, 3);
+    assert.equal(composeVisualPrompt(prompt, undefined, { visiblePartner: false }), prompt);
+  }
+});

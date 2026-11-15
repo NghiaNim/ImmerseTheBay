@@ -3,6 +3,7 @@ import { hasBannedTerm } from './guardrails.js';
 // A steering constraint, not a claim that a face was visible or verified.
 export const CHARACTER_ANCHOR = 'The established face, hair and clothing remain unchanged.';
 export const SCENE_ANCHOR = 'Static eye-level medium-wide first-person POV, locked position, orientation and focal length; framing and background stay stationary, foreground clear.';
+export const SPEAKING_MOTION = '; the established speaker moves their lips naturally, with listening pauses';
 const NEUTRAL_ACTION = 'The host stays in place with a natural expression';
 const CHARACTER = '(?:clerk|assistant|host|person|character|face|facial features|identity|hairstyle|hair|skin tone|clothing|outfit|accessories)';
 const conflicts = [
@@ -35,15 +36,21 @@ function usable(value) {
  * carry one physical delta, not a repeated character/world description. Positive
  * camera/identity invariants avoid the model's documented negation noun trap.
  */
-export function composeVisualPrompt(action, fallback = NEUTRAL_ACTION, { initial = false, subject = '' } = {}) {
+export function composeVisualPrompt(action, fallback = NEUTRAL_ACTION, { initial = false, subject = '', speaking = false, visiblePartner = true } = {}) {
+  // Without a photographed partner, dialogue may branch off-camera but visual
+  // actions must not synthesize a character (including unsafe authored fallbacks).
+  // Keep the reference environment itself authoritative instead of repeating
+  // human nouns from an LLM cue or a default store script.
+  if (visiblePartner === false) return `The photographed environment retains its original layout and lighting. Existing objects remain stationary. ${SCENE_ANCHOR}`;
   const strip = (value) => typeof value === 'string'
-    ? value.replace(CHARACTER_ANCHOR, '').replace(SCENE_ANCHOR, '').trim() : value;
+    ? value.replace(CHARACTER_ANCHOR, '').replace(SCENE_ANCHOR, '').replace(SPEAKING_MOTION, '').trim() : value;
   const selected = usable(strip(action)) || usable(strip(fallback)) || NEUTRAL_ACTION;
   const first = (selected.match(/^[^.!?。！？]+/u)?.[0] || NEUTRAL_ACTION).trim();
   // subject is server-owned reference metadata, never the learner's caption.
   const description = initial ? (usable(subject).match(/^[^.!?。！？]+/u)?.[0] || '').slice(0, 180).trim() : '';
   const prefix = description ? `${description}; ` : '';
-  const overhead = `${prefix}. ${CHARACTER_ANCHOR} ${SCENE_ANCHOR}`;
+  const motion = speaking ? SPEAKING_MOTION : '';
+  const overhead = `${prefix}${motion}. ${CHARACTER_ANCHOR} ${SCENE_ANCHOR}`;
   const wordsAvailable = 95 - overhead.split(/\s+/u).length + 1;
   const charsAvailable = 600 - overhead.length;
   let delta = first.split(/\s+/u).slice(0, wordsAvailable).join(' ');
@@ -54,7 +61,7 @@ export function composeVisualPrompt(action, fallback = NEUTRAL_ACTION, { initial
     if (/[\uD800-\uDBFF]$/u.test(delta)) delta = delta.slice(0, -1);
   }
   delta = delta.trim() || NEUTRAL_ACTION;
-  return `${prefix}${delta}. ${CHARACTER_ANCHOR} ${SCENE_ANCHOR}`;
+  return `${prefix}${delta}${motion}. ${CHARACTER_ANCHOR} ${SCENE_ANCHOR}`;
 }
 
 

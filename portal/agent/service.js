@@ -5,6 +5,7 @@ import { AgentError, createLessonStore, flattenLesson } from './lessons.js';
 import { hasBannedTerm, safePrompt, scoreTranscript } from './guardrails.js';
 import { validateSchema } from './schema.js';
 import { validateOperation, createOperationCache, replayOperation, checkOperationState, rememberOperation, invalidateOperations } from './operations.js';
+import { recordSummary, summarize, targetId } from './summary.js';
 import { clerkSpeech } from './clerk-speech.js';
 import { composeVisualPrompt, composeAmbientPrompt, CHARACTER_ANCHOR, SCENE_ANCHOR } from './continuity.js';
 import { createLessonClient, createLessonPlanner } from './llm.js';
@@ -149,6 +150,7 @@ export function createAgentService({ store = createLessonStore(), llm = createLe
 
       const previousNodeId = state.flow.current.nodeId;
       const activeTarget = state.flow.active?.nodes[state.flow.active.index] || mainTarget.line;
+      const summaryBefore = { started: state.started, id: targetId(state.flow), nodeId: previousNodeId, line: structuredClone(activeTarget) };
       const intent = request.action ? null : detectedIntent(request, activeTarget);
       let entered = false;
       let intentNote = null;
@@ -231,7 +233,7 @@ export function createAgentService({ store = createLessonStore(), llm = createLe
         if (command.name === 'set_audio_prompt') command.data.prompt = composeAmbientPrompt(command.data.prompt);
         if (command.name !== 'set_prompt') continue;
         const authored = fallback.visko.find((item) => item.name === 'set_prompt')?.data.prompt;
-        command.data.prompt = composeVisualPrompt(state.started ? command.data.prompt : state.sceneContext.sceneAnchor, authored, { initial: !state.started });
+        command.data.prompt = composeVisualPrompt(state.started ? command.data.prompt : state.sceneContext.sceneAnchor, authored, { initial: !state.started, speaking: Boolean(response.speech) && lesson.visiblePartner !== false, visiblePartner: lesson.visiblePartner !== false });
       }
       if (!validateSchema(response)) throw new Error('Internal response validation failed');
       if (response.visko.some((v) => v.name === 'set_prompt')) {
@@ -241,6 +243,7 @@ export function createAgentService({ store = createLessonStore(), llm = createLe
       }
       state.revision = (state.revision || 0) + 1;
       if (request.operation) response.operation = { requestId: request.operation.requestId, runId: state.flow.runId, revision: state.revision, replayed: false };
+      recordSummary(state, { request, lesson, before: summaryBefore, intent, response });
       await log({ at: new Date(now()).toISOString(), sessionId: request.sessionId, lessonId: request.lessonId, beat: request.beat, transcript: request.transcript || '', intent: intent || null, context: request.context, photoCaption: plain(request.imageRef) ? request.imageRef.caption || '' : '', source, failure, route: response.route, graph: { nodes: state.flow.nodes, edges: state.flow.edges }, response });
       const visual = response.visko.find((command) => command.name === 'set_prompt');
       if (visual) {
@@ -278,7 +281,13 @@ export function createAgentService({ store = createLessonStore(), llm = createLe
     const state = session?.lessons.get(request.lessonId);
     if (!state) return null;
     session.touched = now();
-    return structuredClone({ runId: state.flow.runId, revision: state.revision, beat: state.flow.mainBeat, response: state.lastResponse });
+    return structuredClone({ runId: state.flow.runId, revision: state.revision, beat: state.flow.mainBeat, response: state.lastResponse, lessonContext: { scene: state.sceneContext.sceneAnchor.slice(0, 1000), goal: state.sceneContext.mainCheckpoint.goal.slice(0, 1000) } });
   }
-  return { turn, reset, snapshot };
+  function summary(input) {
+    // Reuse the exact identity validation and pending-operation barrier.
+    const current = snapshot(input);
+    if (!current) return null;
+    return summarize(sessions.get(input.sessionId).lessons.get(input.lessonId), input.lessonId);
+  }
+  return { turn, reset, snapshot, summary };
 }
