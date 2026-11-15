@@ -50,6 +50,8 @@ namespace ImmerseTheBay.Learning
         string m_ClerkCaption = "", m_ClerkEnglish = "", m_LearnerCaption = "", m_LearnerEnglish = "", m_RouteLabel = "", m_ConversationStatus = "";
         Func<string> m_Debug;
         string m_StatusOverride = "";
+        string m_PracticeStatus = "";
+        string m_PracticeProgress = "";
         float m_Height;
         float m_AvailableHeight = ReferenceHeight * 0.52f;
 
@@ -68,6 +70,14 @@ namespace ImmerseTheBay.Learning
             m_FocusWords = focusWords;
             m_Overlay = overlay; m_Feedback = feedback; m_Done = done;
             m_StatusOverride = "";
+            Refresh();
+        }
+
+        public void SetPracticeResult(string progress, string target, string result)
+        {
+            m_PracticeProgress = progress ?? "";
+            m_PracticeStatus = string.IsNullOrEmpty(result) ? ""
+                : result + " · " + progress + "\n" + Shorten(target ?? "", 24);
             Refresh();
         }
 
@@ -205,6 +215,7 @@ namespace ImmerseTheBay.Learning
             m_Translation.text = !m_ConversationActive && showTranslation && m_Overlay != null
                 ? (useChineseTranslation ? m_Overlay.zh : m_Overlay.en) ?? "" : "";
             string status = m_StatusOverride;
+            if (!m_ConversationActive && string.IsNullOrEmpty(status)) status = m_PracticeStatus;
             if (string.IsNullOrEmpty(status))
             {
                 if (m_ConversationActive) status = !string.IsNullOrEmpty(m_ConversationStatus) ? m_ConversationStatus
@@ -216,6 +227,8 @@ namespace ImmerseTheBay.Learning
                 else if (m_Feedback?.notes != null && m_Feedback.notes.Length > 0)
                     status = m_Feedback.notes[0] ?? "";
             }
+            if (!m_ConversationActive && m_PracticeStatus.Length == 0 && m_PracticeProgress.Length > 0)
+                status = string.IsNullOrWhiteSpace(status) ? m_PracticeProgress : m_PracticeProgress + "\n" + status;
             // Feedback is supplementary; preserve the target sentence's visual priority.
             m_Status.text = status.Length > 150 ? status.Substring(0, 147) + "…" : status;
             bool controls = m_Overlay != null && !m_Done;
@@ -290,10 +303,13 @@ namespace ImmerseTheBay.Learning
             if (japanese + romaji + translation + clerk + learner + kana + status > budget) kana = 0;
             if (japanese + romaji + translation + clerk + learner + status > budget && japanese + romaji > 0)
                 clerk = learner = 0;
-            if (japanese + romaji + translation + clerk + learner + status > budget) status = 0;
+            if (japanese + romaji + translation + clerk + learner + status > budget)
+                status = !m_ConversationActive && (m_PracticeStatus.Length > 0 || m_PracticeProgress.Length > 0)
+                    ? MinimumLineHeight(m_Status) : 0;
+            float textBudget = budget - status;
 
             float required = japanese + romaji + translation + clerk + learner;
-            if (required > budget)
+            if (required > textBudget)
             {
                 // External transcripts can be arbitrarily long. Bound their rows and
                 // show an explicit ellipsis at the same font size instead of tiny type.
@@ -303,7 +319,7 @@ namespace ImmerseTheBay.Learning
                 float minClerk = clerk > 0 ? MinimumLineHeight(m_Clerk) : 0;
                 float minLearner = learner > 0 ? MinimumLineHeight(m_Learner) : 0;
                 float minimum = minJapanese + minRomaji + minTranslation + minClerk + minLearner;
-                float share = Mathf.Clamp01((budget - minimum) / Mathf.Max(1, required - minimum));
+                float share = Mathf.Clamp01((textBudget - minimum) / Mathf.Max(1, required - minimum));
                 japanese = minJapanese + (japanese - minJapanese) * share;
                 romaji = minRomaji + (romaji - minRomaji) * share;
                 translation = minTranslation + (translation - minTranslation) * share;

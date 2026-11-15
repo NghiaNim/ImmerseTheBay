@@ -29,6 +29,11 @@ namespace ImmerseTheBay.Learning
         public bool IsConversationActive => m_VoiceActive || m_VoiceConnecting || m_Reconciling;
         string m_RunId;
         LearningResponse m_LastResponse;
+        LearningAttempt m_LastAttempt;
+        float m_AttemptExpires;
+        public LearningAttempt VisibleAttempt => m_LastAttempt;
+        public LearningProgress Progress => m_LastResponse?.progress;
+        public LearningRoute CurrentRoute => m_LastResponse?.route;
         int m_Revision, m_AudioTurn;
         double m_LastPromptAt = double.NegativeInfinity;
         bool m_VoiceActive, m_VoiceConnecting, m_Reconciling, m_ToolRunning, m_Cancelling;
@@ -134,6 +139,11 @@ namespace ImmerseTheBay.Learning
                 SetStatus(string.IsNullOrEmpty(session) ? "Join a lesson from the web." : "Connected. Begin a lesson or follow the web.");
             }
             while (m_Main.TryDequeue(out var action)) action();
+            if (m_LastAttempt != null && Time.unscaledTime >= m_AttemptExpires)
+            {
+                m_LastAttempt = null;
+                UpdatePracticeLabel();
+            }
             if (m_RecognitionPending && Time.frameCount > m_RecognitionStartFrame + 1 &&
                 (!speechProvider || !speechProvider.isActiveAndEnabled || m_Speech == null || !m_Speech.IsListening))
             {
@@ -164,6 +174,9 @@ namespace ImmerseTheBay.Learning
             m_Session = visko.SessionId;
             m_RunLesson = lessonId;
             int generation = ++m_Generation;
+            m_LastResponse = null;
+            m_LastAttempt = null;
+            UpdatePracticeLabel();
             SetBusy(true);
             m_HasLesson = false;
             m_NeedsRestart = true;
@@ -464,6 +477,9 @@ namespace ImmerseTheBay.Learning
             conversation?.Disconnect();
             m_VoiceActive = m_VoiceConnecting = m_Reconciling = false;
             m_Tools.Clear(); m_VoiceTools.Clear();
+            m_LastResponse = null;
+            m_LastAttempt = null;
+            UpdatePracticeLabel();
             m_RunId = null; m_Revision = 0; m_Claims.Clear();
             m_Generation++;
             m_Cancelling = false;
@@ -579,12 +595,31 @@ namespace ImmerseTheBay.Learning
 
         void Present(LearningResponse response)
         {
+            if (m_LastResponse?.operation?.runId != response.operation?.runId)
+                m_LastAttempt = null;
+            if (response.attempt != null && m_LastAttempt?.id != response.attempt.id)
+            {
+                m_LastAttempt = response.attempt;
+                m_AttemptExpires = Time.unscaledTime + 6f;
+            }
             m_LastResponse = response;
             if (!overlay) return;
             overlay.Show(response.overlay, response.feedback, IsDone, response.focusWords);
             overlay.SetRoute(response.route?.kind == "detour", response.route?.label);
+            UpdatePracticeLabel();
             if (!m_VoiceActive) ShowDialogue(true, response.speech?.text);
         }
+        void UpdatePracticeLabel()
+        {
+            if (!overlay) return;
+            var progress = Progress;
+            string main = progress == null ? "" : $"Main {progress.mainStep}/{progress.mainTotal}";
+            var route = CurrentRoute;
+            if (route?.kind == "detour") main += $" · Side trip {route.step}/{route.total}";
+            string attempt = LearningContract.AttemptLabel(m_LastAttempt);
+            overlay.SetPracticeResult(main, m_LastAttempt?.jp, attempt);
+        }
+
         string BindingJson() => "{\"sessionId\":" + LearningContract.Quote(m_Session) + ",\"lessonId\":" + LearningContract.Quote(m_RunLesson) + "}";
         async Task VerifySnapshot(int generation)
         {

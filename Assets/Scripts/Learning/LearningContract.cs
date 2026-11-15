@@ -53,6 +53,10 @@ namespace ImmerseTheBay.Learning
     { public string requestId, runId; public int revision; public bool replayed; }
     [Serializable] public sealed class LearningRoute
     { public string kind, label, nodeId; public int step, total, returnBeat; }
+    [Serializable] public sealed class LearningAttempt
+    { public string id, targetId, jp, text, outcome, nextTargetId; public int score; }
+    [Serializable] public sealed class LearningProgress
+    { public int mainTotal, mainStep, mainCompleted; }
     [Serializable] public sealed class LearningSpeech
     { public string role, language, text; }
     [Serializable] public sealed class LearningSnapshot
@@ -66,6 +70,8 @@ namespace ImmerseTheBay.Learning
         public LearningCommand[] visko;
         public LearningOverlayData overlay;
         public LearningFeedback feedback;
+        public LearningAttempt attempt;
+        public LearningProgress progress;
         public string advance;
         public LearningOperation operation;
         public LearningRoute route;
@@ -145,6 +151,23 @@ namespace ImmerseTheBay.Learning
             // JsonUtility may instantiate nested serializable classes for JSON null on some Unity versions.
             if (ViskoSession.JsonObjectField(json, "overlay") == null) response.overlay = null;
             if (ViskoSession.JsonObjectField(json, "feedback") == null) response.feedback = null;
+            if (ViskoSession.JsonObjectField(json, "attempt") == null) response.attempt = null;
+            if (ViskoSession.JsonObjectField(json, "progress") == null) response.progress = null;
+            if (response.attempt != null)
+            {
+                var attempt = response.attempt;
+                if (string.IsNullOrEmpty(attempt.id) || string.IsNullOrEmpty(attempt.targetId) ||
+                    string.IsNullOrEmpty(attempt.jp) || attempt.score < 0 || attempt.score > 100 ||
+                    (attempt.outcome != "pass" && attempt.outcome != "retry" && attempt.outcome != "assisted" && attempt.outcome != "skip"))
+                    throw new FormatException("Invalid lesson attempt");
+            }
+            if (response.progress != null)
+            {
+                var progress = response.progress;
+                if (progress.mainTotal < 1 || progress.mainStep < 1 || progress.mainStep > progress.mainTotal ||
+                    progress.mainCompleted < 0 || progress.mainCompleted > progress.mainTotal)
+                    throw new FormatException("Invalid lesson target count");
+            }
             if (response.advance != "scene_done" && (response.overlay == null || string.IsNullOrEmpty(response.overlay.jp)))
                 throw new FormatException("Missing learning subtitle.");
             if (response.advance == "scene_done" && response.overlay != null)
@@ -169,6 +192,18 @@ namespace ImmerseTheBay.Learning
             if (op == null || op.requestId != requestId || string.IsNullOrEmpty(op.runId) ||
                 op.revision != revision + 1 || (!string.IsNullOrEmpty(runId) && op.runId != runId))
                 throw new FormatException("Stale or invalid lesson operation. Restart safely.");
+        }
+
+        public static string AttemptLabel(LearningAttempt attempt)
+        {
+            if (attempt == null) return "";
+            switch (attempt.outcome)
+            {
+                case "skip": return "Skipped";
+                case "assisted": return $"Matched with a hint · Sentence match {attempt.score}%";
+                case "pass": return $"Matched · Sentence match {attempt.score}%";
+                default: return $"Try again · Sentence match {attempt.score}%";
+            }
         }
 
         public static string SyncJson(string responseJson, string session, string lesson, int beat)

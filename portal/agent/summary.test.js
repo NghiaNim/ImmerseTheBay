@@ -56,3 +56,38 @@ test('hinted and pointed transcripts are unscored and Wednesday does not imply w
  assert.equal(s.scoredAttempts,0);assert.equal(s.averageTranscriptMatch,null);assert.equal(s.firstAttempt.total,0);assert.equal(s.hints,2);
  assert.equal(s.words.some(word=>word.en==='water'),false);
 });
+
+test('wire results identify the attempted sentence and keep branch and manual progress separate', async () => {
+  const service = setup();
+  let r = await service.turn(make('shared-open'));
+  assert.equal(r.attempt, undefined);
+  assert.deepEqual(r.progress, { mainTotal: 2, mainStep: 1, mainCompleted: 0 });
+  r = await service.turn(make('shared-branch', r, { intent: 'I want a sandwich' }));
+  assert.equal(r.attempt, undefined);
+  assert.equal(r.route.kind, 'detour');
+  assert.deepEqual(r.progress, { mainTotal: 2, mainStep: 1, mainCompleted: 0 });
+  r = await service.turn(make('shared-return', r, { action: 'return_to_main' }));
+  r = await service.turn(make('shared-wrong', r, { transcript: 'こんにちは' }));
+  assert.equal(r.attempt.outcome, 'retry');
+  assert.equal(r.attempt.targetId, 'main:0');
+  r = await service.turn(make('shared-hint', r, { context: { gesture: 'long_pinch' } }));
+  assert.equal(r.attempt, undefined);
+  const request = make('shared-pass', r, { transcript: '水をください' });
+  r = await service.turn(request);
+  assert.equal(r.attempt.outcome, 'assisted');
+  assert.equal(r.attempt.score, 100);
+  assert.equal(r.attempt.jp, '水をください');
+  assert.equal(r.attempt.nextTargetId, 'main:1');
+  assert.equal(r.overlay.jp, '袋はいりません');
+  assert.deepEqual(r.progress, { mainTotal: 2, mainStep: 2, mainCompleted: 1 });
+  const retry = await service.turn(request);
+  assert.deepEqual(retry.attempt, r.attempt);
+  assert.deepEqual(retry.progress, r.progress);
+  r = await service.turn(make('shared-skip', r, { context: { glassesKey: 'next' } }));
+  assert.equal(r.attempt.outcome, 'skip');
+  assert.equal(r.attempt.score, null);
+  assert.equal(r.attempt.text, '');
+  assert.equal(r.attempt.nextTargetId, null);
+  assert.deepEqual(r.progress, { mainTotal: 2, mainStep: 2, mainCompleted: 1 });
+  assert.equal(service.summary(key).scoredAttempts, 2);
+});

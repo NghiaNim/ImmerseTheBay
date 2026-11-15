@@ -429,31 +429,12 @@ namespace ImmerseTheBay.Learning
             video.PrepareScenePreview(bytes);
         }
 
-        int totalLines;
-
-        /// <summary>Line count for the progress bar: every authored line has exactly one "cue" (detours are extra).</summary>
-        IEnumerator FetchLineCount(string lessonId)
-        {
-            totalLines = 0;
-            var url = video.config.portalUrl.TrimEnd('/') + "/api/agent/lessons/" + UnityEngine.Networking.UnityWebRequest.EscapeURL(lessonId);
-            using var request = UnityEngine.Networking.UnityWebRequest.Get(url);
-            if (!string.IsNullOrEmpty(video.config.portalToken)) request.SetRequestHeader("portal_token", video.config.portalToken);
-            request.timeout = 10;
-            yield return request.SendWebRequest();
-            if (request.result != UnityEngine.Networking.UnityWebRequest.Result.Success || lesson.lessonId != lessonId) yield break;
-            var json = request.downloadHandler.text;
-            int count = 0;
-            for (int at = json.IndexOf("\"cue\":"); at >= 0; at = json.IndexOf("\"cue\":", at + 1)) count++;
-            totalLines = count;
-        }
-
         void BeginSelectedLesson()
         {
             openingRequested = true;
             // Separate the connection deadline from the image upload and opening turn.
             connectDeadline = Time.unscaledTime + 60f;
             lesson.lessonId = pendingLessonId;
-            StartCoroutine(FetchLineCount(pendingLessonId));
             // Only bundled images can be loaded here; Portal-side images (replays of photo sessions) start from the prompt.
             lesson.startImage = pendingStartImage != null && pendingStartImage.StartsWith("lessons/") ? pendingStartImage : "";
             if (pendingImage != null) lesson.BeginLessonWithImage(pendingImage);
@@ -551,9 +532,17 @@ namespace ImmerseTheBay.Learning
                     loadingFill.anchorMax = new Vector2(x + 0.08f, 0.521f);
                 }
                 title.text = practiceVisible ? currentTitle : "";
-                int done = Mathf.Min(lesson.Beat + (lesson.IsDone ? 1 : 0), Mathf.Max(totalLines, 1));
-                step.text = !practiceVisible || starting ? "" : totalLines > 0 ? $"Step {Mathf.Min(lesson.Beat + 1, totalLines)} of {totalLines}" : $"Step {lesson.Beat + 1}";
-                progressFill.anchorMax = new Vector2(0.06f + 0.88f * (practiceVisible && totalLines > 0 ? (float)done / totalLines : 0f), progressFill.anchorMax.y);
+                var progress = practiceVisible && !starting ? lesson.Progress : null;
+                var route = lesson.CurrentRoute;
+                var attempt = lesson.VisibleAttempt;
+                if (progress != null)
+                {
+                    if (attempt != null) status.text = attempt.jp + "\n" + LearningContract.AttemptLabel(attempt);
+                    else if (route?.kind == "detour") status.text = $"Side trip {route.step}/{route.total} · main lesson saved";
+                }
+                step.text = progress == null ? "" : $"Main {progress.mainStep}/{progress.mainTotal}";
+                float completed = progress == null ? 0f : (float)progress.mainCompleted / progress.mainTotal;
+                progressFill.anchorMax = new Vector2(0.06f + 0.88f * completed, progressFill.anchorMax.y);
                 endLabel.text = practiceVisible ? "■  End lesson" : "Back to Tenin";
                 AnimateSpeak();
             }

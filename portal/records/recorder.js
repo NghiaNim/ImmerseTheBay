@@ -15,11 +15,11 @@ export function createSessionRecorder(store, { userId = LOCAL_USER } = {}) {
       partnerRole: lesson.partnerRole || null,
     }, () => ({ replaySource: snapshotReplaySource(lesson) }));
     if (plan) await store.appendEvent(runId, { type: 'detour_plan', label: plan.label, returnBeat: plan.returnBeat, nodes: plan.nodes, source: plan.source });
-    const scored = practiced && Boolean(request.transcript?.trim()) && !intent;
     await store.appendEvent(runId, {
       type: 'turn',
       transcript: request.transcript || '', intent: intent || null, action: request.action || null, gesture: request.context?.gesture || null,
-      practiced, practicedSegment, practicedTargetId, score: scored && typeof response.feedback?.score === 'number' ? response.feedback.score : null,
+      practiced, practicedSegment, practicedTargetId, score: response.attempt?.score ?? null,
+      ...(response.attempt ? { attemptId: response.attempt.id, outcome: response.attempt.outcome } : {}),
       advance: response.advance, route: response.route, presented, presentedTargetId,
       clerk: response.speech?.text || null,
       prompt: response.visko.find((command) => command.name === 'set_prompt')?.data.prompt || null,

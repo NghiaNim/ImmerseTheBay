@@ -278,7 +278,7 @@ export function createAgentService({ store = createLessonStore(), llm = createLe
       state.revision = (state.revision || 0) + 1;
       if (request.operation) response.operation = { requestId: request.operation.requestId, runId: state.flow.runId, revision: state.revision, replayed: false };
       if (state.scene) response.scene = structuredClone(state.scene);
-      recordSummary(state, { request, lesson, before: summaryBefore, intent, response });
+      recordSummary(state, { request, lesson, before: summaryBefore, intent, response, mainTotal: lines.length });
       await log({ at: new Date(now()).toISOString(), sessionId: request.sessionId, lessonId: request.lessonId, beat: request.beat, transcript: request.transcript || '', intent: intent || null, context: request.context, photoCaption: plain(request.imageRef) ? request.imageRef.caption || '' : '', source, failure, route: response.route, graph: { nodes: state.flow.nodes, edges: state.flow.edges }, response });
       if (recorder) {
         // Recording is best-effort: a disk problem must never block the lesson.

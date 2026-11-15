@@ -64,9 +64,9 @@ export function summarizeEvents(events) {
       const entry = touch(event.practicedSegment, event.practiced, event.practicedTargetId);
       if (typeof event.score === 'number') {
         entry.attempts.push({ transcript: event.transcript, score: event.score, at: event.at });
-        if (event.score >= PASS_SCORE) entry.passed = true;
+        if (event.outcome ? ['pass', 'assisted'].includes(event.outcome) : event.score >= PASS_SCORE) entry.passed = true;
       }
-      if (event.gesture === 'pinch' && !entry.passed) entry.skipped = true;
+      if ((event.outcome ? event.outcome === 'skip' : event.gesture === 'pinch') && !entry.passed) entry.skipped = true;
     }
     if (event.presented) touch(segmentOf(event.route), event.presented, event.presentedTargetId);
     if (event.clerk) clerk.push({ text: event.clerk, at: event.at });

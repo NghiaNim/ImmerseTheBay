@@ -16,7 +16,7 @@ function encounter(metrics, id, line) {
   }
   return target;
 }
-export function recordSummary(state, { request, lesson, before, intent, response }) {
+export function recordSummary(state, { request, lesson, before, intent, response, mainTotal }) {
   const metrics = state.summary ||= { targets: [], words: [], scoredAttempts: 0, scoreSum: 0, hints: 0, manualSkips: 0 };
   // Every response overlay is actually encountered; authored but unseen lines are excluded.
   const target = before.started ? encounter(metrics, before.id, before.line) : null;
@@ -26,20 +26,41 @@ export function recordSummary(state, { request, lesson, before, intent, response
   const hint = c.gesture === 'long_pinch' || /hint|repeat/i.test(c.glassesKey || '');
   const advanced = before.nodeId !== state.flow.current.nodeId || Boolean(state.complete);
   if (!request.action && !intent && before.started) {
-    if (hint) metrics.hints++;
-    if (manual && advanced) { metrics.manualSkips++; if (target) target.manualSkips++; }
+    if (hint) {
+      metrics.hints++;
+      if (target) target.hinted = true;
+    }
+    const recordAttempt = (outcome, score, text) => {
+      response.attempt = {
+        id: `${state.flow.runId}:${state.revision}`, targetId: before.id,
+        jp: before.line.jp, text, score, outcome,
+        nextTargetId: state.complete ? null : targetId(state.flow),
+      };
+    };
+    if (manual && advanced) {
+      metrics.manualSkips++;
+      if (target) target.manualSkips++;
+      recordAttempt('skip', null, '');
+    }
     const transcript = request.transcript?.trim();
     if (transcript && !manual && !hint && c.gesture !== 'point') {
       const score = scoreTranscript(transcript, before.line);
+      const passed = score >= PASS_SCORE && advanced;
+      recordAttempt(passed ? (target?.hinted ? 'assisted' : 'pass') : 'retry', score, transcript);
       metrics.scoredAttempts++; metrics.scoreSum += score;
       if (target) {
         if (!target.attempts) target.firstScore = score;
         target.attempts++;
         target.bestTranscriptMatch = Math.max(target.bestTranscriptMatch ?? 0, score);
-        if (score >= PASS_SCORE && advanced) target.completed = true;
+        if (passed) target.completed = true;
       }
     }
   }
+  response.progress = {
+    mainTotal,
+    mainStep: state.complete ? mainTotal : state.flow.mainBeat + 1,
+    mainCompleted: metrics.targets.filter(target => target.completed && target.id.startsWith('main:')).length,
+  };
   const shown = response.overlay;
   for (const word of [...lesson.beats.flatMap(beat => beat.vocab || []), ...COMMON_WORDS]) {
     // Kanji substring matches alone are not lexical evidence (水曜日 is not water).
