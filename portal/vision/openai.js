@@ -5,7 +5,7 @@ const INSTRUCTIONS = `Locate the ordinary physical object under the supplied poi
 
 export function createVisionClient({ apiKey = process.env.OPENAI_API_KEY, fetchImpl = fetch } = {}) {
   if (!apiKey?.trim()) return null;
-  return async ({ frame, point }) => {
+  return async ({ frame, point, sceneHint }) => {
     let response;
     try {
       response = await fetchImpl('https://api.openai.com/v1/responses', {
@@ -14,7 +14,7 @@ export function createVisionClient({ apiKey = process.env.OPENAI_API_KEY, fetchI
         body: JSON.stringify({ model: VISION_MODEL, reasoning: { effort: 'none' }, store: false,
           max_output_tokens: 500, instructions: INSTRUCTIONS,
           input: [{ role: 'user', content: [
-            { type: 'input_text', text: `Identify the visible object at normalized image point ${JSON.stringify(point)}.` },
+            { type: 'input_text', text: [`Identify the visible object at normalized image point ${JSON.stringify(point)}.`, sceneHint].filter(Boolean).join(' ') },
             { type: 'input_image', image_url: frame, detail: 'high' },
           ] }],
           text: { format: { type: 'json_schema', name: 'video_point_object', strict: true, schema: VISION_SCHEMA } },

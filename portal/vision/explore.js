@@ -71,7 +71,10 @@ export function createExplorationService({
         throw new VisionError(429, 'Wait before exploring another object');
       pendingRuns.add(key);
       try {
-        const result = await vision.point(request, { caller });
+        const sceneHint = lessonId === 'ja-cafe-demo-001' && sceneId === 'cafe-menupour'
+          ? 'A small upright dark rectangle in a wood frame next to the barista’s right shoulder can be a menu board even when its lettering is unreadable. Include the entire board in the bounding box only if the point is visibly on that board.'
+          : undefined;
+        const result = await vision.point(request, { caller, sceneHint });
         signal?.throwIfAborted();
         current(binding);
         const hit = gateDetection({ object: result?.object, confidence: result?.confidence, bounds: result?.bounds }, request);
