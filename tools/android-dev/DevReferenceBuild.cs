@@ -47,7 +47,8 @@ public static class DevReferenceBuild {
   lesson.visko = video;
   lesson.context = context;
   lesson.overlay = overlay;
-  lesson.speechProvider = session.AddComponent<ImmerseTheBay.Visko.AndroidSpeechToText>();
+  // Hands-free answers: waits for speech, no recognizer tones or 3-second windows (AndroidSpeechToText is the fallback).
+  lesson.speechProvider = session.AddComponent<ImmerseTheBay.Learning.PortalSpeechToText>();
   lesson.startImage = "lessons/images/konbini-checkout-original.png";
   var controls = session.AddComponent<ImmerseTheBay.Learning.DevLessonControls>();
   controls.video = video;

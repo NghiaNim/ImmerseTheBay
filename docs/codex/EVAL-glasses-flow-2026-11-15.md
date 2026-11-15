@@ -55,7 +55,7 @@ Problems, each with evidence:
 2. **Short windows, then it stops.** About 3 s per window when no words follow, a 1 s deaf gap, a beep each time, and `MaxSilentRetries = 3` → 4 windows (~15 s) per line. After that only **Speak** restarts it. Between windows the glasses show "Speech input: No speech was recognized".
 3. **Little tells the learner it is listening.** Apart from the beep, the only cues are a "Listening…" status line in the glasses and the in-glasses Speak button relabelled "Finish". The person pressed **Start session** 1.9 s into window 1 (stack: `DevLessonControls:StartLive` ← `UnityEvent:Invoke` ← `XRUIInputModule:ProcessTouches`).
 4. **Speak on the phone stops an automatic listen.** The phone controller's **Speak** label never changes, and `LearningAgentClient.Speak()` calls `StopListening` when a recognition is pending.
-5. **The partner never speaks first in photo lessons.** The opening turn had no partner line, so the first sound the learner hears is the beep. The running portal (started 01:24) predates the partner-line change on `feat/unified-flow`; restart it from that branch.
+5. **Nobody speaks first when the learner opens.** This photo lesson's first line is the learner's own greeting ("こんにちは。ここ、空いていますか。"), so the partner had nothing to say and the first sound the learner heard was the beep. (The portal had been restarted at 02:08 and already includes the partner-line change.)
 6. **Correct speech scored as wrong.** The person said "koko, aite imasu ka" but the recognizer wrote 開いて ("open") instead of 空いて ("free"). Text-only similarity gave 57/100 and asked them to repeat. Compare readings (kana) as well.
 7. **Leaving the XR view kills the lesson silently.** Video frames stopped at 17:13:22 and only 2 arrived after the resume. `ViskoSession` has no pause handling, so the video session is not closed while paused (possible idle billing; unverified).
 
@@ -76,7 +76,7 @@ Problems, each with evidence:
    - Keep the glasses speakers out of the microphone: duck the video audio while listening, use the phone microphone, or use the echo-cancelled live voice path ("Talk").
    - Listen continuously until the learner speaks instead of 4 × 3 s windows, with no beeps.
    - Keep a visible "Your turn — say: …" prompt up while listening.
-5. **Conversation start:** the partner speaks first, or an audible "your turn" cue plays; restart the portal from `feat/unified-flow` for photo-lesson partner lines.
+5. **Conversation start:** when the learner opens, show and play a clear "your turn" cue (or have the partner greet first).
 6. **Controller:**
    - show the listening state on the phone;
    - make **Speak** during an automatic listen do nothing harmful;
@@ -107,9 +107,23 @@ Suggested protocol, phone charged:
 - one run where the person leaves to Home and comes back;
 - one run with Start pressed within 10 s of plugging in the glasses.
 
+## Fix status (03:10 Mac time)
+
+| # | Item | Status | Owner |
+|---|---|---|---|
+| 1 | Charge the phone for tests | Testing practice | user |
+| 2 | Phone side handles glasses loss | Done in the Tenin screens, not yet run on the device:<br>- battery warning at ≤ 20%;<br>- **I'm wearing them** waits until the glasses are connected;<br>- "Your glasses disconnected" / "Lesson stopped" screen with **Start again** when the person returns without **End lesson**;<br>- portrait lock, and `configChanges` in the manifest (`1bff1e3`). | immersethebay-18, -86 (manifest) |
+| 3 | Automatic return to the phone | Removed: it was `DevLessonControls` bringing Tenin to the front after the automatic start | immersethebay-86 |
+| 4 | Hands-free listening | Done, not yet run on the device:<br>- `PortalSpeechToText` is the dev scene's speech component: it waits up to 20 s for speech, ends after a 0.9 s pause, transcribes on the portal (Japanese hint), and plays no tones;<br>- the scene audio is muted while either speech component listens. | immersethebay-18 |
+| 5 | "Your turn" cue when the learner opens | Open | — |
+| 6 | Listening state on the phone controller | In progress (large Speak button showing "Listening…") | immersethebay-86 |
+| 7 | Reading-based scoring | Not started; owner is raising it with the user | immersethebay-3b (scoring) |
+| 8 | Pause/resume | The video session now ends when the XR view pauses (no idle billing). Returning to Tenin shows "Lesson stopped" with **Start again**; resuming mid-lesson is not supported. | immersethebay-18 |
+| 9 | `[Flow]` log lines | In progress | immersethebay-86 |
+
 ## Open questions
 
-- What made the `tenin-s25` build return to the phone screen 2 s after starting the video session (run 2)? The current staged code only does this from the **End lesson** and **Back to Tenin** buttons.
+- ~~What made the `tenin-s25` build return to the phone screen 2 s after starting the video session (run 2)?~~ Answered: `DevLessonControls` brought Tenin to the front after the automatic start; removed by the integrator.
 - Does the native `NRSwapchainCreateEx` crash reproduce at full battery?
 - After an XREAL force-quit, does **Start in glasses** work again in the same process?
 - Does the video session keep billing while the XR view is paused?

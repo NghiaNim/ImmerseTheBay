@@ -17,7 +17,7 @@ for source in \
   Assets/Scripts/SensorDebug/DebugRegistry.cs \
   Assets/Scripts/Net/{NetClient,Protocol,RealtimeSession}.cs \
   Assets/Scripts/Audio/{MicrophoneCapture,PcmChunkReader}.cs \
-  Assets/Scripts/Learning/{ISpeechToText,EditorSpeechToText,LearningAgentClient,LearningContext,LearningContract,LearningOverlay}.cs \
+  Assets/Scripts/Learning/{ISpeechToText,EditorSpeechToText,PortalSpeechToText,LearningAgentClient,LearningContext,LearningContract,LearningOverlay}.cs \
   Assets/Scripts/Learning/Voice/CartesiaConversationClient.cs \
   Assets/Shaders/ImmersiveVisko.shader Assets/Materials/ImmersiveVisko.mat; do
   cp "$repo/$source" "$repo/$source.meta" "$integration/"

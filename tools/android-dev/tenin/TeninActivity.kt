@@ -3,8 +3,10 @@ package com.immersethebay.phone
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ActivityInfo
 import android.graphics.Bitmap
 import android.hardware.display.DisplayManager
+import android.os.BatteryManager
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -67,13 +69,25 @@ class TeninActivity : Activity() {
     private var filter = ""
     private var query = ""
     private var running: TeninScenario? = null
+    // A lesson was handed to the glasses and has not come back through End lesson yet.
+    private var inGlasses = false
+    private var glassesLost = false
     @Volatile private var closed = false
 
+    private val displays: DisplayManager get() = getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
     private val connected: Boolean
-        get() = demo || (getSystemService(Context.DISPLAY_SERVICE) as DisplayManager).displays.any { it.displayId != Display.DEFAULT_DISPLAY }
+        get() = demo || displays.displays.any { it.displayId != Display.DEFAULT_DISPLAY }
+    // Keeps the glasses status current as they are plugged in or out.
+    private val displayListener = object : DisplayManager.DisplayListener {
+        override fun onDisplayAdded(displayId: Int) = render()
+        override fun onDisplayRemoved(displayId: Int) { if (inGlasses) glassesLost = true; render() }
+        override fun onDisplayChanged(displayId: Int) {}
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        displays.registerDisplayListener(displayListener, main)
         demo = intent.getBooleanExtra("demo", false)
         if (!demo) TeninWorkflow.install()
         screens = TeninScreens(this)
@@ -133,7 +147,22 @@ class TeninActivity : Activity() {
     private fun prepare(scenario: TeninScenario) {
         TeninHooks.selected = arrayOf(scenario.id, scenario.startImage, scenario.title)
         running = scenario
-        go { screens.putOnGlasses(connected, scenario.title, onWearing = ::startInGlasses, onBack = ::back) }
+        go { screens.putOnGlasses(connected, scenario.title, batteryWarning(), onWearing = ::startInGlasses, onBack = ::back) }
+    }
+
+    private fun battery(): Pair<Int, Boolean> {
+        val manager = getSystemService(Context.BATTERY_SERVICE) as BatteryManager
+        return manager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) to manager.isCharging
+    }
+
+    // The phone powers the glasses. On the S25 that power is cut at 15% battery, which ends the lesson.
+    private fun batteryWarning(): String {
+        val (level, charging) = battery()
+        return when {
+            demo || charging || level > 20 -> ""
+            level <= 15 -> "Battery $level%. Below 15% the phone keeps cutting power to the glasses, so the lesson will stop. Plug in power first."
+            else -> "Battery $level%. At 15% the phone stops powering the glasses and the lesson ends. Plug in power before you start."
+        }
     }
 
     private fun startInGlasses() {
@@ -143,6 +172,8 @@ class TeninActivity : Activity() {
             catch (_: Exception) { false }
         })(this)
         if (!opened) return
+        inGlasses = !demo
+        glassesLost = false
         replace {
             val progress = if (demo) 2 to 4 else TeninHooks.progress?.invoke()
             screens.running(connected, scenario.title, progress?.first ?: 0, progress?.second ?: 0,
@@ -151,14 +182,32 @@ class TeninActivity : Activity() {
     }
 
     // Own the glasses display while the phone UI is in front (instead of Samsung's stretched mirror).
-    override fun onResume() { super.onResume(); if (!demo) TeninGlassesScreen.show(this) }
+    override fun onResume() {
+        super.onResume()
+        if (demo) return
+        TeninGlassesScreen.show(this)
+        // Back without End lesson (glasses disconnected, Back to Tenin, Home): the lesson has stopped there.
+        if (inGlasses) { inGlasses = false; running?.let(::showStopped) }
+    }
     override fun onPause() { if (!demo) TeninGlassesScreen.hide(this); super.onPause() }
 
     /** Back from the glasses (their End lesson button): show the summary without stopping them again. */
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        if (intent.getBooleanExtra("lessonEnded", false) && running != null) endLesson(stopGlasses = false)
+        if (intent.getBooleanExtra("lessonEnded", false) && running != null) { inGlasses = false; endLesson(stopGlasses = false) }
+    }
+
+    private fun showStopped(scenario: TeninScenario) {
+        val lost = glassesLost || !connected
+        val (level, charging) = battery()
+        val detail = when {
+            lost && !charging && level <= 15 -> "Your phone’s battery is at $level%. Below 15% it stops powering the glasses. Plug in power, then start again."
+            lost -> "Check that the glasses are plugged in, then start again."
+            else -> "The lesson stops when you leave the glasses view. Start again when you’re ready."
+        }
+        reset { screens.lessonStopped(if (lost) "Your glasses disconnected" else "Lesson stopped", detail,
+            onAgain = { prepare(scenario) }, onDone = { running = null; reset(::startScreen) }) }
     }
 
     private fun endLesson(stopGlasses: Boolean = true) {
@@ -389,6 +438,7 @@ class TeninActivity : Activity() {
 
     override fun onDestroy() {
         closed = true
+        displays.unregisterDisplayListener(displayListener)
         if (!demo) TeninWorkflow.cancel()
         main.removeCallbacksAndMessages(null)
         tts?.shutdown()

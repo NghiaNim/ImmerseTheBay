@@ -278,8 +278,9 @@ class TeninScreens(private val context: Context) {
     }
 
     // 6 · Put on your glasses
-    fun putOnGlasses(connected: Boolean, lessonTitle: String, onWearing: () -> Unit, onBack: () -> Unit) = ui.run {
-        screen(listOf(
+    // `warning` (e.g. low battery) shows above the checklist. Starting waits until the glasses are connected.
+    fun putOnGlasses(connected: Boolean, lessonTitle: String, warning: String, onWearing: () -> Unit, onBack: () -> Unit) = ui.run {
+        screen(listOfNotNull(
             header(onBack),
             FrameLayout(context).apply {
                 background = rounded(0, dp(196f).toFloat(), 0xFFCFC6F0.toInt(), dp(1.5f), dp(4f).toFloat())
@@ -291,12 +292,28 @@ class TeninScreens(private val context: Context) {
             },
             title("Put on your glasses").margins(top = 22f).apply { gravity = Gravity.CENTER }.fillWidth(),
             body(if (connected) "Your lesson is ready. Tap the button below once they’re on." else "Plug the glasses into your phone, then put them on.").margins(top = 10f).apply { gravity = Gravity.CENTER }.fillWidth(),
+            if (warning.isEmpty()) null else card(row(icon(TeninIcon.ALERT, 22f, Tenin.AMBER).margins(right = 12f), text(warning, 17f, Tenin.BROWN).weighted(), gravity = Gravity.TOP).fillWidth(),
+                fill = Tenin.YELLOW_BG, line = Tenin.YELLOW_LINE, padding = 16f, radius = 18f).margins(top = 18f),
             checklist(listOf(
                 TeninStep(if (connected) "Glasses connected" else "Waiting for the glasses…", connected),
                 TeninStep("Scene ready: $lessonTitle", true),
                 TeninStep("The glasses listen once the lesson starts", true),
             ), outlined = true).margins(top = 22f),
-        ), footer = listOf(primaryButton("I’m wearing them", TeninIcon.EYE, onWearing)))
+        ), footer = listOf(if (connected) primaryButton("I’m wearing them", TeninIcon.EYE, onWearing) else busyButton("Waiting for your glasses…")))
+    }
+
+    // The lesson ended without End lesson: the glasses disconnected or the wearer left the glasses view.
+    fun lessonStopped(title: String, detail: String, onAgain: () -> Unit, onDone: () -> Unit) = ui.run {
+        screen(listOf(
+            header(),
+            FrameLayout(context).apply {
+                background = rounded(Tenin.YELLOW_BG, dp(92f).toFloat())
+                layoutParams = LinearLayout.LayoutParams(dp(92f), dp(92f)).apply { gravity = Gravity.CENTER_HORIZONTAL; topMargin = dp(26f) }
+                addView(ImageView(context).apply { setImageDrawable(TeninIconDrawable(TeninIcon.ALERT, Tenin.AMBER, 2.2f)) }, FrameLayout.LayoutParams(dp(44f), dp(44f), Gravity.CENTER))
+            },
+            text(title, 34f).margins(top = 14f).apply { gravity = Gravity.CENTER }.fillWidth(),
+            body(detail).margins(top = 10f, left = 8f, right = 8f).apply { gravity = Gravity.CENTER }.fillWidth(),
+        ), footer = listOf(primaryButton("Start again", TeninIcon.GLASSES, onAgain), secondaryButton("Done", null, onDone).margins(top = 10f)))
     }
 
     // 7 · Lesson running. step = 0 hides the progress bar when the glasses do not report progress.

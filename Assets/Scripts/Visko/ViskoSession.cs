@@ -63,7 +63,7 @@ namespace ImmerseTheBay.Visko
         IViskoBackend m_Backend;
         Texture2D m_Texture;
         long m_LastFrame;
-        bool m_OwnsSession;
+        bool m_OwnsSession, m_AudioMuted;
         int m_ConnectVersion;
         long m_OperationId;
         Task m_ImageTask;
@@ -92,7 +92,11 @@ namespace ImmerseTheBay.Visko
         void EnsureBackend()
         {
 #if UNITY_ANDROID && !UNITY_EDITOR
-            if (m_Backend == null && isActiveAndEnabled) m_Backend = new AndroidViskoBackend(this);
+            if (m_Backend == null && isActiveAndEnabled)
+            {
+                m_Backend = new AndroidViskoBackend(this);
+                if (m_AudioMuted) m_Backend.SetAudioEnabled(false);
+            }
 #endif
         }
 
@@ -109,6 +113,12 @@ namespace ImmerseTheBay.Visko
             DebugRegistry.Unregister(m_Debug);
             Leave();
             if (m_Hub) m_Hub.enabled = false;
+        }
+
+        void OnApplicationPause(bool paused)
+        {
+            // Leaving the XR view already cancels the lesson; end the Reactor session too so it stops billing.
+            if (paused && (m_Backend != null || SessionId != "")) Leave();
         }
 
         void OnDestroy()
@@ -196,6 +206,16 @@ namespace ImmerseTheBay.Visko
         public void Pause() => Command("pause", null);
         public void Resume() => Command("resume", null);
         public void ResetGeneration() => Command("reset", null);
+
+        /// <summary>
+        /// Mutes or restores the generated audio on this device only; the Reactor session is unchanged. Speech
+        /// input mutes it while the learner speaks, so the glasses' microphone does not hear the scene.
+        /// </summary>
+        public void SetSceneAudioMuted(bool muted)
+        {
+            m_AudioMuted = muted;
+            m_Backend?.SetAudioEnabled(!muted);
+        }
 
         public void Leave()
         {
@@ -589,6 +609,7 @@ namespace ImmerseTheBay.Visko
         void SendCommand(string id, string name, string argsJson);
         void UploadImage(string id, byte[] bytes, string name, string mime);
         void Disconnect();
+        void SetAudioEnabled(bool enabled);
         long FrameId { get; }
         int Width { get; }
         int Height { get; }
@@ -620,6 +641,7 @@ namespace ImmerseTheBay.Visko
         public void SendCommand(string id, string name, string argsJson) => m_Bridge.Call("sendCommand", id, name, argsJson ?? "");
         public void UploadImage(string id, byte[] bytes, string name, string mime) => m_Bridge.Call("uploadImage", id, bytes, name, mime);
         public void Disconnect() => m_Bridge.Call("disconnect");
+        public void SetAudioEnabled(bool enabled) => m_Bridge.Call("setAudioEnabled", enabled);
         public long FrameId => m_Bridge.Call<long>("getFrameId");
         public int Width => m_Bridge.Call<int>("getWidth");
         public int Height => m_Bridge.Call<int>("getHeight");
