@@ -9,6 +9,7 @@ export const OBJECTS = Object.freeze({
   sandwich: { label: 'サンドイッチ', noun: 'sandwich' },
   rice_ball: { label: 'おにぎり', noun: 'rice ball' },
   cup: { label: 'カップ', noun: 'cup' },
+  pitcher: { label: 'ミルクピッチャー', noun: 'milk pitcher' },
   bag: { label: '袋', noun: 'bag' },
   basket: { label: 'かご', noun: 'shopping basket' },
   counter: { label: 'カウンター', noun: 'checkout counter' },
@@ -66,15 +67,11 @@ function jpegDimensions(bytes) {
   return null;
 }
 
-export function validateRequest(body) {
-  if (!exactKeys(body, ['frame', 'point', 'gesture']) || !exactKeys(body.point, ['x', 'y'])
-      || !normalized(body.point.x) || !normalized(body.point.y) || !['point', 'pinch'].includes(body.gesture)) {
-    throw new VisionError(400, 'Expected a JPEG frame, normalized point {x,y}, and point or pinch gesture');
-  }
+export function validateJpegFrame(frame) {
   const prefix = 'data:image/jpeg;base64,';
-  if (typeof body.frame !== 'string' || !body.frame.startsWith(prefix)) throw new VisionError(400, 'frame must be a base64 JPEG data URL');
-  if (body.frame.length > prefix.length + 4 * Math.ceil(MAX_FRAME_BYTES / 3)) throw new VisionError(413, 'JPEG frame exceeds 2 MiB');
-  const encoded = body.frame.slice(prefix.length);
+  if (typeof frame !== 'string' || !frame.startsWith(prefix)) throw new VisionError(400, 'frame must be a base64 JPEG data URL');
+  if (frame.length > prefix.length + 4 * Math.ceil(MAX_FRAME_BYTES / 3)) throw new VisionError(413, 'JPEG frame exceeds 2 MiB');
+  const encoded = frame.slice(prefix.length);
   if (!encoded || encoded.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(encoded)) throw new VisionError(400, 'Invalid JPEG encoding');
   const bytes = Buffer.from(encoded, 'base64');
   if (bytes.length > MAX_FRAME_BYTES) throw new VisionError(413, 'JPEG frame exceeds 2 MiB');
@@ -83,6 +80,15 @@ export function validateRequest(body) {
   if (!size || !size.width || !size.height || size.width > 4096 || size.height > 4096 || size.width * size.height > 8_000_000) {
     throw new VisionError(400, 'Invalid JPEG or image dimensions exceed the prototype limit');
   }
+  return size;
+}
+
+export function validateRequest(body) {
+  if (!exactKeys(body, ['frame', 'point', 'gesture']) || !exactKeys(body.point, ['x', 'y'])
+      || !normalized(body.point.x) || !normalized(body.point.y) || !['point', 'pinch'].includes(body.gesture)) {
+    throw new VisionError(400, 'Expected a JPEG frame, normalized point {x,y}, and point or pinch gesture');
+  }
+  validateJpegFrame(body.frame);
   return { frame: body.frame, point: { x: body.point.x, y: body.point.y }, gesture: body.gesture };
 }
 

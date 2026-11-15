@@ -42,8 +42,9 @@ const app = express();
 // Photos, saved sessions and compiled replays (portal/data/, gitignored).
 const recordStore = createRecordStore();
 const lessonStore = withReplays(createLessonStore(), recordStore);
+const lessonService = createAgentService({ store: lessonStore, recorder: createSessionRecorder(recordStore) });
 registerPracticeRoutes(app, { authorized, store: lessonStore });
-registerVisionRoutes(app, { authorized });
+registerVisionRoutes(app, { authorized, snapshot: input => lessonService.snapshot(input) });
 registerRecordRoutes(app, { authorized, store: recordStore, lessons: lessonStore });
 app.use(express.json({ limit: '64kb' }));
 
@@ -52,7 +53,6 @@ function authorized(req) {
   return req.get('portal_token') === PORTAL_TOKEN || req.query.portal_token === PORTAL_TOKEN;
 }
 
-const lessonService = createAgentService({ store: lessonStore, recorder: createSessionRecorder(recordStore) });
 registerAgentRoutes(app, { authorized, store: lessonStore, service: lessonService });
 registerScenarioRoutes(app, { authorized, store: recordStore });
 registerVoiceRoutes(app, { authorized, snapshot: input => lessonService.snapshot(input) });
