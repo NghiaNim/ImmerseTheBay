@@ -205,6 +205,8 @@ test('photo replay survives expiration and restart with separate repeated target
     ['main:0', firstLine.cue, true],
     ['main:1', secondLine.cue, false],
   ]);
+  assert.equal(detail.lines[0].words, undefined);
+  assert.deepEqual(detail.lines[1].words, [{ jp: 'お願い', kana: 'おねがい', en: 'request', start: 0, end: 3 }]);
   function replay(deck) {
     return fetch(endpoint + '/replay', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ deck }) });
   }

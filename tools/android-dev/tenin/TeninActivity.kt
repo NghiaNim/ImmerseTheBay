@@ -382,8 +382,13 @@ class TeninActivity : Activity() {
         prepare(TeninScenario(lessonId, title, "", "", "", TeninIcon.CAMERA, emptyList(), startImage, partnerVoice = partnerVoice), photo)
 
     fun showComplete(summary: String, saved: Int, review: Int, tip: String, completed: Boolean = true) = reset {
-        screens.complete(summary, saved, review, tip, onPhrases = { reset(::vocabularyScreen); refreshSessions() },
-            onDone = { reset(::startScreen) }, completed = completed)
+        screens.complete(summary, saved, review, tip, onPhrases = {
+            vocabularyTab = TeninVocabularyTab.PHRASES
+            filter = ""
+            query = ""
+            reset(::vocabularyScreen)
+            refreshSessions()
+        }, onDone = { reset(::startScreen) }, completed = completed)
     }
 
     // --- Review and vocabularies -----------------------------------------------------------------
@@ -401,18 +406,50 @@ class TeninActivity : Activity() {
         onPracticeTricky = if (tricky(session) > 0) ({ replay(session, "missed") }) else null,
         onReplay = { replay(session, "all") }, onBack = ::back, nav = nav(TeninUi.Tab.REVIEW))
 
-    private fun vocabulary() = sessions.flatMap { s -> s.phrases.filter { it.mine }.map { it.copy(lesson = s.title) } }.distinctBy { it.jp }
+    private var vocabularyTab = TeninVocabularyTab.WORDS
 
-    private fun vocabularyScreen(): View {
-        val all = vocabulary()
-        val shown = all.filter { (filter.isEmpty() || it.lesson == filter) && (query.isBlank() || listOf(it.jp, it.romaji, it.en).any { field -> field.contains(query.trim(), ignoreCase = true) }) }
-        return screens.vocabularies(shown, all.map { it.lesson }.distinct(), filter, query, if (all.isEmpty()) sessionStatus else if (shown.isEmpty()) "No phrases match." else "",
-            onFilter = { filter = it; render() }, onQuery = { query = it; main.removeCallbacksAndMessages("query"); main.postAtTime({ render() }, "query", android.os.SystemClock.uptimeMillis() + 400) },
-            onSpeak = { speak(it.jp) }, onOpen = { phrase -> go { phraseScreen(phrase) } }, nav = nav(TeninUi.Tab.VOCABULARIES))
+    private fun savedPhrases() = sessions.flatMap { session ->
+        session.phrases.filter { it.mine }.map { phrase -> session to phrase.copy(lesson = session.title) }
     }
 
-    private fun phraseScreen(phrase: TeninPhrase): View = screens.phraseDetail(phrase, onListen = { speak(phrase.jp) }, onSlowly = { speak(phrase.jp, 0.55f) },
-        onPractice = sessions.firstOrNull { s -> s.phrases.any { it.jp == phrase.jp } }?.let { session -> { replay(session, "all") } },
+    private fun vocabularyScreen(): View {
+        val phrases = savedPhrases()
+        val lessons = phrases.map { it.first.title }.distinct()
+        val selectedLesson = filter.takeIf { it in lessons }.orEmpty()
+        val filtered = phrases.filter { (session, _) -> selectedLesson.isEmpty() || session.title == selectedLesson }
+        fun matches(vararg fields: String) = query.isBlank() || fields.any { it.contains(query.trim(), ignoreCase = true) }
+        fun meaning(english: String, title: String) = listOf(english, title).filter { it.isNotEmpty() }.joinToString(" · ")
+        val rows = if (vocabularyTab == TeninVocabularyTab.WORDS) {
+            filtered.flatMap { (session, phrase) -> phrase.words.map { session to it } }
+                .filter { (_, word) -> matches(word.jp, word.kana, word.romaji, word.en) }
+                .distinctBy { (_, word) -> Triple(word.jp, word.kana, word.en) }
+                .map { (session, word) ->
+                    TeninVocabularyRow(word.jp, word.reading, meaning(word.en, session.title), onSpeak = { speak(word.kana) })
+                }
+        } else {
+            filtered.filter { (_, phrase) -> matches(phrase.jp, phrase.romaji, phrase.en) }
+                .distinctBy { (_, phrase) -> Triple(phrase.jp, phrase.romaji, phrase.en) }
+                .map { (session, phrase) ->
+                    TeninVocabularyRow(screens.highlightedJapanese(phrase), phrase.romaji, meaning(phrase.en, phrase.lesson),
+                        onSpeak = { speak(phrase.jp) }, onOpen = { go { phraseScreen(session, phrase) } })
+                }
+        }
+        val emptyMessage = when {
+            sessionStatus.isNotEmpty() -> sessionStatus
+            query.isNotBlank() -> "No ${vocabularyTab.english.lowercase()} match."
+            vocabularyTab == TeninVocabularyTab.WORDS -> "Vocabulary from your saved phrases will appear here."
+            else -> "Phrases you practice will be saved here."
+        }
+        return screens.vocabularies(rows, vocabularyTab, lessons, selectedLesson, query, emptyMessage,
+            onTab = { if (vocabularyTab != it) { vocabularyTab = it; render() } },
+            onFilter = { filter = it; render() },
+            onQuery = { query = it; main.removeCallbacksAndMessages("query"); main.postAtTime({ render() }, "query", android.os.SystemClock.uptimeMillis() + 400) },
+            nav = nav(TeninUi.Tab.VOCABULARIES))
+    }
+
+    private fun phraseScreen(session: TeninSession, phrase: TeninPhrase): View = screens.phraseDetail(
+        phrase, onListen = { speak(phrase.jp) }, onSlowly = { speak(phrase.jp, 0.55f) },
+        onWordListen = { speak(it.kana) }, onPractice = { replay(session, "all") },
         onBack = ::back, nav = nav(TeninUi.Tab.VOCABULARIES))
 
     /** Compiles a saved session into a lesson on the portal and hands it to the glasses. */
@@ -462,11 +499,28 @@ class TeninActivity : Activity() {
             val tries = entry.optJSONArray("attempts")?.length() ?: 0
             if (tries == 0 && !entry.optBoolean("skipped")) null
             else readPhrase(line).copy(tries = tries, passed = entry.optBoolean("passed"),
+                words = readReviewWords(entry, line.optString("jp")),
                 partner = line.optJSONObject("partner")?.let { readPhrase(it, mine = false) }?.takeIf { it.jp.isNotBlank() })
         }
         val passed = phrases.count { it.passed }
         return TeninSession(item.getString("id"), dayLabel(item.optString("startedAt")), item.optString("mode") == "live",
             englishTitle(item.optString("lessonTitle")), if (phrases.isEmpty()) "No phrases attempted." else "$passed of ${phrases.size} phrases understood.", phrases = phrases)
+    }
+
+    private fun readReviewWords(entry: JSONObject, sentence: String): List<TeninWord> {
+        val words = entry.optJSONArray("words") ?: return emptyList()
+        return (0 until words.length()).mapNotNull { index ->
+            val word = words.optJSONObject(index) ?: return@mapNotNull null
+            val start = word.optInt("start", -1)
+            val end = word.optInt("end", -1)
+            val japanese = word.optString("jp")
+            val kana = word.optString("kana")
+            val english = word.optString("en")
+            if (start < 0 || end <= start || end > sentence.length ||
+                sentence.substring(start, end) != japanese || kana.isBlank() || english.isBlank()) return@mapNotNull null
+            val romaji = if (word.isNull("romaji")) "" else word.optString("romaji")
+            TeninWord(japanese, kana, english, romaji, start, end)
+        }
     }
 
     private fun dayLabel(iso: String): String = runCatching {
@@ -561,7 +615,7 @@ class TeninActivity : Activity() {
             "review" -> reset(::reviewScreen)
             "session" -> sessions.firstOrNull()?.let { session -> go { sessionScreen(session) } }
             "vocabularies" -> reset(::vocabularyScreen)
-            "phrase" -> vocabulary().firstOrNull()?.let { phrase -> go { phraseScreen(phrase) } }
+            "phrase" -> savedPhrases().firstOrNull()?.let { (session, phrase) -> go { phraseScreen(session, phrase) } }
         }
     }
 
@@ -593,7 +647,8 @@ class TeninActivity : Activity() {
 /** Sample content matching the mockups, shown with `--ez demo true`. Never used in a normal launch. */
 object TeninDemo {
     private val takoyaki = TeninPhrase("たこ焼きをください。", "Takoyaki o kudasai", "Can I have the takoyaki?", lesson = "Ordering food · used for real today",
-        words = listOf(Triple("たこ焼き", "takoyaki", "octopus balls"), Triple("を", "o", "marks what you want"), Triple("ください", "kudasai", "please give me")),
+        words = listOf(TeninWord("たこ焼き", "たこやき", "octopus balls", "takoyaki", 0, 4),
+            TeninWord("ください", "ください", "please give me", "kudasai", 5, 9)),
         swapTitle = "Swap the dish", swap = "すし / 天ぷら / お水 をください。", tries = 1)
     val scenarios = listOf(
         TeninScenario("demo-restaurant", "Ordering food", "レストラン", "Order a meal, ask about allergies", "Get seated, order a meal, and ask whether a dish has shrimp.", TeninIcon.UTENSILS,

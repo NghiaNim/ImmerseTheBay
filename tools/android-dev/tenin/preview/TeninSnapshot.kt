@@ -30,7 +30,10 @@ class TeninSnapshot : BroadcastReceiver() {
                 else -> phrase
             }
         }
-        val words = sessions.flatMap { session -> session.phrases.map { it.copy(lesson = session.title) } }.distinctBy { it.jp }
+        val phrases = sessions.flatMap { session -> session.phrases.map { it.copy(lesson = session.title) } }.distinctBy { it.jp }
+        val phraseRows = phrases.map { TeninVocabularyRow(s.highlightedJapanese(it), it.romaji, "${it.en} · ${it.lesson}", {}, {}) }
+        val wordRows = phrases.flatMap { it.words }.distinctBy { it.jp }.map { TeninVocabularyRow(it.jp, it.reading, it.en, {}) }
+        val lessons = phrases.map { it.lesson }.distinct()
         fun nav(tab: TeninUi.Tab) = s.ui.bottomNav(tab) {}
         val reading = listOf(TeninStep("Spotted a restaurant", true), TeninStep("Found the menu board", true))
         val screens = linkedMapOf<String, () -> View>(
@@ -48,8 +51,9 @@ class TeninSnapshot : BroadcastReceiver() {
             "complete" to { s.complete("You ordered food and asked about shrimp, for real.", 3, 1, "lead with the allergy, then point at the dish.", {}, {}) },
             "review" to { s.review(3, sessions, "", {}, {}, nav(TeninUi.Tab.REVIEW)) },
             "session" to { s.sessionDetail(sampleSession.copy(phrases = reviewPhrases), {}, {}, {}, nav(TeninUi.Tab.REVIEW)) },
-            "vocabularies" to { s.vocabularies(words, words.map { it.lesson }.distinct(), "", "", "", {}, {}, {}, {}, nav(TeninUi.Tab.VOCABULARIES)) },
-            "phrase" to { s.phraseDetail(words.first().copy(lesson = "Ordering food · used for real today"), {}, {}, {}, {}, nav(TeninUi.Tab.VOCABULARIES)) },
+            "vocabularies" to { s.vocabularies(wordRows, TeninVocabularyTab.WORDS, lessons, "", "", "", {}, {}, {}, nav(TeninUi.Tab.VOCABULARIES)) },
+            "vocabulary-phrases" to { s.vocabularies(phraseRows, TeninVocabularyTab.PHRASES, lessons, "", "", "", {}, {}, {}, nav(TeninUi.Tab.VOCABULARIES)) },
+            "phrase" to { s.phraseDetail(phrases.first().copy(lesson = "Ordering food · used for real today"), {}, {}, {}, {}, {}, nav(TeninUi.Tab.VOCABULARIES)) },
         )
         val metrics = context.resources.displayMetrics
         val width = metrics.widthPixels

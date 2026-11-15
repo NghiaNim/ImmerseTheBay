@@ -2,6 +2,7 @@ import express from 'express';
 import { sanitizeJpeg, decodeDataUrl, PhotoError } from './jpeg.js';
 import { summarizeEvents, compileReplay, replayStartImage } from './compile.js';
 import { LOCAL_USER } from './store.js';
+import { withReviewVocabulary } from './review-vocabulary.js';
 export const MAX_PHOTO_BYTES = 4 * 1024 * 1024;
 const MAX_THUMB_BYTES = 256 * 1024;
 const publicRecord = ({ replaySource: _source, ...record }) => record;
@@ -45,7 +46,8 @@ export function registerRecordRoutes(app, { authorized = () => true, store, less
   }));
   app.get('/api/sessions/:id', protect, route(async (req, res, userId) => {
     const record = await store.getRecord(userId, req.params.id);
-    res.json({ record: publicRecord(record), ...summarizeEvents(await store.events(userId, record.id)) });
+    const summary = summarizeEvents(await store.events(userId, record.id));
+    res.json({ record: publicRecord(record), ...summary, lines: withReviewVocabulary(record, summary.lines) });
   }));
   app.delete('/api/sessions/:id', protect, route(async (req, res, userId) => { await store.deleteRecord(userId, req.params.id); res.json({ ok: true }); }));
   app.post('/api/sessions/:id/replay', protect, express.json({ limit: '1kb' }), route(async (req, res, userId) => {
