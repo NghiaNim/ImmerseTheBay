@@ -3,6 +3,7 @@
     <!-- On-device Japanese text-to-speech for phrase playback (Android 11+ package visibility). -->
     <queries>
         <intent><action android:name="android.intent.action.TTS_SERVICE" /></intent>
+        <intent><action android:name="android.speech.RecognitionService" /></intent>
     </queries>
     <!-- The development Portal currently runs over LAN HTTP. -->
     <application android:usesCleartextTraffic="true">

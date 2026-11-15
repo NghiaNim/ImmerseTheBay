@@ -42,7 +42,11 @@ cat > "$work/AndroidManifest.xml" <<'XML'
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.immersethebay.tenin.preview">
     <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35" />
     <uses-permission android:name="android.permission.INTERNET" />
-    <queries><intent><action android:name="android.intent.action.TTS_SERVICE" /></intent></queries>
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <queries>
+        <intent><action android:name="android.intent.action.TTS_SERVICE" /></intent>
+        <intent><action android:name="android.speech.RecognitionService" /></intent>
+    </queries>
     <application android:label="Tenin preview" android:debuggable="true" android:usesCleartextTraffic="true">
         <activity android:name="com.immersethebay.phone.TeninActivity" android:exported="true"
             android:theme="@android:style/Theme.Material.Light.NoActionBar" android:windowSoftInputMode="adjustResize">

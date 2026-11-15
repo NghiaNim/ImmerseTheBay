@@ -11,9 +11,13 @@ import android.graphics.BitmapFactory
 import android.media.MediaRecorder
 import android.net.Uri
 import android.os.Build
+import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.MediaStore
+import android.speech.RecognitionListener
+import android.speech.RecognizerIntent
+import android.speech.SpeechRecognizer
 import java.io.File
 import java.net.HttpURLConnection
 import java.util.concurrent.CancellationException
@@ -38,6 +42,11 @@ object TeninWorkflow {
     private var expectedResult: Int? = null
     private var expectedPermission: Int? = null
     private var spokenGoal: String? = null
+    private var goalDraft = ""
+    private var goalLanguage = "en-US"
+    private var recognizer: SpeechRecognizer? = null
+    private var recognizerDeadline: Runnable? = null
+    private var portalRecordingAfterPermission = false
     // Photo taken first: the next spoken goal is sent together with it.
     private class PreparedPhoto(val jpeg: ByteArray, val preview: Bitmap)
     private var pendingPhoto: PreparedPhoto? = null
@@ -66,7 +75,7 @@ object TeninWorkflow {
         when (kind) {
             "photo" -> capture(activity)
             "library" -> launchPhotoIntent(activity, Intent(Intent.ACTION_GET_CONTENT).setType("image/*"), PICK)
-            "voice" -> listen(activity)
+            "voice" -> showGoalDraft(activity)
         }
     }
 
@@ -135,7 +144,7 @@ object TeninWorkflow {
                     // Goal already said (Add a photo from the lesson summary): build right away.
                     spokenGoal != null -> buildFromPhoto(activity, prepared, spokenGoal!!, run)
                     // Otherwise ask what they need to do here, then send the photo with that goal.
-                    else -> { pendingPhoto = prepared; listen(activity) }
+                    else -> { pendingPhoto = prepared; showGoalDraft(activity) }
                 }
             }
         }
@@ -167,16 +176,142 @@ object TeninWorkflow {
 
     // --- spoken goal --------------------------------------------------------------------------------
 
-    private fun listen(activity: TeninActivity) {
+    private fun showGoalDraft(activity: TeninActivity, status: String = "") {
+        val run = generation
+        activity.showGoalDraft(
+            text = { goalDraft },
+            language = goalLanguage,
+            status = status,
+            photo = pendingPhoto?.preview,
+            onEdit = { if (owner === activity && run == generation) goalDraft = it },
+            onLanguage = {
+                if (owner === activity && run == generation) {
+                    goalLanguage = it
+                    showGoalDraft(activity, status)
+                }
+            },
+            onDictate = { if (owner === activity && run == generation) listen(activity) },
+            onRecord = { if (owner === activity && run == generation) listen(activity, portal = true) },
+            onContinue = {
+                if (owner === activity && run == generation) {
+                    val goal = goalDraft.trim()
+                    val photo = pendingPhoto
+                    if (goal.length >= if (photo == null) 3 else 1) {
+                        val next = ++generation
+                        if (photo == null) writeLesson(activity, goal, next) else buildFromPhoto(activity, photo, goal, next)
+                    }
+                }
+            },
+        )
+    }
+
+    private fun listen(activity: TeninActivity, portal: Boolean = false) {
+        if (recognizer != null || recorder != null || expectedPermission != null) return
         if (activity.checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-            activity.showSayGoal("", false, 0f, onMic = { listen(activity) }, photo = pendingPhoto?.preview)
+            portalRecordingAfterPermission = portal
             expectedPermission = MIC_PERMISSION
             activity.requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), MIC_PERMISSION)
             return
         }
-        if (recorder != null) return
+        if (portal) recordForPortal(activity) else dictate(activity)
+    }
+
+    private fun dictate(activity: TeninActivity) {
+        val next = runCatching {
+            check(SpeechRecognizer.isRecognitionAvailable(activity))
+            SpeechRecognizer.createSpeechRecognizer(activity)
+        }.getOrElse {
+            showGoalDraft(activity, "Live dictation is unavailable. Type your goal or try a recording.")
+            return
+        }
+        val run = ++generation
+        recognizer = next
+        var partial = ""
+        var finishing = false
+        fun isCurrent() = owner === activity && run == generation && recognizer === next && !activity.isDestroyed
+        fun result(bundle: Bundle?) = bundle?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+            ?.firstOrNull()?.trim()?.take(500).orEmpty()
+        fun complete(text: String, status: String = "") {
+            if (!isCurrent()) return
+            releaseRecognizer()
+            val heard = text.ifBlank { partial }
+            if (heard.isNotBlank()) goalDraft = heard
+            showGoalDraft(activity, status)
+        }
+        fun schedule(delay: Long, action: () -> Unit) {
+            recognizerDeadline?.let(main::removeCallbacks)
+            recognizerDeadline = Runnable { if (isCurrent()) action() }.also { main.postDelayed(it, delay) }
+        }
+        fun finish() {
+            if (!isCurrent() || finishing) return
+            finishing = true
+            activity.showSayGoal(partial, false, 0f, onMic = {}, update = true, busy = true, photo = pendingPhoto?.preview)
+            schedule(4000) { complete(partial, "Review the words that were captured, or try again.") }
+        }
+        try {
+            next.setRecognitionListener(object : RecognitionListener {
+                override fun onReadyForSpeech(params: Bundle?) = Unit
+                override fun onBeginningOfSpeech() = Unit
+                override fun onBufferReceived(buffer: ByteArray?) = Unit
+                override fun onEvent(eventType: Int, params: Bundle?) = Unit
+                override fun onEndOfSpeech() = finish()
+                override fun onRmsChanged(rmsdB: Float) {
+                    if (isCurrent() && !finishing) activity.updateGoalLevel(((rmsdB + 2f) / 14f).coerceIn(0f, 1f))
+                }
+                override fun onPartialResults(partialResults: Bundle?) {
+                    if (!isCurrent()) return
+                    val text = result(partialResults)
+                    if (text.isNotBlank() && text != partial) {
+                        partial = text
+                        goalDraft = text
+                        activity.updateGoalTranscript(text, !finishing)
+                    }
+                }
+                override fun onResults(results: Bundle?) {
+                    val text = result(results)
+                    complete(text, if (text.isBlank()) "Review what was captured, or try again." else "")
+                }
+                override fun onError(error: Int) {
+                    val message = when (error) {
+                        SpeechRecognizer.ERROR_NO_MATCH, SpeechRecognizer.ERROR_SPEECH_TIMEOUT ->
+                            "No clear speech was heard. You can type your goal or try again."
+                        SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS ->
+                            "Allow microphone access in Settings, or type your goal."
+                        else -> "Live dictation stopped. Edit what was captured or try a recording."
+                    }
+                    complete(partial, message)
+                }
+            })
+            activity.showSayGoal("", true, 0f, onMic = {
+                if (isCurrent() && !finishing) {
+                    finish()
+                    if (runCatching { next.stopListening() }.isFailure)
+                        complete(partial, "Review what was captured, or try again.")
+                }
+            }, photo = pendingPhoto?.preview)
+            schedule(27000) { finish(); runCatching { next.stopListening() } }
+            next.startListening(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE, goalLanguage)
+                putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+            })
+        } catch (_: RuntimeException) {
+            complete(partial, "Could not start live dictation. Type your goal or try a recording.")
+        }
+    }
+
+    private fun releaseRecognizer() {
+        recognizerDeadline?.let(main::removeCallbacks)
+        recognizerDeadline = null
+        val current = recognizer ?: return
+        recognizer = null
+        runCatching { current.cancel() }
+        runCatching { current.destroy() }
+    }
+
+    private fun recordForPortal(activity: TeninActivity) {
         val file = runCatching { File.createTempFile("practice-goal-", ".m4a", activity.cacheDir) }.getOrElse {
-            failed(activity, "Could not prepare a recording.") { listen(activity) }
+            showGoalDraft(activity, "Could not prepare a recording.")
             return
         }
         @Suppress("DEPRECATION")
@@ -198,13 +333,13 @@ object TeninWorkflow {
         } catch (_: Exception) {
             next.release()
             file.delete()
-            failed(activity, "Could not start the microphone.") { listen(activity) }
+            showGoalDraft(activity, "Could not start the microphone.")
             return
         }
         recorder = next
         recording = file
         val run = ++generation
-        activity.showSayGoal("", true, 0f, onMic = { finishListening(activity) }, photo = pendingPhoto?.preview)
+        activity.showSayGoal("", true, 0f, onMic = { finishListening(activity) }, photo = pendingPhoto?.preview, portalRecording = true)
         // Live level for the waveform; tapping the mic again finishes.
         fun meter() {
             val current = recorder ?: return
@@ -223,21 +358,22 @@ object TeninWorkflow {
         val ok = stopRecorder()
         if (!ok || file == null || file.length() == 0L) {
             file?.delete()
-            failed(activity, "Nothing was recorded. Tap the mic and say what you need to do.") { listen(activity) }
+            showGoalDraft(activity, "Nothing was recorded. Try again or type your goal.")
             return
         }
         val run = ++generation
-        activity.showSayGoal("Understanding you…", false, 0f, onMic = {}, update = true, busy = true, photo = pendingPhoto?.preview)
+        val language = goalLanguage
+        activity.showSayGoal("", false, 0f, onMic = {}, update = true, busy = true, photo = pendingPhoto?.preview, portalRecording = true)
         worker.execute {
             val heard = runCatching {
-                try { PracticePortal.transcribe(activity, file.readBytes(), "", requestTracker(run)) } finally { file.delete() }
+                try { PracticePortal.transcribe(activity, file.readBytes(), language, requestTracker(run)) } finally { file.delete() }
             }
             ui(activity, run) {
                 heard.onSuccess { text ->
-                    val photo = pendingPhoto
-                    if (photo != null) buildFromPhoto(activity, photo, text, run) else writeLesson(activity, text, run)
+                    goalDraft = text
+                    showGoalDraft(activity)
                 }
-                    .onFailure { failed(activity, it.message ?: "Could not understand that.") { listen(activity) } }
+                    .onFailure { showGoalDraft(activity, it.message ?: "Could not understand that.") }
             }
         }
     }
@@ -258,8 +394,8 @@ object TeninWorkflow {
                         // Adding a photo grounds the same goal in the real place (photo practice).
                         onAddPhoto = { start(activity, "photo", goal) },
                         onContinue = { activity.showPutOnGlasses(lesson.getString("id"), lesson.optString("startImage"), title, partnerVoice = lesson.optString("partnerVoice")) },
-                        onAgain = { listen(activity) })
-                }.onFailure { failed(activity, it.message ?: "Could not write a lesson from that.") { listen(activity) } }
+                        onAgain = { showGoalDraft(activity) })
+                }.onFailure { showGoalDraft(activity, it.message ?: "Could not write a lesson from that.") }
             }
         }
     }
@@ -272,16 +408,21 @@ object TeninWorkflow {
         val granted = grants.firstOrNull() == PackageManager.PERMISSION_GRANTED
         when (code) {
             CAMERA_PERMISSION -> if (granted) capture(activity) else failed(activity, "Allow the camera to take a photo, or choose one from your library.") { start(activity, "library", spokenGoal) }
-            MIC_PERMISSION -> if (granted) listen(activity) else failed(activity, "Allow the microphone to say your goal.") { listen(activity) }
+            MIC_PERMISSION -> {
+                val portal = portalRecordingAfterPermission
+                portalRecordingAfterPermission = false
+                if (granted) listen(activity, portal) else showGoalDraft(activity, "Allow microphone access, or type your goal.")
+            }
         }
     }
 
     /** Release the microphone in the background, allowing a fresh take when the user returns. */
     fun pause(activity: TeninActivity) {
-        if (activity !== owner || recorder == null) return
+        if (activity !== owner || (recorder == null && recognizer == null)) return
         generation++
+        releaseRecognizer()
         discardRecording()
-        activity.showSayGoal("", false, 0f, onMic = { listen(activity) }, photo = pendingPhoto?.preview)
+        showGoalDraft(activity, "Recording stopped while the app was in the background.")
     }
 
     /** Cancels one preparation when its screen or owning activity goes away. */
@@ -294,13 +435,16 @@ object TeninWorkflow {
         }
         expectedResult = null
         expectedPermission = null
+        portalRecordingAfterPermission = false
         spokenGoal = null
+        goalDraft = ""
         pendingPhoto = null
         val request = synchronized(requestLock) {
             generation++
             activeRequest.also { activeRequest = null }
         }
         if (request != null) disconnectWorker.execute { request.disconnect() }
+        releaseRecognizer()
         discardRecording()
     }
 

@@ -6,6 +6,8 @@ import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.RectF
 import android.text.Editable
+import android.text.InputFilter
+import android.text.InputType
 import android.text.SpannableStringBuilder
 import android.text.Spanned
 import android.text.TextWatcher
@@ -23,6 +25,7 @@ import android.widget.HorizontalScrollView
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
+import android.widget.TextView
 
 /** One line of a conversation. `mine` is false for what the partner says. */
 data class TeninPhrase(
@@ -203,17 +206,14 @@ class TeninScreens(private val context: Context, private val bindPreview: (Strin
 
     // 3 · Say my goal listening
     /** `busy`: the recording is being processed; the mic is greyed out and cannot be tapped again. */
-    fun sayGoal(connected: Boolean, transcript: String, listening: Boolean, micLevel: Float, onMic: () -> Unit, onClose: () -> Unit, busy: Boolean = false, photo: Bitmap? = null) = ui.run {
+    fun sayGoal(connected: Boolean, transcript: String, listening: Boolean, micLevel: Float, onMic: () -> Unit, onClose: () -> Unit, busy: Boolean = false, photo: Bitmap? = null, portalRecording: Boolean = false) = ui.run {
         screen(listOfNotNull(
             header(onClose, close = true, connected = connected),
             title("What do you need to do?").margins(top = 18f),
-            body("Speak in any language. Tenin will set up the lesson.").margins(top = 12f),
+            if (portalRecording) body("Your recording is transcribed after you stop.").margins(top = 12f) else null,
             photo?.let { scenePhoto(it, busy).margins(top = 16f) },
-            card(eyebrow("You said"),
-                text(SpannableStringBuilder(if (transcript.isEmpty()) "…" else "“$transcript").apply {
-                    if (transcript.isNotEmpty() && listening) append("…", ForegroundColorSpan(Tenin.PRIMARY), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                    if (transcript.isNotEmpty()) append("”")
-                }, 26f).margins(top = 8f),
+            card(eyebrow(if (portalRecording) "Recording" else "Transcript"),
+                text(goalTranscript(transcript, listening), 26f).fillWidth().margins(top = 8f).apply { tag = "goal-transcript" },
                 fill = Tenin.TINT).margins(top = 16f),
         ), footer = listOf(
             Waveform(context).apply {
@@ -238,6 +238,78 @@ class TeninScreens(private val context: Context, private val bindPreview: (Strin
 
     fun updateGoalLevel(root: View, level: Float) {
         root.findViewWithTag<Waveform>("goal-waveform")?.level = level
+    }
+
+    private fun goalTranscript(transcript: String, listening: Boolean): CharSequence =
+        SpannableStringBuilder(if (transcript.isEmpty()) "…" else "“$transcript").apply {
+            if (transcript.isNotEmpty() && listening) append("…", ForegroundColorSpan(Tenin.PRIMARY), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            if (transcript.isNotEmpty()) append("”")
+        }
+
+    fun updateGoalTranscript(root: View, text: String, listening: Boolean) {
+        root.findViewWithTag<TextView>("goal-transcript")?.text = goalTranscript(text, listening)
+    }
+
+    fun goalDraft(connected: Boolean, draft: String, language: String, status: String, photo: Bitmap?,
+                  onEdit: (String) -> Unit, onLanguage: (String) -> Unit, onDictate: () -> Unit,
+                  onRecord: () -> Unit, onContinue: () -> Unit, onClose: () -> Unit) = ui.run {
+        val minimumGoalLength = if (photo == null) 3 else 1
+        lateinit var field: EditText
+        val submit = primaryButton("Prepare lesson", null) {
+            if (field.text.toString().trim().length >= minimumGoalLength) onContinue()
+        }
+        fun setSubmitState(value: String) {
+            submit.isEnabled = value.trim().length >= minimumGoalLength
+            submit.alpha = if (submit.isEnabled) 1f else .55f
+        }
+        field = EditText(context).apply {
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+            hint = "Type or speak your goal"
+            filters = arrayOf(InputFilter.LengthFilter(500))
+            setText(draft)
+            setTextColor(Tenin.INK)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 20f)
+            minLines = 2
+            gravity = Gravity.TOP or Gravity.START
+            setPadding(dp(12f), dp(10f), dp(12f), dp(10f))
+            background = rounded(Tenin.WHITE, dp(14f).toFloat(), Tenin.LINE, dp(1f))
+            addTextChangedListener(object : TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
+                override fun afterTextChanged(s: Editable?) {
+                    val value = s.toString()
+                    onEdit(value)
+                    setSubmitState(value)
+                }
+            })
+        }.fillWidth().margins(top = 10f)
+        setSubmitState(draft)
+        val languages = listOf("English" to "en-US", "日本語" to "ja-JP", "中文" to "zh-CN").map { (label, tag) ->
+            val selected = tag == language
+            text(label, 16f, if (selected) Tenin.WHITE else Tenin.PRIMARY_DARK, 600).apply {
+                gravity = Gravity.CENTER
+                minHeight = dp(48f)
+                isSelected = selected
+                background = rounded(if (selected) Tenin.PRIMARY else Tenin.LAVENDER, dp(16f).toFloat())
+            }.weighted().margins(right = 5f).onTap { onLanguage(tag) }
+        }
+        screen(listOfNotNull(
+            header(onClose, close = true, connected = connected),
+            title("What do you need to do?").margins(top = 18f),
+            photo?.let { scenePhoto(it).margins(top = 14f) },
+            eyebrow("Speech language").margins(top = 16f, bottom = 4f),
+            row(*languages.toTypedArray()).fillWidth(),
+            field,
+            if (status.isBlank()) null else text(status, 16f, Tenin.MUTED).margins(top = 8f),
+            secondaryButton("Dictate live", TeninIcon.MIC, onDictate).margins(top = 12f),
+            text("Record for transcription", 16f, Tenin.PRIMARY_DARK, 600).apply {
+                minHeight = dp(48f)
+                gravity = Gravity.CENTER
+            }.fillWidth().onTap(onRecord),
+        ), footer = listOf(submit)).apply {
+            isFocusableInTouchMode = true
+            requestFocus()
+        }
     }
 
     private fun scenePhoto(bitmap: Bitmap?, loading: Boolean = false) = object : FrameLayout(context) {

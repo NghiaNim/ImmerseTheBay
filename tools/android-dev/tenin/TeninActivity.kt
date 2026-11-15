@@ -348,12 +348,25 @@ class TeninActivity : Activity() {
             onPartnerVoice = { partnerVoicePreference = it; render() })
     }
 
-    /** Listening screen for a spoken goal. Call again with the latest transcript and level (0..1). */
-    fun showSayGoal(transcript: String, listening: Boolean, level: Float, onMic: () -> Unit, onClose: () -> Unit = ::back, update: Boolean = false, busy: Boolean = false, photo: Bitmap? = null) {
-        showPreparation({ screens.sayGoal(connected, transcript, listening, level, onMic, onClose, busy, photo) }, update)
+    private var visibleGoalTranscript = ""
+
+    /** Listening screen for a spoken goal. Partial text and audio level update the mounted views. */
+    fun showSayGoal(transcript: String, listening: Boolean, level: Float, onMic: () -> Unit, onClose: () -> Unit = ::back, update: Boolean = false, busy: Boolean = false, photo: Bitmap? = null, portalRecording: Boolean = false) {
+        visibleGoalTranscript = transcript
+        showPreparation({ screens.sayGoal(connected, visibleGoalTranscript, listening, level, onMic, onClose, busy, photo, portalRecording) }, update)
     }
 
     fun updateGoalLevel(level: Float) = screens.updateGoalLevel(root, level)
+    fun updateGoalTranscript(transcript: String, listening: Boolean) {
+        visibleGoalTranscript = transcript
+        screens.updateGoalTranscript(root, transcript, listening)
+    }
+
+    fun showGoalDraft(text: () -> String, language: String, status: String, photo: Bitmap?, onEdit: (String) -> Unit,
+                      onLanguage: (String) -> Unit, onDictate: () -> Unit, onRecord: () -> Unit, onContinue: () -> Unit) =
+        showPreparation({
+            screens.goalDraft(connected, text(), language, status, photo, onEdit, onLanguage, onDictate, onRecord, onContinue, ::back)
+        })
 
     /** "Reading your photo" while steps are unfinished, "Photo ready" once `ready`, or an error with retry. */
     fun showPhotoProgress(photo: Bitmap?, steps: List<TeninStep>, ready: Boolean, error: String = "", onContinue: () -> Unit, onRetake: () -> Unit, onCancel: () -> Unit = ::back, update: Boolean = false) {
