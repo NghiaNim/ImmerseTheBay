@@ -240,6 +240,8 @@ export function createAgentService({ store = createLessonStore(), llm = createLe
         } catch (e) { failure = e.message === 'LLM JSON schema mismatch' ? e.message : 'LLM unavailable or invalid response'; }
       }
       const presented = state.complete ? null : state.flow.active ? state.flow.active.nodes[state.flow.active.index] : lines[state.flow.mainBeat]?.line || null;
+      // Live voice sessions read the partner's role and current prompt from the snapshot.
+      state.partner = lesson.partnerRole ? { role: lesson.partnerRole, line: state.flow.active ? '' : presented?.partner?.jp || '' } : null;
       if (request.action !== 'idle_hint') {
         const entering = !state.started || previousNodeId !== response.route.nodeId;
         // Generated scenarios script the partner's prompt before each learner answer.
@@ -318,7 +320,7 @@ export function createAgentService({ store = createLessonStore(), llm = createLe
     const state = session?.lessons.get(request.lessonId);
     if (!state) return null;
     session.touched = now();
-    return structuredClone({ runId: state.flow.runId, revision: state.revision, beat: state.flow.mainBeat, response: state.lastResponse, lessonContext: { scene: state.sceneContext.sceneAnchor.slice(0, 1000), goal: state.sceneContext.mainCheckpoint.goal.slice(0, 1000), ...(state.scene ? { visiblePartner: state.scene.visiblePartner, partnerLocation: state.sceneContext.partnerLocation } : {}) } });
+    return structuredClone({ runId: state.flow.runId, revision: state.revision, beat: state.flow.mainBeat, response: state.lastResponse, lessonContext: { scene: state.sceneContext.sceneAnchor.slice(0, 1000), goal: state.sceneContext.mainCheckpoint.goal.slice(0, 1000), ...(state.scene ? { visiblePartner: state.scene.visiblePartner, partnerLocation: state.sceneContext.partnerLocation } : {}), ...(state.partner ? { partnerRole: `${state.partner.role.ja} / ${state.partner.role.en}`, partnerLine: state.partner.line } : {}) } });
   }
   function summary(input) {
     // Reuse the exact identity validation and pending-operation barrier.
