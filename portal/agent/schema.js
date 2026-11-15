@@ -3,6 +3,7 @@ const text = { type: 'string' };
 const clerkSpeechFields = { role: { type: 'string', enum: ['clerk'] }, text, language: { type: 'string', enum: ['ja'] } };
 const object = (properties, required = Object.keys(properties)) => ({ type: 'object', properties, required, additionalProperties: false });
 export const PLAN_SCHEMA = object({ label: text, returnBeat: { type: 'number' }, nodes: { type: 'array', items: object({ jp: text, kana: text, romaji: text, zh: text, en: text, cue: text }) } });
+const overlayFields = { jp: text, kana: text, romaji: text, zh: text, en: text, hintLevel: { type: 'number' } };
 export const RESPONSE_SCHEMA = object({
   speech: { anyOf: [{ type: 'null' }, object(clerkSpeechFields)] },
   visko: { type: 'array', items: { anyOf: [
@@ -10,7 +11,7 @@ export const RESPONSE_SCHEMA = object({
     object({ name: { type: 'string', enum: ['set_resolution'] }, data: object({ resolution: text }) }),
     object({ name: { type: 'string', enum: ['start', 'pause', 'resume', 'reset'] }, data: object({}) }),
   ] } },
-  overlay: { anyOf: [{ type: 'null' }, object({ jp: text, kana: text, romaji: text, zh: text, en: text, hintLevel: { type: 'number' } })] },
+  overlay: { anyOf: [{ type: 'null' }, object(overlayFields)] },
   feedback: { anyOf: [{ type: 'null' }, object({ score: { type: 'number' }, notes: { type: 'array', items: text } })] },
   advance: { type: 'string', enum: ['stay', 'next_line', 'scene_done'] },
   route: object({ kind: { type: 'string', enum: ['main', 'detour', 'rejoin'] }, nodeId: text, label: text, returnBeat: { type: 'number' }, step: { type: 'number' }, total: { type: 'number' } }),
@@ -18,6 +19,10 @@ export const RESPONSE_SCHEMA = object({
 // Transport metadata is server-owned and deliberately excluded from model schemas.
 export const WIRE_RESPONSE_SCHEMA = { ...RESPONSE_SCHEMA, properties: { ...RESPONSE_SCHEMA.properties,
   speech: { anyOf: [{ type: 'null' }, object({ ...clerkSpeechFields, romaji: text, english: text }, Object.keys(clerkSpeechFields))] },
+  overlay: { anyOf: [{ type: 'null' }, object({
+    ...overlayFields,
+    readingGroups: { type: 'array', items: object({ jp: text, romaji: text }) },
+  }, Object.keys(overlayFields))] },
   attempt: object({ id: text, targetId: text, jp: text, text,
     score: { anyOf: [{ type: 'null' }, { type: 'number' }] },
     outcome: { type: 'string', enum: ['pass', 'retry', 'assisted', 'skip'] },

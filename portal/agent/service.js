@@ -8,6 +8,7 @@ import { validateOperation, createOperationCache, replayOperation, checkOperatio
 import { PRESET_SET, CHECKOUT_IDENTITY, presetDrinkPlan, updatePreset, presetEnvironmentPrompt } from './scene-presets.js';
 import { recordSummary, summarize, targetId } from './summary.js';
 import { clerkSpeech, clerkInvitation } from './clerk-speech.js';
+import { readingGroupsFor } from './reading-groups.js';
 import { composeVisualPrompt, composeAmbientPrompt, CHARACTER_ANCHOR, SCENE_ANCHOR } from './continuity.js';
 import { createLessonClient, createLessonPlanner } from './llm.js';
 import { initializeFlow, detectedIntent, scriptedPlan, validatePlan, startDetour, detourTurn, moveMain, rejoinFlow } from './flow.js';
@@ -264,6 +265,10 @@ export function createAgentService({ store = createLessonStore(), llm = createLe
           if (!state.scene.visiblePartner) command.data.prompt = presetEnvironmentPrompt(state.scene);
           else if (previousScene !== state.scene.id) command.data.prompt = composeVisualPrompt(state.scene.prompt, state.scene.prompt, { initial: true, identityAnchor: state.sceneContext.identityAnchor, speaking: Boolean(response.speech) });
         }
+      }
+      if (response.overlay) {
+        const readingGroups = readingGroupsFor(response.overlay);
+        if (readingGroups) response.overlay.readingGroups = readingGroups;
       }
       if (!validateSchema(response, WIRE_RESPONSE_SCHEMA)) throw new Error('Internal response validation failed');
       if (response.overlay) {

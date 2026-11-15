@@ -85,6 +85,10 @@ The first turn pins the image reference and caption to the lesson run. A later n
 
 Both model adapters use the same operation-specific allowlist and 12,000-byte UTF-8 input ceiling. Whole beat lines/vocabulary and cumulative graphs are omitted; at most three distinct issued-action summaries are retained, explicitly not visually confirmed. Transcripts/sensor observations are turn-local. Completed detours retire their action memory, and the main checkpoint is updated before refinement after progression. Optional context is pruned before required fields; an oversized required payload fails locally and uses existing service fallback behavior. No public response-schema or Unity client change is required.
 
+## Learner reading groups
+
+`overlay.readingGroups` is an optional, ordered array of `{jp, romaji}`. Its Japanese surfaces concatenate to exactly `overlay.jp`, including particles and punctuation. The Latin readings joined with spaces correspond to `overlay.romaji`. The server only emits reviewed groups that agree with the target's Japanese, kana and whole-line romaji. With no groups, display the full Japanese and romaji lines. Overall scoring and the original speech target still use the unchanged full utterance.
+
 ## Cartesia speech
 
 The optional `speech` response field is null or `{role:"clerk",text,language:"ja",romaji?,english?}`. Scripted turns carry both caption fields when available, including generated exchanges that already contain partner captions, so clients can show them as playback starts. Rendering uses the original text when either caption is unavailable. It is separate from the learner overlay and emitted on opening and node transitions; hints do not repeat it automatically. Initial clerk lines are deterministic, original acknowledgments/directions keyed to cues; no inventory, price or payment facts are invented.
