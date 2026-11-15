@@ -35,6 +35,7 @@ namespace ImmerseTheBay.Learning
         LearningAttempt m_LastAttempt;
         string m_LastPublishedAttemptId;
         float m_AttemptExpires;
+        string m_CompletionRunId;
         public LearningAttempt VisibleAttempt => m_LastAttempt;
         public LearningProgress Progress => m_LastResponse?.progress;
         public LearningRoute CurrentRoute => m_LastResponse?.route;
@@ -63,17 +64,24 @@ namespace ImmerseTheBay.Learning
         ISpeechToText m_Speech;
         Func<string> m_Debug;
         UnityWebRequest m_Request;
+        UnityWebRequest m_CompletionRequest;
         UnityWebRequest m_ClerkAudioRequest;
         AudioSource m_ClerkSpeaker;
         AudioClip m_ClerkAudio;
         UnityWebRequest m_ExampleAudioRequest;
         AudioSource m_ExampleSpeaker, m_FeedbackSpeaker;
-        AudioClip m_ExampleAudio, m_PassCue, m_RetryCue;
+        AudioClip m_ExampleAudio, m_PassCue, m_RetryCue, m_CompletionCue;
         float m_FeedbackUntil;
         readonly UnityWebRequest[] m_CaptionRequests = new UnityWebRequest[2];
         readonly string[] m_CaptionText = new string[2];
 
         [Serializable] sealed class CaptionTranslation { public string english, romaji; }
+        [Serializable] sealed class CompletionSummary
+        {
+            public string runId, lessonId;
+            public int revision, targetsEncountered, targetsAttempted, targetsCompleted, scoredAttempts, averageTranscriptMatch;
+            public bool completed;
+        }
         string m_Session = "", m_RunLesson = "";
         bool m_HasLesson, m_NeedsRestart, m_RecognitionPending;
         bool m_ListeningVisible;
@@ -140,6 +148,7 @@ namespace ImmerseTheBay.Learning
         {
             if (m_PassCue) Destroy(m_PassCue);
             if (m_RetryCue) Destroy(m_RetryCue);
+            if (m_CompletionCue) Destroy(m_CompletionCue);
         }
 
         void Update()
@@ -203,6 +212,7 @@ namespace ImmerseTheBay.Learning
             m_LastResponse = null;
             m_LastAttempt = null;
             m_LastPublishedAttemptId = null;
+            ClearCompletion();
             StopExampleAudio();
             StopClerkAudio();
             UpdatePracticeLabel();
@@ -447,7 +457,8 @@ namespace ImmerseTheBay.Learning
             IsDone = response.advance == "scene_done";
             Present(response);
             SetStatus(IsDone ? "Lesson complete." : "");
-            if (nextTarget && !IsDone && !IsConversationActive && PlayExamples)
+            if (IsDone) PresentCompletion(playCue: true);
+            else if (nextTarget && !IsConversationActive && PlayExamples)
                 PlayExample(response.overlay.jp, generation);
         }
 
@@ -484,6 +495,7 @@ namespace ImmerseTheBay.Learning
                 {
                     m_LastAttempt = null;
                     m_LastPublishedAttemptId = null;
+                    ClearCompletion();
                     StopExampleAudio();
                 }
                 m_RunId = response.operation.runId; m_Revision = response.operation.revision;
@@ -494,6 +506,7 @@ namespace ImmerseTheBay.Learning
                 m_NeedsRestart = false;
                 Present(response);
                 SetStatus(IsDone ? "Lesson complete." : "");
+                if (IsDone) PresentCompletion(playCue: false);
             }
             catch (Exception) { SetStatus("Received an invalid lesson update."); }
         }
@@ -571,6 +584,7 @@ namespace ImmerseTheBay.Learning
             m_LastResponse = null;
             m_LastAttempt = null;
             m_LastPublishedAttemptId = null;
+            ClearCompletion();
             UpdatePracticeLabel();
             m_RunId = null; m_Revision = 0; m_Claims.Clear();
             m_Generation++;
@@ -723,34 +737,39 @@ namespace ImmerseTheBay.Learning
 
         void PlayAttemptCue(bool passed)
         {
+            PlayFeedbackCue(passed
+                ? (m_PassCue ??= BuildCue("Answer matched", 660, 880))
+                : (m_RetryCue ??= BuildCue("Try again", 520, 390)));
+        }
+
+        void PlayFeedbackCue(AudioClip cue)
+        {
             if (!m_FeedbackSpeaker)
             {
                 m_FeedbackSpeaker = gameObject.AddComponent<AudioSource>();
                 m_FeedbackSpeaker.playOnAwake = false;
                 m_FeedbackSpeaker.spatialBlend = 0;
             }
-            AudioClip cue = passed
-                ? (m_PassCue ??= BuildCue("Answer matched", 660, 880))
-                : (m_RetryCue ??= BuildCue("Try again", 520, 390));
             m_FeedbackSpeaker.Stop();
             m_FeedbackSpeaker.PlayOneShot(cue);
             m_FeedbackUntil = Time.unscaledTime + cue.length;
         }
 
-        static AudioClip BuildCue(string name, float firstTone, float secondTone)
+        static AudioClip BuildCue(string name, params float[] tones)
         {
             const int rate = 24000;
             const int segment = 1800;
-            var samples = new float[segment * 4];
-            for (int frame = 0; frame < segment * 2; frame++)
+            int frames = segment * tones.Length;
+            var samples = new float[frames * 2];
+            for (int frame = 0; frame < frames; frame++)
             {
                 int offset = frame % segment;
                 float envelope = Mathf.Sin(Mathf.PI * offset / segment);
-                float tone = frame < segment ? firstTone : secondTone;
+                float tone = tones[frame / segment];
                 float sample = 0.15f * envelope * envelope * Mathf.Sin(2 * Mathf.PI * tone * offset / rate);
                 samples[frame * 2] = samples[frame * 2 + 1] = sample;
             }
-            var clip = AudioClip.Create(name, segment * 2, 2, rate, false);
+            var clip = AudioClip.Create(name, frames, 2, rate, false);
             clip.SetData(samples, 0);
             return clip;
         }
@@ -840,10 +859,87 @@ namespace ImmerseTheBay.Learning
             var route = CurrentRoute;
             if (route?.kind == "detour") main += $" · Side trip {route.step}/{route.total}";
             string attempt = LearningContract.AttemptLabel(m_LastAttempt);
-            overlay.SetPracticeResult(main, attempt, m_LastAttempt?.outcome);
+            overlay.SetPracticeResult(main, attempt, m_LastAttempt?.outcome, m_LastAttempt?.id);
         }
 
         string BindingJson() => "{\"sessionId\":" + LearningContract.Quote(m_Session) + ",\"lessonId\":" + LearningContract.Quote(m_RunLesson) + "}";
+
+        void PresentCompletion(bool playCue)
+        {
+            if (!overlay || string.IsNullOrEmpty(m_RunId) || m_CompletionRunId == m_RunId) return;
+            m_CompletionRunId = m_RunId;
+            overlay.SetCompletionSummary("Loading session results…");
+            ReadCompletionSummary(m_RunId, m_RunLesson, m_Revision, m_Generation);
+            if (playCue) PlayCompletionCue(m_RunId, m_Generation);
+        }
+
+        bool IsCompletionCurrent(string runId, int generation) =>
+            this && isActiveAndEnabled && IsDone && m_CompletionRunId == runId &&
+            m_RunId == runId && m_Generation == generation && EffectiveSessionId() == m_Session;
+
+        void ClearCompletion()
+        {
+            m_CompletionRequest?.Abort();
+            m_CompletionRequest = null;
+            m_CompletionRunId = null;
+            if (overlay) overlay.SetCompletionSummary("");
+        }
+
+        async void ReadCompletionSummary(string runId, string completedLessonId, int revision, int generation)
+        {
+            try
+            {
+                await visko.ConfigReady;
+                if (!IsCompletionCurrent(runId, generation)) return;
+                using var request = new UnityWebRequest(visko.config.portalUrl.TrimEnd('/') + "/api/agent/summary", "POST");
+                request.uploadHandler = new UploadHandlerRaw(Encoding.UTF8.GetBytes(BindingJson()));
+                request.downloadHandler = new DownloadHandlerBuffer();
+                request.SetRequestHeader("Content-Type", "application/json");
+                if (!string.IsNullOrEmpty(visko.config.portalToken))
+                    request.SetRequestHeader("portal_token", visko.config.portalToken);
+                request.timeout = 6;
+                m_CompletionRequest = request;
+                try
+                {
+                    var operation = request.SendWebRequest();
+                    while (!operation.isDone) await Task.Yield();
+                    if (!IsCompletionCurrent(runId, generation) || m_CompletionRequest != request) return;
+                    if (request.result != UnityWebRequest.Result.Success)
+                        throw new InvalidOperationException("Summary request did not succeed.");
+                    var summary = JsonUtility.FromJson<CompletionSummary>(request.downloadHandler.text);
+                    // The route looks up the current session/lesson. A reset must never substitute another run.
+                    if (summary == null || !summary.completed || summary.runId != runId ||
+                        summary.lessonId != completedLessonId || summary.revision != revision ||
+                        summary.targetsEncountered < 0 || summary.targetsAttempted < 0 ||
+                        summary.targetsAttempted > summary.targetsEncountered || summary.targetsCompleted < 0 ||
+                        summary.targetsCompleted > summary.targetsAttempted || summary.scoredAttempts < summary.targetsAttempted ||
+                        (summary.scoredAttempts > 0 && (summary.averageTranscriptMatch < 0 || summary.averageTranscriptMatch > 100)))
+                        throw new FormatException("Summary did not match the completed run.");
+                    string details = $"Attempted {summary.targetsAttempted}/{summary.targetsEncountered} · Matched {summary.targetsCompleted}";
+                    if (summary.scoredAttempts > 0) details += $" · {summary.averageTranscriptMatch}% average match";
+                    if (overlay) overlay.SetCompletionSummary(details);
+                }
+                finally { if (m_CompletionRequest == request) m_CompletionRequest = null; }
+            }
+            catch (Exception)
+            {
+                if (IsCompletionCurrent(runId, generation) && overlay)
+                    overlay.SetCompletionSummary("Session results unavailable.");
+            }
+        }
+
+        async void PlayCompletionCue(string runId, int generation)
+        {
+            try
+            {
+                while (IsCompletionCurrent(runId, generation) && (IsFeedbackPlaying || IsClerkSpeaking))
+                    await Task.Yield();
+                if (IsCompletionCurrent(runId, generation))
+                    PlayFeedbackCue(m_CompletionCue ??= BuildCue("Lesson complete", 523, 659, 784));
+            }
+            catch (Exception) { Debug.LogWarning("[Learning] Completion audio cue unavailable."); }
+        }
+
         async Task VerifySnapshot(int generation)
         {
             string json = await Post("/api/agent/snapshot", BindingJson(), generation);
