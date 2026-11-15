@@ -39,3 +39,10 @@ test('exact, kanji and small non-particle slips still pass', () => {
   assert.ok(scoreTranscript('ざぶとんをくだしゃい。', { jp: '座布団をください。', kana: 'ざぶとんをください。' }) >= 75);
   assert.ok(scoreTranscript('ありがとうございました', { jp: 'ありがとうございます', kana: 'ありがとうございます' }) >= 75);
 });
+test('a leading polite opener does not fail a correct answer', () => {
+  for (const { label, transcript, target } of findings.politePrefix) assert.ok(scoreTranscript(transcript, target) >= 75, `${label}: ${transcript}`);
+  assert.ok(scoreTranscript('あの、つうろはどこですか', { jp: '通路はどこですか。', kana: 'つうろはどこですか。' }) >= 75);
+  // An authored line that itself opens with すみません is still scored whole.
+  assert.equal(scoreTranscript('すみません、おにぎりはどこですか。', { jp: 'すみません、おにぎりはどこですか。', kana: 'すみません、おにぎりはどこですか。' }), 100);
+  assert.ok(scoreTranscript('すみません', { jp: '通路はどこですか。', kana: 'つうろはどこですか。' }) < 75);
+});

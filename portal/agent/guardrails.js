@@ -46,9 +46,13 @@ function similarity(a, b) {
   const score = Math.round(100 * (1 - d[a.length][b.length] / Math.max(a.length, b.length)));
   return swapped ? Math.min(score, PARTICLE_SWAP_CAP) : score;
 }
+// A natural attention-getter before the target line is not an error (すみません、ひきどをあけます).
+const POLITE_OPENER = /^(?:すみません|すいません|あのう|あの|ええと|えっと)/u;
 export function scoreTranscript(transcript, line) {
   const actual = normalizeKana(transcript);
+  const trimmed = actual.replace(POLITE_OPENER, '');
   // Generated scenarios list alternative proposed answers; any of them is a valid reply.
   const answers = [line, ...(Array.isArray(line.alternatives) ? line.alternatives : [])];
-  return Math.max(...answers.map((answer) => Math.max(similarity(actual, normalizeKana(answer.kana)), similarity(actual, normalizeKana(answer.jp)))));
+  return Math.max(...answers.flatMap((answer) => [normalizeKana(answer.kana), normalizeKana(answer.jp)].flatMap((target) =>
+    [similarity(actual, target), trimmed !== actual && !POLITE_OPENER.test(target) ? similarity(trimmed, target) : 0])));
 }
