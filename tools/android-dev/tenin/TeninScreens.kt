@@ -318,7 +318,9 @@ class TeninScreens(private val context: Context, private val bindPreview: (Strin
             header(onClose, close = true, connected = connected),
             title("Say my goal").margins(top = 18f),
             photo?.let { scenePhoto(it).margins(top = 14f) },
-            eyebrow("Speech language").margins(top = 16f, bottom = 4f),
+            text("Dictation language", 16f, Tenin.INK, 600).margins(top = 16f),
+            text("Choose the language you’ll speak when describing your goal.", 15f, Tenin.MUTED)
+                .margins(top = 3f, bottom = 8f),
             row(*languages.toTypedArray()).fillWidth(),
             field,
             if (status.isBlank()) null else text(status, 16f, Tenin.MUTED).margins(top = 8f),
