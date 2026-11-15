@@ -52,3 +52,20 @@ test('one-based chunk needs acknowledgement and must be the first chunk observed
   f.gate.message({ type: 'chunk_complete', data: { chunk_index: 1 } }); assert.equal(f.hasFrame(), false);
   f.controller.abort(); await assert.rejects(f.gate.ready, { name: 'AbortError' });
 });
+
+test('zero-frame warm-up chunks retain the new generation boundary until pixels arrive', async () => {
+  const f = fixture(); f.gate.message({ type: 'generation_started' });
+  for (const index of [0, 1]) {
+    f.gate.message({ type: 'chunk_complete', data: { chunk_index: index, frames_emitted: 0 } });
+    assert.equal(f.hasFrame(), false);
+  }
+  // A late old-generation chunk or explicit old prompt must not reveal video.
+  f.gate.message({ type: 'chunk_complete', data: { chunk_index: 9, frames_emitted: 33 } });
+  f.gate.message({ type: 'chunk_complete', data: { chunk_index: 2, frames_emitted: 33, active_prompt: 'old scene' } });
+  assert.equal(f.hasFrame(), false);
+  f.gate.message({ type: 'chunk_complete', data: { chunk_index: 2, frames_emitted: 33 } });
+  assert.equal(f.hasFrame(), true); f.frame();
+  const evidence = await f.gate.ready;
+  assert.equal(evidence.chunkIndex, 2); assert.equal(evidence.framesEmitted, 33);
+  assert.equal(evidence.promptMatched, null);
+});

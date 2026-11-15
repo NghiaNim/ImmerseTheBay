@@ -9,7 +9,7 @@ export function transitionDelay(ms, signal, { setTimer = setTimeout, clearTimer 
 }
 // These are observable generation boundaries, not per-frame scene identity attestations.
 export function createSceneFrameGate({ video, expectedPrompt, signal, timeoutMs = 20000, onTrace = () => {}, setTimer = setTimeout, clearTimer = clearTimeout }) {
-  let started = false, startedByAck = false, firstAckChunk, observedChunks = 0, frameId, settled = false, timer, resolve, reject;
+  let started = false, startedByAck = false, firstAckChunk, boundaryChunk, observedChunks = 0, frameId, settled = false, timer, resolve, reject;
   const ready = new Promise((yes, no) => { resolve = yes; reject = no; });
   // The caller may still be awaiting SDK acknowledgements when timeout/abort fires.
   ready.catch(() => {});
@@ -32,9 +32,17 @@ export function createSceneFrameGate({ video, expectedPrompt, signal, timeoutMs 
     if (observedChunks++ < 6) onTrace({ phase: 'chunk_observed', started, startedByAck, chunkIndex: data.chunk_index ?? null, framesEmitted: data.frames_emitted ?? null });
     if (!started) return;
     const firstChunk = data.chunk_index === 0 || (startedByAck && firstAckChunk === 1 && data.chunk_index === 1);
-    if (!firstChunk || (Number.isFinite(data.frames_emitted) && data.frames_emitted <= 0)) return;
     const hasPrompt = typeof data.active_prompt === 'string' && data.active_prompt.length > 0;
     if (hasPrompt && expectedPrompt && data.active_prompt !== expectedPrompt) return;
+    // Dynamic may emit warm-up chunks 0 and 1 with zero frames. Retain the
+    // observed reset boundary and accept its contiguous successor that first
+    // emits video, rather than requiring chunk zero itself to contain pixels.
+    if (!Number.isSafeInteger(data.chunk_index) || data.chunk_index < 0) return;
+    if (boundaryChunk === undefined) {
+      if (!firstChunk) return;
+    } else if (data.chunk_index !== boundaryChunk && data.chunk_index !== boundaryChunk + 1) return;
+    boundaryChunk = data.chunk_index;
+    if (Number.isFinite(data.frames_emitted) && data.frames_emitted <= 0) return;
     if (typeof video.requestVideoFrameCallback !== 'function') { finish(new Error('This browser cannot verify a fresh video frame. Use current Chrome.')); return; }
     const evidence = { generationStarted: true, startAcknowledged: startedByAck, chunkIndex: data.chunk_index, framesEmitted: data.frames_emitted ?? null, promptMatched: hasPrompt ? data.active_prompt === expectedPrompt : null };
     onTrace({ phase: 'waiting_for_decoded_frame', ...evidence });
