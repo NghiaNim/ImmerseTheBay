@@ -116,7 +116,7 @@ function recordRuntime(kind, data = {}) {
 function notify(text, error = false) { $('notice').textContent = text; $('notice').classList.toggle('error', error); }
 function refresh() {
   $('conversation').disabled = !voiceActive && (!active || finished || busy || voiceReconciling || voiceUnsafe);
-  $('conversation').textContent = voiceActive ? 'End conversation' : 'Conversation';
+  $('conversation').textContent = voiceActive ? '结束对话' : '与店员对话';
   $('conversation').setAttribute('aria-pressed', String(voiceActive));
   $('begin').disabled = busy || active || !lesson;
   $('begin').textContent = $('previewOnly').checked ? 'Start practice' : 'Start live lesson';

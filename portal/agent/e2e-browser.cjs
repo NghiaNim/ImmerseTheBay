@@ -11,7 +11,7 @@ const base = process.env.PORTAL_URL || 'http://localhost:8792';
 const artifacts = process.env.E2E_ARTIFACTS || '/tmp/il-context-e2e';
 fs.mkdirSync(artifacts, { recursive: true });
 (async () => {
-  const browser = await chromium.launch({ headless: true, ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : {}), args: ['--autoplay-policy=no-user-gesture-required'] });
+  const browser = await chromium.launch({ headless: true, ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : {}), args: process.argv.includes('--strict-autoplay') ? [] : ['--autoplay-policy=no-user-gesture-required'] });
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   page.setDefaultTimeout(15000);
   const errors = [], turns = [], speechResponses = [], nativeFrames = [], droppedOperations = [], started = Date.now();
@@ -67,6 +67,9 @@ fs.mkdirSync(artifacts, { recursive: true });
     await page.locator('#previewOnly').setChecked(!live);
     await page.locator('#begin').click(); await ready();
     const first = await decision();
+    assert.equal(await page.locator('#romaji').isVisible(), true);
+    assert.equal(await page.locator('#romaji').textContent(), first.overlay.romaji);
+    assert.equal(await page.locator('#translations').isVisible(), false);
     if (speech) {
       assert.equal(first.speech.role, 'clerk'); assert.notEqual(first.speech.text, first.overlay.jp);
       await page.waitForFunction(() => document.querySelector('#ttsStatus').textContent.includes('speaking'), {}, { timeout: 20000 });
