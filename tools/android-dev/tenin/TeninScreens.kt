@@ -23,6 +23,7 @@ import android.widget.HorizontalScrollView
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
+import android.widget.Switch
 import android.widget.TextView
 
 /** One line of a conversation. `mine` is false for what the partner says. */
@@ -122,7 +123,8 @@ class TeninScreens(private val context: Context, private val bindPreview: (Strin
             selected = selected, fill = if (selected) Tenin.TINT else Tenin.BG, padding = 16f).onTap(action)
 
     // 1 · Start
-    fun start(connected: Boolean, onLive: () -> Unit, onCourses: () -> Unit, nav: View, defaultCourseTitle: String? = null) = ui.run {
+    fun start(connected: Boolean, onLive: () -> Unit, onCourses: () -> Unit, nav: View, defaultCourseTitle: String? = null,
+              onSettings: (() -> Unit)? = null) = ui.run {
         val headline = text("What would you like to practice?", 26f, weight = 600).apply {
             if (resources.configuration.fontScale <= 1.1f) {
                 maxLines = 1
@@ -131,12 +133,27 @@ class TeninScreens(private val context: Context, private val bindPreview: (Strin
             }
         }
         screen(listOf(
-            header(connected = connected),
+            header(connected = connected, settings = onSettings),
             headline.fillWidth().margins(top = 18f),
             entryCard(TeninIcon.CAMERA, "Live Lesson", "Add a photo or say what you want to rehearse.", selected = true, action = onLive).margins(top = 18f),
             entryCard(TeninIcon.PLAY, "Courses", defaultCourseTitle?.let { "Start with $it or choose another scene." }
                 ?: "Choose a scene and practice in your glasses.", action = onCourses).margins(top = 12f),
         ), nav = nav)
+    }
+
+    fun settings(connected: Boolean, followAlong: Boolean, onFollowAlong: (Boolean) -> Unit, onBack: () -> Unit) = ui.run {
+        screen(listOf(
+            header(onBack, connected = connected),
+            title("Settings").margins(top = 18f),
+            card(row(column(text("Follow along", 23f, Tenin.PRIMARY_DARK, 600),
+                body("Hear a Japanese example before you speak.").margins(top = 4f)).weighted(),
+                Switch(context).apply {
+                    contentDescription = "Follow along"
+                    minHeight = dp(48f)
+                    isChecked = followAlong
+                    setOnCheckedChangeListener { _, enabled -> onFollowAlong(enabled) }
+                }.margins(left = 12f)).fillWidth(), padding = 16f).margins(top = 18f),
+        ))
     }
 
     // 2 · Choose a scenario

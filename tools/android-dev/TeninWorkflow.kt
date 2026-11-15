@@ -5,7 +5,9 @@ import android.app.Activity
 import android.app.Dialog
 import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color
@@ -26,11 +28,14 @@ import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.util.Size
+import android.util.TypedValue
+import android.view.Gravity
 import android.view.Surface
 import android.view.TextureView
 import android.view.View
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.view.Window
+import android.widget.LinearLayout
 import java.io.File
 import java.net.HttpURLConnection
 import java.util.concurrent.CancellationException
@@ -502,7 +507,7 @@ object TeninWorkflow {
     }
 }
 
-/** A portrait viewfinder that saves exactly the rendered rear-camera crop. All callbacks use main. */
+/** A 16:9 viewfinder that saves the rendered rear-camera crop. All callbacks use main. */
 private class ScenePhotoCamera(
     private val activity: TeninActivity,
     private val main: Handler,
@@ -511,9 +516,16 @@ private class ScenePhotoCamera(
 ) : TextureView.SurfaceTextureListener, DisplayManager.DisplayListener {
     private val dialog = Dialog(activity)
     private val displays = activity.getSystemService(DisplayManager::class.java)
+    private val previousOrientation = activity.requestedOrientation
     private val preview = object : TextureView(activity) {
         override fun onMeasure(widthSpec: Int, heightSpec: Int) {
-            val units = MeasureSpec.getSize(widthSpec) / 16
+            var units = MeasureSpec.getSize(widthSpec) / 16
+            val configuration = resources.configuration
+            if (configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) {
+                val windowHeight = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP,
+                    configuration.screenHeightDp.toFloat(), resources.displayMetrics)
+                units = minOf(units, (windowHeight * 0.40f).toInt() / 9)
+            }
             super.onMeasure(MeasureSpec.makeMeasureSpec(units * 16, MeasureSpec.EXACTLY),
                 MeasureSpec.makeMeasureSpec(units * 9, MeasureSpec.EXACTLY))
         }
@@ -529,6 +541,9 @@ private class ScenePhotoCamera(
     private var closed = false
 
     fun open() {
+        // The phone app stays portrait outside capture. Let the viewfinder follow the rear camera
+        // while it is open so a physical landscape shot gets the matching display rotation.
+        activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
         dialog.setOnDismissListener { dismiss() }
         preview.surfaceTextureListener = this
@@ -539,7 +554,9 @@ private class ScenePhotoCamera(
                 header(back = ::dismiss, close = true),
                 title("Take a scene photo").margins(top = 18f),
                 body("Frame your scene inside the preview.").margins(top = 8f),
-                preview.fillWidth().margins(top = 16f),
+                preview.fillWidth().margins(top = 16f).apply {
+                    (layoutParams as LinearLayout.LayoutParams).gravity = Gravity.CENTER_HORIZONTAL
+                },
             ), footer = listOf(shutter)))
         }
         displays.registerDisplayListener(this, main)
@@ -586,6 +603,11 @@ private class ScenePhotoCamera(
         try {
             val request = camera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW).apply {
                 addTarget(target)
+                // The TextureView applies our crop. Avoid the camera service also rotating and
+                // cropping the buffer on Android when the app has an external display attached.
+                if (Build.VERSION.SDK_INT >= 31 && settings.get(CameraCharacteristics.SCALER_AVAILABLE_ROTATE_AND_CROP_MODES)
+                        ?.contains(CaptureRequest.SCALER_ROTATE_AND_CROP_NONE) == true)
+                    set(CaptureRequest.SCALER_ROTATE_AND_CROP, CaptureRequest.SCALER_ROTATE_AND_CROP_NONE)
                 if (settings.get(CameraCharacteristics.CONTROL_AF_AVAILABLE_MODES)
                         ?.contains(CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE) == true)
                     set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
@@ -690,5 +712,6 @@ private class ScenePhotoCamera(
         displays.unregisterDisplayListener(this)
         releaseCamera()
         dialog.dismiss()
+        activity.requestedOrientation = previousOrientation
     }
 }

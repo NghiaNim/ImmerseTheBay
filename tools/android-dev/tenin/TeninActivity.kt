@@ -179,7 +179,11 @@ class TeninActivity : Activity() {
             go(::chooseScreen)
         },
         nav = nav(TeninUi.Tab.START),
-        defaultCourseTitle = scenarios.firstOrNull()?.takeIf { it.id == DEFAULT_SCENARIO }?.title)
+        defaultCourseTitle = scenarios.firstOrNull()?.takeIf { it.id == DEFAULT_SCENARIO }?.title,
+        onSettings = { go(::settingsScreen) })
+
+    private fun settingsScreen(): View = screens.settings(connected, PracticePortal.readFollowAlong(this),
+        onFollowAlong = { PracticePortal.writeFollowAlong(this, it) }, onBack = ::back)
 
     private fun chooseScreen(): View = screens.chooseScenario(connected, scenarios, chosen,
         onSelect = { chosen = it; render() }, onOpen = { chosen = it; go(::detailScreen) },

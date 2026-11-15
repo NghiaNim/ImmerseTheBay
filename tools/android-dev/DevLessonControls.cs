@@ -58,7 +58,7 @@ namespace ImmerseTheBay.Learning
         {
             presetLessonId = lesson.lessonId;
             presetStartImage = lesson.startImage;
-            lesson.SetPlayExamples(PlayerPrefs.GetInt(VoiceExampleSetting, 1) == 1);
+            lesson.SetPlayExamples(ReadFollowAlong());
             XREALVirtualController controller;
             while (!(controller = FindFirstObjectByType<XREALVirtualController>()))
                 yield return null;
@@ -122,6 +122,7 @@ namespace ImmerseTheBay.Learning
             loadingFill.gameObject.SetActive(false);
 
             heading = Place(Label(t, 74, Color.white, "Lesson running\nin your glasses", TextAnchor.MiddleCenter, font: serif), 0.05f, 0.415f, 0.95f, 0.51f);
+            targetCue = Place(Label(t, 33, TeninYellow, "", TextAnchor.MiddleCenter, FontStyle.Bold), 0.05f, 0.508f, 0.95f, 0.546f);
             status = Place(Label(t, 38, new Color(1f, 1f, 1f, 0.92f), "", TextAnchor.MiddleCenter, font: serif), 0.08f, 0.345f, 0.92f, 0.41f);
             var result = Box(t, Color.white, 0.08f, 0.346f, 0.92f, 0.41f, rounded: true);
             resultBadge = result.GetComponent<Image>();
@@ -172,7 +173,7 @@ namespace ImmerseTheBay.Learning
         GameObject actionRow;
         Button conversationAction, hintAction, nextAction, speechAction, returnAction;
         Text conversationActionLabel, speechActionLabel;
-        Text speakLabel, step, endLabel, sceneAudioLabel, exampleLabel, resultLabel;
+        Text speakLabel, step, endLabel, sceneAudioLabel, exampleLabel, resultLabel, targetCue;
         Image resultBadge;
         RectTransform speakRing, progressFill, loadingFill;
         RawImage startPreview;
@@ -437,13 +438,32 @@ namespace ImmerseTheBay.Learning
         bool SpeechActionReady => ManualActionReady || (LessonActionsVisible && CapturingSpeech);
         bool ConversationActionReady => ManualActionReady || (LessonActionsVisible && lesson.IsConversationActive);
         bool OnDetour => lesson.CurrentRoute?.kind == "detour";
-        string VoiceExampleLabel => lesson.PlayExamples ? "Voice example: On" : "Voice example: Off";
+        string VoiceExampleLabel => lesson.PlayExamples ? "Follow along: On" : "Follow along: Off";
+
+        static bool ReadFollowAlong()
+        {
+#if UNITY_ANDROID && !UNITY_EDITOR
+            using var player = new AndroidJavaClass("com.unity3d.player.UnityPlayer");
+            using var activity = player.GetStatic<AndroidJavaObject>("currentActivity");
+            using var preferences = new AndroidJavaClass("com.immersethebay.phone.PracticePortal");
+            return preferences.CallStatic<bool>("readFollowAlong", activity);
+#else
+            return PlayerPrefs.GetInt(VoiceExampleSetting, 1) == 1;
+#endif
+        }
 
         void ToggleVoiceExample()
         {
             lesson.SetPlayExamples(!lesson.PlayExamples);
+#if UNITY_ANDROID && !UNITY_EDITOR
+            using var player = new AndroidJavaClass("com.unity3d.player.UnityPlayer");
+            using var activity = player.GetStatic<AndroidJavaObject>("currentActivity");
+            using var preferences = new AndroidJavaClass("com.immersethebay.phone.PracticePortal");
+            preferences.CallStatic("writeFollowAlong", activity, lesson.PlayExamples);
+#else
             PlayerPrefs.SetInt(VoiceExampleSetting, lesson.PlayExamples ? 1 : 0);
             PlayerPrefs.Save();
+#endif
             exampleLabel.text = VoiceExampleLabel;
         }
 
@@ -593,6 +613,8 @@ namespace ImmerseTheBay.Learning
         {
             CenterVideo();
             if (starting || lesson.IsBusy || lesson.IsConversationActive) return;
+            lesson.SetPlayExamples(ReadFollowAlong());
+            if (exampleLabel) exampleLabel.text = VoiceExampleLabel;
             retryAvailable = false;
             startupError = "";
             currentTitle = "";
@@ -725,17 +747,24 @@ namespace ImmerseTheBay.Learning
                 sceneAudioButton.gameObject.SetActive(practiceVisible);
                 exampleButton.gameObject.SetActive(practiceVisible);
                 bool waiting = starting || lesson.IsBusy || WaitingForAudio;
-                heading.text = startupError.Length > 0 ? "Could not start the lesson"
+                bool showTarget = practiceVisible && !starting && !lesson.IsBusy && !lesson.IsDone &&
+                    !lesson.IsClerkSpeaking && !lesson.IsConversationActive && !string.IsNullOrWhiteSpace(lesson.CurrentTargetJapanese);
+                targetCue.text = showTarget ? lesson.IsExamplePlaying ? "LISTEN, THEN REPEAT" : "SAY THIS" : "";
+                heading.color = showTarget ? TeninYellow : Color.white;
+                heading.fontStyle = showTarget ? FontStyle.Bold : FontStyle.Normal;
+                heading.text = showTarget ? lesson.CurrentTargetJapanese
+                    : startupError.Length > 0 ? "Could not start the lesson"
                     : !practiceVisible ? "Ready when\nyou are" : starting ? "Starting in\nyour glasses…"
                     : lesson.IsDone ? "Lesson\ncomplete" : "Lesson running\nin your glasses";
                 status.text = startupError.Length > 0 ? startupError
                     : !practiceVisible ? "Choose a lesson on your phone." : starting ? "Getting the scene ready…"
                     : lesson.IsDone ? "Well done. End the lesson to see your summary."
-                    : CapturingSpeech ? "Listening… say the line."
+                    : CapturingSpeech ? "Listening…"
                     : lesson.IsListening ? "Processing speech…"
                     : lesson.IsConversationActive ? "Conversation in progress."
                     : lesson.IsClerkSpeaking ? "Listen to the other person…"
-                    : lesson.IsExamplePlaying ? "Listen, then repeat."
+                    : lesson.IsExamplePlaying ? "Guide speaking…"
+                    : lesson.IsWaitingForExamplePause ? "Example coming up…"
                     : lesson.IsExamplePending ? "Preparing the voice example…"
                     : waiting ? "One moment…"
                     : "Tap Speak when you’re ready.";

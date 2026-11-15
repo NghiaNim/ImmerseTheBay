@@ -71,7 +71,7 @@ object Tenin {
 
 enum class TeninIcon {
     CAMERA, PLAY, CHEVRON, BACK, CLOSE, BOOK, HISTORY, GLASSES, MIC, SPEAKER, IMAGE, SHIELD, CHECK, CHECK_CIRCLE,
-    SPARKLE, ALERT, EYE, PAUSE, STOP, SEARCH, RETRY, UTENSILS, CUP, CART, STETHOSCOPE, USER, TIMER, HOME
+    SPARKLE, ALERT, EYE, PAUSE, STOP, SEARCH, RETRY, UTENSILS, CUP, CART, STETHOSCOPE, USER, TIMER, HOME, SETTINGS
 }
 
 /** Density-independent pixels, scaled so the 390-wide mockups fit narrower and wider phones alike. */
@@ -100,6 +100,11 @@ class TeninIconDrawable(private val icon: TeninIcon, color: Int, private val str
         fun arc(l: Float, t: Float, r: Float, b: Float, start: Float, sweep: Float) { rect.set(l, t, r, b); canvas.drawArc(rect, start, sweep, false, paint) }
         fun path(build: Path.() -> Unit) = canvas.drawPath(Path().apply(build), paint)
         when (icon) {
+            TeninIcon.SETTINGS -> {
+                line(3f, 6f, 9f, 6f); line(15f, 6f, 21f, 6f); circle(12f, 6f, 3f)
+                line(3f, 12f, 13f, 12f); line(19f, 12f, 21f, 12f); circle(16f, 12f, 3f)
+                line(3f, 18f, 5f, 18f); line(11f, 18f, 21f, 18f); circle(8f, 18f, 3f)
+            }
             TeninIcon.CAMERA -> {
                 box(2.5f, 6.5f, 21.5f, 19.5f, 2.5f)
                 path { moveTo(8.5f, 6.5f); lineTo(10f, 4f); lineTo(14f, 4f); lineTo(15.5f, 6.5f) }
@@ -353,7 +358,8 @@ class TeninUi(val context: Context) {
     }
 
     /** Header row: brand or a back/close button on the left, glasses status on the right. */
-    fun header(back: (() -> Unit)? = null, close: Boolean = false, connected: Boolean? = null, onDark: Boolean = false) = row().apply {
+    fun header(back: (() -> Unit)? = null, close: Boolean = false, connected: Boolean? = null, onDark: Boolean = false,
+               settings: (() -> Unit)? = null) = row().apply {
         addView(if (back == null) brand(onDark) else FrameLayout(context).apply {
             background = rounded(Tenin.WHITE, dp(14f).toFloat(), Tenin.LINE, dp(1f))
             layoutParams = LinearLayout.LayoutParams(dp(44f), dp(44f))
@@ -363,6 +369,8 @@ class TeninUi(val context: Context) {
         }.onTap(back))
         addView(gap())
         if (connected != null) addView(connection(connected, onDark))
+        if (settings != null) addView(roundButton(TeninIcon.SETTINGS, 48f, action = settings)
+            .margins(left = 10f).apply { contentDescription = "Settings" })
     }.fillWidth()
 
     enum class Tab(val label: String, val icon: TeninIcon) { START("Start", TeninIcon.PLAY), VOCABULARIES("Vocabularies", TeninIcon.BOOK), REVIEW("Review", TeninIcon.HISTORY) }

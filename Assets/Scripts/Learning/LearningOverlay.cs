@@ -56,7 +56,7 @@ namespace ImmerseTheBay.Learning
         RectTransform m_Panel;
         RectTransform m_Hud, m_InstructionText, m_ReadingPanel;
         Canvas m_Canvas;
-        Text m_Japanese, m_Romaji, m_Kana, m_Translation, m_Status, m_SpeakLabel, m_Clerk, m_Learner, m_ConversationLabel;
+        Text m_Japanese, m_Romaji, m_Kana, m_Translation, m_Status, m_SpeakLabel, m_Clerk, m_Learner, m_ConversationLabel, m_TargetCue;
         Text m_ProgressBadge, m_ResultBadge, m_Instruction, m_ControlHint, m_LookDown, m_ExploreLabel, m_ExploreMarker;
         readonly List<(Text japanese, Text kana, Text romaji, RectTransform underline)> m_ReadingCells = new();
         GameObject m_Backdrop;
@@ -76,6 +76,7 @@ namespace ImmerseTheBay.Learning
         bool m_SceneTransition;
         static readonly Color ActionPurple = new Color32(70, 48, 146, 245);
         static readonly Color HoverPurple = new Color32(130, 98, 236, 255);
+        static readonly Color TargetJapanese = new Color32(255, 247, 210, 255);
         LearningOverlayData m_Overlay;
         LearningFeedback m_Feedback;
         bool m_Busy, m_Listening, m_Done, m_ConversationActive, m_AgentSpeaking, m_Detour, m_ControlsLocked;
@@ -296,6 +297,8 @@ namespace ImmerseTheBay.Learning
 
             m_Clerk = MakeText("Clerk", font, DialogueSize, new Color(0.82f, 0.9f, 0.94f));
             m_Learner = MakeText("Learner", font, DialogueSize, new Color(0.78f, 0.94f, 0.82f));
+            m_TargetCue = MakeText("Prompt to speak", font, 30, new Color32(255, 218, 119, 255));
+            m_TargetCue.fontStyle = FontStyle.Bold;
             m_Japanese = MakeText("Japanese", font, JapaneseSize, Color.white);
             m_Japanese.supportRichText = true;
             m_Romaji = MakeText("Romaji", font, PronunciationSize, new Color(0.9f, 0.94f, 0.96f));
@@ -460,6 +463,7 @@ namespace ImmerseTheBay.Learning
             var review = reviewing ? m_ReviewLines[m_ReviewIndex] : default;
             bool clerkTurn = !reviewing && !m_SceneTransition && !m_ConversationActive && m_ClerkSpeaking && m_ClerkCaption.Length > 0;
             bool targetTurn = !reviewing && !m_SceneTransition && !m_ConversationActive && !clerkTurn;
+            bool showTargetCue = targetTurn && !m_Done && !string.IsNullOrWhiteSpace(m_Overlay?.jp);
             bool showLearner = !m_SceneTransition && (m_ConversationActive || (targetTurn && !m_ExampleSpeaking
                 && !m_ShowCorrection && m_PracticeStatus.Length > 0 && !RepeatsTarget(m_LearnerCaption, m_Overlay?.jp)));
             m_Clerk.fontSize = m_ConversationActive ? ClerkTranslationSize : ClerkJapaneseSize;
@@ -468,6 +472,9 @@ namespace ImmerseTheBay.Learning
                 : clerkTurn ? Dialogue("店員", m_ClerkCaption, "") : "";
             m_Learner.text = reviewing ? Dialogue("Heard", review.Transcript, null)
                 : showLearner ? Dialogue("あなた", m_LearnerCaption, m_LearnerEnglish) : "";
+            m_TargetCue.text = showTargetCue ? (m_ExampleSpeaking ? "LISTEN, THEN REPEAT" : "SAY THIS") : "";
+            m_Japanese.color = showTargetCue ? TargetJapanese : Color.white;
+            m_Japanese.fontStyle = showTargetCue ? FontStyle.Bold : FontStyle.Normal;
             m_Japanese.text = reviewing ? (HighlightExample(review.Target ?? "", review.Target) ?? EscapeRichText(review.Target ?? "")) : m_SceneTransition ? "Preparing next scene…" :
                 targetTurn ? Highlight(m_Overlay?.jp ?? (m_Done ? "お疲れさまでした" : "")) : "";
             m_Romaji.text = clerkTurn ? m_ClerkRomaji : targetTurn && showRomaji ? m_Overlay?.romaji ?? "" : "";
@@ -543,8 +550,8 @@ namespace ImmerseTheBay.Learning
             if (m_ConversationActive) return !string.IsNullOrEmpty(m_ConversationStatus) ? m_ConversationStatus
                 : m_AgentSpeaking ? "Clerk speaking · you can interrupt" : "Listening · speak naturally";
             if (!string.IsNullOrEmpty(m_ExploreHint)) return m_ExploreHint;
-            if (m_ExampleSpeaking) return "Listen, then repeat";
-            if (m_Listening) return m_StatusOverride == "Finishing speech…" ? m_StatusOverride : "Speak the Japanese sentence.";
+            if (m_ExampleSpeaking) return "Guide speaking";
+            if (m_Listening) return m_StatusOverride == "Finishing speech…" ? m_StatusOverride : "Listening…";
             if (m_ClerkSpeaking) return "Clerk speaking";
             if (!string.IsNullOrEmpty(m_StatusOverride)) return m_StatusOverride;
             if (m_Busy) return "One moment…";
@@ -649,6 +656,8 @@ namespace ImmerseTheBay.Learning
                 bool exampleActive = ExampleOverlaps(m_Overlay.jp, sentenceOffset, sentenceOffset + groups[i].jp.Length);
                 cell.japanese.text = HighlightExample(groups[i].jp, m_Overlay.jp, sentenceOffset, wholeGroup: true)
                     ?? Highlight(groups[i].jp, sentenceOffset);
+                cell.japanese.color = m_Japanese.color;
+                cell.japanese.fontStyle = m_Japanese.fontStyle;
                 Color readingColor = exampleActive ? (Color)new Color32(121, 244, 255, 255) : m_Romaji.color;
                 cell.kana.color = cell.romaji.color = readingColor;
                 cell.kana.text = groups[i].jp == groups[i].kana ? "" : groups[i].kana ?? "";
@@ -773,7 +782,8 @@ namespace ImmerseTheBay.Learning
         void FitLayout()
         {
             const float padding = 12;
-            float budget = Mathf.Max(1, m_AvailableHeight - padding * 2 - m_ReadingHeight);
+            float targetCue = MeasureLine(m_TargetCue);
+            float budget = Mathf.Max(1, m_AvailableHeight - padding * 2 - m_ReadingHeight - targetCue);
             float japanese = MeasureLine(m_Japanese);
             float romaji = MeasureLine(m_Romaji);
             float translation = MeasureLine(m_Translation);
@@ -812,6 +822,7 @@ namespace ImmerseTheBay.Learning
             LayoutCaption(m_Clerk, ref y, clerk);
             if (ShowingReview) LayoutCaption(m_Japanese, ref y, japanese);
             LayoutCaption(m_Learner, ref y, learner);
+            LayoutLine(m_TargetCue, ref y, targetCue);
             if (!ShowingReview) LayoutCaption(m_Japanese, ref y, japanese);
             LayoutCaption(m_Romaji, ref y, romaji);
             m_ReadingPanel.gameObject.SetActive(m_ReadingHeight > 0);

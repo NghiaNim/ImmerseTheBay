@@ -46,6 +46,7 @@ namespace ImmerseTheBay.Learning
         string m_CompletionRunId;
         public LearningAttempt VisibleAttempt => m_LastAttempt;
         public LearningProgress Progress => m_LastResponse?.progress;
+        public string CurrentTargetJapanese => m_LastResponse?.overlay?.jp ?? "";
         public LearningRoute CurrentRoute => m_LastResponse?.route;
         readonly List<LearningReviewLine> m_Review = new();
         AudioSource m_ReviewSpeaker;
@@ -68,6 +69,7 @@ namespace ImmerseTheBay.Learning
         /// <summary>Clerk line still downloading or playing; Speak() would cut it off.</summary>
         public bool IsClerkSpeaking => m_ClerkAudioRequest != null || (m_ClerkSpeaker && m_ClerkSpeaker.isPlaying);
         public bool IsExamplePending => m_ExampleAudioRequest != null;
+        public bool IsWaitingForExamplePause => IsExamplePending && Time.unscaledTime < m_TutorAfterClerkAt;
         public bool IsExamplePlaying => m_ExampleSpeaker && m_ExampleSpeaker.isPlaying;
         public bool IsFeedbackPlaying => Time.unscaledTime < m_FeedbackUntil;
         public bool PlayExamples { get; private set; } = true;
@@ -82,6 +84,8 @@ namespace ImmerseTheBay.Learning
         AudioSource m_ClerkSpeaker;
         AudioClip m_ClerkAudio;
         UnityWebRequest m_ExampleAudioRequest;
+        const float TutorPauseAfterClerk = 2f;
+        float m_TutorAfterClerkAt;
         AudioSource m_ExampleSpeaker, m_FeedbackSpeaker;
         AudioClip m_ExampleAudio, m_PassCue, m_RetryCue, m_CompletionCue;
         float m_FeedbackUntil;
@@ -682,6 +686,7 @@ namespace ImmerseTheBay.Learning
             ClearDialogue();
             StopClerkAudio();
             StopExampleAudio();
+            m_TutorAfterClerkAt = 0;
             if (m_FeedbackSpeaker) m_FeedbackSpeaker.Stop();
             m_FeedbackUntil = 0;
             CancelSpeech();
@@ -747,6 +752,11 @@ namespace ImmerseTheBay.Learning
                     Debug.Log(reaction ? "[Learning] Clerk reaction started" : "[Learning] Clerk prompt started");
                     while (IsCurrent(generation) && m_ClerkAudioRequest == request && m_ClerkSpeaker.isPlaying)
                         await Task.Yield();
+                    if (IsCurrent(generation) && m_ClerkAudioRequest == request)
+                    {
+                        m_TutorAfterClerkAt = Time.unscaledTime + TutorPauseAfterClerk;
+                        Debug.Log("[Learning] Clerk playback completed");
+                    }
                 }
                 finally
                 {
@@ -815,7 +825,8 @@ namespace ImmerseTheBay.Learning
                 }
                 m_ExampleAudio = DownloadHandlerAudioClip.GetContent(request);
                 if (!m_ExampleAudio) return;
-                while (IsCurrent(generation) && m_ExampleAudioRequest == request && (IsClerkSpeaking || IsFeedbackPlaying))
+                while (IsCurrent(generation) && m_ExampleAudioRequest == request &&
+                    (IsClerkSpeaking || IsFeedbackPlaying || Time.unscaledTime < m_TutorAfterClerkAt))
                     await Task.Yield();
                 if (!IsCurrent(generation) || m_ExampleAudioRequest != request || IsConversationActive || IsListening) return;
                 if (!m_ExampleSpeaker)
@@ -828,6 +839,7 @@ namespace ImmerseTheBay.Learning
                 int index = 0;
                 m_ExampleSpeaker.clip = m_ExampleAudio;
                 m_ExampleSpeaker.Play();
+                Debug.Log("[Learning] Tutor example started");
                 if (overlay) overlay.SetExampleSpeaking(true);
                 while (IsCurrent(generation) && m_ExampleAudioRequest == request && m_ExampleSpeaker.isPlaying)
                 {

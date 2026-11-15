@@ -18,6 +18,16 @@ import java.net.URL
  * the Tenin UI). Unity reads the hand-off through PhonePracticeActivity's static methods.
  */
 object PracticePortal {
+    private const val LESSON_SETTINGS = "tenin_lesson_settings"
+    private const val FOLLOW_ALONG = "follow_along"
+
+    @JvmStatic fun readFollowAlong(context: Context): Boolean =
+        context.getSharedPreferences(LESSON_SETTINGS, Context.MODE_PRIVATE).getBoolean(FOLLOW_ALONG, true)
+
+    @JvmStatic fun writeFollowAlong(context: Context, enabled: Boolean) {
+        context.getSharedPreferences(LESSON_SETTINGS, Context.MODE_PRIVATE).edit().putBoolean(FOLLOW_ALONG, enabled).apply()
+    }
+
     class Practice(val id: String, val title: String, val image: ByteArray, val expires: Long, val partnerVoice: String = "")
 
     @Volatile private var ready: List<Practice> = emptyList()
