@@ -32,6 +32,14 @@ The second scene has a large centered menu beside the barista. A validated selec
 
 Authorized byte-range requests returned HTTP 206 for the menu, coffee serving and milk-pour clips. A captured frame from the actual Dynamic menu video was sent to live OpenAI vision twice. A COFFEE hold selected the plain-coffee serving path, and a LATTE pinch selected the milk-pour path. Their live Cartesia clerk confirmations returned two-channel WAV. Those calls verify service behavior with real media. The S25 install was verified with the phone locked and the glasses disconnected. The wearer checks for both selections, native prefetch hits, optical and audible feedback, and each Restart control are pending.
 
+### S25 rehearsal follow-up
+
+The reviewer completed a three-sentence café run on the S25 and Air 2 Ultra, passing each target. The device logged an actual point hold and prefetched openings for the menu and milk pour. Their first frames appeared in 0.17 s and 0.15 s. In the next rehearsal the wearer reported a working pinch, audible selection confirmation and an automatic in-glasses Lesson Review. The native logs independently verified the earlier hold and milk-prefetch path. The matched coffee-prefetch path is verified at the service using real vision, not independently logged on the glasses in this rehearsal.
+
+`864b4ce` centers Restart on both displays, fades out the video at completion and adds an eye-level **Lesson review** title. The centered phone Restart started a new Portal run on the S25. For photo practice, Android copies the already-rendered 16:9 camera view rectangle at the same pixel dimensions before JPEG encoding. The Say my goal preview center-crops, and the same JPEG remains the video seed. Compare a square object in both portrait and landscape captures and the generated video on-device.
+
+`c19306f` raises native speech with a soft limiter, increases feedback cue amplitude and raises ambience slightly below speech. A real Cartesia speech sample measured +2.56 dB RMS with no clipping after the sample transform. Unity built successfully, and the signed and installed APK both returned SHA-256 `ceb906e7df56f7d4fe0dfb29b80ebf748da17f6a4361e2434a36211ce6df7d3f`. Confirm perceived balance in the glasses and recheck the centered Restart by hand.
+
 ## Recorded café acceptance
 
 The S25 ran signed APK `8b09c3b` (SHA-256 `be0009349720e49b3cc90caf4284ae14a6bae5c90001e5041a4770969a0b1392`) against Portal `b09ae2a` on port 8793. The official XREAL 3.1 reference remains available as a separate baseline.
