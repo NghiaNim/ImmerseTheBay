@@ -60,8 +60,14 @@ The patch script supports the two register layouts inspected in these builds;
 it rejects other layouts and repeated application.
 
 Sign the Unity result using its existing development key. Verify that its
-certificate matches the installed app before using `adb install -r`; this
-preserves app data. Do not replace the original build artifact.
+certificate matches the installed app before using
+`adb install --no-incremental -r`. A normal replacement preserves data, but the
+wireless incremental installer in this test reported success and then failed
+in Android's DataLoader; PackageManager automatically removed the app and its
+data. The subsequent complete streamed installation succeeded: installed APK
+hash matched and PackageManager reported `Package is fully loaded`. Main-app
+local preferences were lost in that failed attempt; ControlGlasses preferences
+were unaffected. Do not replace the original build artifact.
 
 Tested original Unity SHA-256:
 `0b284861d6c99fc479b83c2f2efe39f261410d0b0120f12c341b275ae5d6e50b`.
@@ -77,6 +83,8 @@ On Samsung, use Settings → Samsung DeX → Connected display → **Mirrored**.
 Changing only `dex_on_external_display` through ADB did not survive reconnection.
 The actual Mirrored setting restored the glasses to 3840×1080 at 60 Hz in this
 test. Launch ImmerseTheBay through ControlGlasses after its SDK is ready.
+The patched main APK is installed, but final native rendering verification is
+pending phone unlock. Installation alone is not evidence of AR rendering.
 
 Each fresh Unity build embeds the original vendor class again. Reapply and
 verify this local patch after rebuilding until the upstream SDK supports the

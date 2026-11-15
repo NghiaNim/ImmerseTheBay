@@ -96,7 +96,7 @@ Wireless deployment remains usable with the glasses connected:
 
 ```sh
 adb connect PHONE_IP:DEBUG_PORT
-adb -s PHONE_IP:DEBUG_PORT install -r Builds/ImmerseTheBay.apk
+adb -s PHONE_IP:DEBUG_PORT install --no-incremental -r APK_PATH
 ```
 
 The connection port comes from Wireless debugging's main page, not its pairing
@@ -142,3 +142,14 @@ selection succeeded; the glasses returned to 3840×1080 at 60 Hz and the setting
 remained off for DeX. This supersedes the earlier unsuccessful raw-setting
 diagnostic. Main-app rendering verification is still in progress; the successful
 Control runtime startup alone does not establish complete AR operation.
+
+The patched main APK was installed using complete streaming. Its installed hash
+matches the prepared artifact and PackageManager reports `Package is fully
+loaded`. The preceding incremental installation returned success, then its
+DataLoader failed and Android automatically removed the main package, clearing
+its local data. The full reinstall has a new UID and no previous preferences;
+the portal configuration remains embedded in the APK. ControlGlasses and its
+restored preferences are unaffected. Use `--no-incremental` for subsequent
+wireless deployments. Final native rendering verification is waiting for the
+user to unlock the phone. Screen timeout was temporarily extended from 30
+seconds to 10 minutes for this verification; restore it when finished.
