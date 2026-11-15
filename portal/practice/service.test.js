@@ -44,6 +44,21 @@ test('input and provider output bounds reject malformed, excessive and incomplet
   await assert.rejects(service.generate({ image: photo, goal: 'hello' }), { status: 502 });
   await assert.rejects(service.generate({ image: photo, goal: 'hello' }), { status: 429 });
 });
+test('a nonconforming photo lesson is regenerated once with tighter bounds', async () => {
+  const requests = [];
+  const service = createPracticeService({ store: createLessonStore(), apiKey: 'test', fetchImpl: async (_url, req) => {
+    requests.push(req);
+    if (requests.length > 1) return generated();
+    return { ok: true, json: async () => ({ status: 'completed', output: [{ type: 'message', content: [
+      { type: 'output_text', text: JSON.stringify({ ...output, scenePrompt: 'x'.repeat(601) }) },
+    ] }] }) };
+  } });
+  const { lesson } = await service.generate({ image: photo, goal: 'Ask for water' });
+  assert.equal(lesson.title, output.title);
+  assert.equal(requests.length, 2);
+  assert.equal(requests[0].signal, requests[1].signal);
+  assert.match(JSON.parse(requests[1].body).instructions, /Use exactly two short lines/);
+});
 test('route authenticates before large parser and serves transient photo without caching', async t => {
   const store = createLessonStore(); const service = createPracticeService({ store, apiKey: 'test', fetchImpl: async () => generated() });
   const app = express(); registerPracticeRoutes(app, { store, service, authorized: req => req.get('portal_token') === 'test' });

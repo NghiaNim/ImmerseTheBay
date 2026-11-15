@@ -7,6 +7,7 @@ Shader "ImmerseTheBay/ImmersiveVisko"
         _EnvironmentTex ("Starting photograph", 2D) = "black" {}
         _EnvironmentDim ("Peripheral brightness", Range(0, 1)) = 0.36
         _HasVideo ("Live frame available", Float) = 0
+        _SceneOpacity ("Scene opacity", Range(0, 1)) = 1
     }
     SubShader
     {
@@ -24,7 +25,7 @@ Shader "ImmerseTheBay/ImmersiveVisko"
 
             sampler2D _MainTex, _EnvironmentTex;
             float4 _MainTex_ST;
-            float _EnvironmentDim, _HasVideo;
+            float _EnvironmentDim, _HasVideo, _SceneOpacity;
             struct appdata
             {
                 float4 vertex : POSITION;
@@ -58,7 +59,7 @@ Shader "ImmerseTheBay/ImmersiveVisko"
                 fixed3 focus = lerp(photo, video, saturate(_HasVideo));
                 float2 margins = min(i.uv, 1.0 - i.uv);
                 float edge = smoothstep(0.0, 0.13, margins.x) * smoothstep(0.0, 0.16, margins.y);
-                return fixed4(lerp(photo * _EnvironmentDim, focus, centre), edge);
+                return fixed4(lerp(photo * _EnvironmentDim, focus, centre), edge * _SceneOpacity);
             }
             ENDCG
         }

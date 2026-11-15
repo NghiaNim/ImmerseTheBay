@@ -28,3 +28,5 @@ cp -R "$repo/Assets/Plugins/Android/"{ViskoReactorBridge.kt,JapaneseSpeechRecogn
 cp -R "$repo/Assets/StreamingAssets/lessons/." "$dev/Assets/StreamingAssets/lessons/"
 cp "$repo/tools/android-dev/DevReferenceBuild.cs" "$dev/Assets/Editor/"
 cp "$repo/tools/android-dev/DevLessonControls.cs" "$integration/"
+cp "$repo/tools/android-dev/PhonePracticeActivity.kt"{,.meta} "$dev/Assets/Plugins/Android/"
+cp -R "$repo/tools/android-dev/PhonePractice.androidlib"{,.meta} "$dev/Assets/Plugins/Android/"

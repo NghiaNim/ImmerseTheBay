@@ -1,5 +1,7 @@
 # ImmerseTheBay — Handoff (2026-11-14)
 
+For the current S25 app, Portal setup, and next MR tests, start with the [phone and MR handoff](codex/HANDOFF-phone-mr.md).
+
 Immersive language learning on **XREAL Air 2 Ultra + Samsung Galaxy S25** (no Beam Pro), Unity 6000.0.85f2 LTS, XREAL SDK 3.1.0, with **Visko (Reactor) real-time generated video** as the core experience.
 
 Read next: [INFRASTRUCTURE.md](INFRASTRUCTURE.md) (all modules) · [VISKO.md](VISKO.md) (Reactor integration) · [CAST.md](CAST.md) (glasses view to web) · [../AGENTS.md](../AGENTS.md) (rules for coding agents).

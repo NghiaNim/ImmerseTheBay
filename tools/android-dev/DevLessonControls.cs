@@ -23,10 +23,20 @@ namespace ImmerseTheBay.Learning
         bool practiceVisible;
         bool starting;
         float connectDeadline;
+        static readonly int SceneOpacity = Shader.PropertyToID("_SceneOpacity");
+        MaterialPropertyBlock sceneProperties;
+        float sceneOpacity = 1f;
+        string pendingLessonId;
+        string pendingStartImage;
+        byte[] pendingImage;
+        string presetLessonId;
+        string presetStartImage;
         Text status;
 
         IEnumerator Start()
         {
+            presetLessonId = lesson.lessonId;
+            presetStartImage = lesson.startImage;
             XREALVirtualController controller;
             while (!(controller = FindFirstObjectByType<XREALVirtualController>()))
                 yield return null;
@@ -47,14 +57,18 @@ namespace ImmerseTheBay.Learning
             var row = new GameObject("Practice actions", typeof(RectTransform), typeof(HorizontalLayoutGroup));
             row.transform.SetParent(panel.transform, false);
             row.GetComponent<HorizontalLayoutGroup>().spacing = 12;
-            AddButton(row.transform, "Start live", StartLive);
+            AddButton(row.transform, "Start session", StartLive);
             AddButton(row.transform, "Speak", lesson.Speak);
             AddButton(row.transform, "Talk", lesson.ToggleConversation);
             AddButton(row.transform, "Center video", CenterVideo);
             AddButton(row.transform, "Place controls", PlaceControls);
+            var photoRow = new GameObject("Phone practice actions", typeof(RectTransform), typeof(HorizontalLayoutGroup));
+            photoRow.transform.SetParent(panel.transform, false);
+            AddButton(photoRow.transform, "Choose session", OpenPhonePractice);
             AddButton(row.transform, "End", () =>
             {
                 starting = false;
+                ClearPendingSession();
                 lesson.LeaveLesson();
                 SetPracticeVisible(false);
             });
@@ -70,7 +84,17 @@ namespace ImmerseTheBay.Learning
 
         void LateUpdate()
         {
-            if (practiceVisible) CenterVideo();
+            if (!practiceVisible) return;
+
+            CenterVideo();
+            // Keep the real tabletop visible as the wearer transitions from the lesson to the controls.
+            float lookDown = Mathf.InverseLerp(0.22f, 0.60f, -head.transform.forward.y);
+            float target = 1f - Mathf.SmoothStep(0f, 1f, lookDown);
+            sceneOpacity = Mathf.MoveTowards(sceneOpacity, target, Time.unscaledDeltaTime * 5f);
+            sceneProperties ??= new MaterialPropertyBlock();
+            video.screen.GetPropertyBlock(sceneProperties);
+            sceneProperties.SetFloat(SceneOpacity, sceneOpacity);
+            video.screen.SetPropertyBlock(sceneProperties);
         }
 
         void PlaceControls()
@@ -107,8 +131,28 @@ namespace ImmerseTheBay.Learning
         {
             CenterVideo();
             if (starting || lesson.IsBusy || lesson.IsConversationActive) return;
+            pendingLessonId = presetLessonId;
+            pendingStartImage = presetStartImage;
+            pendingImage = null;
+#if UNITY_ANDROID && !UNITY_EDITOR
+            using var phone = new AndroidJavaClass("com.immersethebay.phone.PhonePracticeActivity");
+            var selection = phone.CallStatic<string[]>("selectedSession");
+            if (selection?.Length == 3)
+            {
+                pendingLessonId = selection[0];
+                pendingStartImage = selection[1];
+                if (string.IsNullOrEmpty(pendingStartImage))
+                    pendingImage = phone.CallStatic<byte[]>("pendingImage", pendingLessonId);
+            }
+#endif
+            if (string.IsNullOrEmpty(pendingStartImage) && pendingImage == null)
+            {
+                placementStatus = "Photo session expired. Choose another session on your phone.";
+                ClearPendingSession();
+                return;
+            }
             SetPracticeVisible(true);
-            if (video.IsConnected && !string.IsNullOrEmpty(video.SessionId)) lesson.BeginLesson();
+            if (video.IsConnected && !string.IsNullOrEmpty(video.SessionId)) BeginSelectedLesson();
             else
             {
                 starting = true;
@@ -117,17 +161,46 @@ namespace ImmerseTheBay.Learning
             }
         }
 
+        void BeginSelectedLesson()
+        {
+            lesson.lessonId = pendingLessonId;
+            lesson.startImage = pendingStartImage;
+            if (pendingImage != null) lesson.BeginLessonWithImage(pendingImage);
+            else lesson.BeginLesson();
+            ClearPendingSession();
+        }
+
+        void ClearPendingSession()
+        {
+            pendingLessonId = null;
+            pendingStartImage = null;
+            pendingImage = null;
+        }
+
+        static void OpenPhonePractice()
+        {
+#if UNITY_ANDROID && !UNITY_EDITOR
+            using var player = new AndroidJavaClass("com.unity3d.player.UnityPlayer");
+            using var activity = player.GetStatic<AndroidJavaObject>("currentActivity");
+            using var intent = new AndroidJavaObject("android.content.Intent");
+            using var target = intent.Call<AndroidJavaObject>("setClassName",
+                activity.Call<string>("getPackageName"), "com.immersethebay.phone.PhonePracticeActivity");
+            activity.Call("startActivity", intent);
+#endif
+        }
+
         void Update()
         {
             if (starting && video.IsConnected && !string.IsNullOrEmpty(video.SessionId))
             {
                 starting = false;
-                lesson.BeginLesson();
+                BeginSelectedLesson();
             }
             else if (starting && (video.Status.StartsWith("error", System.StringComparison.OrdinalIgnoreCase) ||
                 video.Status == "FAILED" || Time.unscaledTime >= connectDeadline))
             {
                 starting = false;
+                ClearPendingSession();
             }
             if (practiceVisible && !starting && video.Status == "DISCONNECTED")
                 SetPracticeVisible(false);

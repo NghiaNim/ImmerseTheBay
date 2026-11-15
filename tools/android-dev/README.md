@@ -17,3 +17,14 @@ Run `tools/android-dev/stage.sh` to refresh the app sources in the isolated
 project, then run Unity with `-projectPath Builds/helloMR-baseline -buildTarget
 Android -executeMethod DevReferenceBuild.Build`. The APK is written to
 `Builds/official-hellomr/ImmerseTheBay-XRI-live-dev.apk`.
+
+Open **ImmerseTheBay Dev** in the Android launcher. The same app's home screen
+works without the glasses: take a rear-camera photo, review it, enter or dictate
+a goal, then tap **Upload and create practice**. The photo and goal go to the
+configured Portal's existing practice endpoint. Connect the glasses, open
+**Open selected session in glasses**, then tap **Start session** in the controller. The picker lists bundled lessons and the five most recent unexpired photo practices.
+The pending photo stays in memory in the app and is lost if Android stops the
+process. The separate official XREAL reference does not include this screen.
+
+In the glasses, looking down gradually fades the video while keeping the
+tabletop controls available. Looking up brings the video back.

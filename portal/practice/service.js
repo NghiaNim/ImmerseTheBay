@@ -49,26 +49,39 @@ export function createPracticeService({ store, apiKey = process.env.OPENAI_API_K
     if (inFlight >= 2 || (lastRequest.has(caller) && now() - lastRequest.get(caller) < 5000) || (!lastRequest.has(caller) && lastRequest.size >= 128)) throw new AgentError(429, 'Practice generation is busy; try again shortly');
     lastRequest.set(caller, now()); inFlight++;
     try {
-      const response = await fetchImpl('https://api.openai.com/v1/responses', {
-        method: 'POST', signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(30_000)]) : AbortSignal.timeout(30_000),
-        headers: { 'content-type': 'application/json', authorization: `Bearer ${apiKey.trim()}` },
-        body: JSON.stringify({ model, reasoning: { effort: 'none' }, store: false, max_output_tokens: 3000,
-          instructions: PRACTICE_INSTRUCTIONS, input: [{ role: 'user', content: [
-            { type: 'input_text', text: JSON.stringify({ practiceGoal: input.goal }) }, { type: 'input_image', image_url: input.image, detail: 'auto' },
-          ] }], text: { format: { type: 'json_schema', name: 'photo_practice', strict: true, schema: PRACTICE_SCHEMA } } }),
-      });
-      if (!response.ok) throw new AgentError(502, 'Photo practice provider is unavailable');
-      const result = await response.json();
-      if (result.status !== 'completed' || result.error) throw new AgentError(502, 'Photo practice generation was incomplete');
-      const content = (result.output || []).filter(o => o.type === 'message').flatMap(o => o.content || []);
-      if (content.some(c => c.type === 'refusal')) throw new AgentError(422, 'Could not create practice from this photo and goal');
-      const raw = content.filter(c => c.type === 'output_text').map(c => c.text).join('');
-      if (!raw || raw.length > 20_000) throw new AgentError(502, 'Invalid photo practice response');
-      let output; try { output = JSON.parse(raw); } catch { throw new AgentError(502, 'Invalid photo practice response'); }
-      if (signal?.aborted) throw new AgentError(499, 'Practice request cancelled');
-      const lesson = buildPracticeLesson(output);
-      const expiresAt = store.addEphemeral(lesson, input);
-      return { lesson, expiresAt };
+      const timeout = AbortSignal.timeout(30_000);
+      const deadline = signal ? AbortSignal.any([signal, timeout]) : timeout;
+      for (let attempt = 0; ; attempt++) {
+        deadline.throwIfAborted();
+        const response = await fetchImpl('https://api.openai.com/v1/responses', {
+          method: 'POST', signal: deadline,
+          headers: { 'content-type': 'application/json', authorization: `Bearer ${apiKey.trim()}` },
+          body: JSON.stringify({ model, reasoning: { effort: 'none' }, store: false, max_output_tokens: 3000,
+            instructions: PRACTICE_INSTRUCTIONS + (attempt ? '\nUse exactly two short lines and three vocabulary items. Keep every field nonempty, the scene prompt under 400 characters, and each cue under 100.' : ''),
+            input: [{ role: 'user', content: [
+              { type: 'input_text', text: JSON.stringify({ practiceGoal: input.goal }) }, { type: 'input_image', image_url: input.image, detail: 'auto' },
+            ] }], text: { format: { type: 'json_schema', name: 'photo_practice', strict: true, schema: PRACTICE_SCHEMA } } }),
+        });
+        if (!response.ok) throw new AgentError(502, 'Photo practice provider is unavailable');
+        const result = await response.json();
+        if (result.status !== 'completed' || result.error) throw new AgentError(502, 'Photo practice generation was incomplete');
+        const content = (result.output || []).filter(o => o.type === 'message').flatMap(o => o.content || []);
+        if (content.some(c => c.type === 'refusal')) throw new AgentError(422, 'Could not create practice from this photo and goal');
+        const raw = content.filter(c => c.type === 'output_text').map(c => c.text).join('');
+        let lesson;
+        try {
+          if (!raw || raw.length > 20_000) throw new AgentError(502, 'Invalid photo practice response');
+          lesson = buildPracticeLesson(JSON.parse(raw));
+        } catch (error) {
+          if (!(error instanceof SyntaxError) && !(error instanceof AgentError && error.status === 502)) throw error;
+          if (!attempt && !deadline.aborted) continue;
+          throw new AgentError(502, 'Could not create a valid photo practice. Please try again.');
+        }
+        if (signal?.aborted) throw new AgentError(499, 'Practice request cancelled');
+        deadline.throwIfAborted();
+        const expiresAt = store.addEphemeral(lesson, input);
+        return { lesson, expiresAt };
+      }
     } catch (error) {
       if (error instanceof AgentError) throw error;
       throw new AgentError(502, 'Photo practice generation failed; try again');
