@@ -18,3 +18,7 @@ header .signals{position:static;margin:0;z-index:11}header .signals>summary{font
 
 /* A preset scene resets behind its fresh photograph; reveal only verified new frames. */
 #sceneTransition{position:absolute;inset:0;z-index:2;opacity:0;pointer-events:none;transition:opacity 320ms ease;background-size:cover;background-position:center;background-image:none!important}#sceneTransition::before{content:"";position:absolute;inset:0;background-image:var(--scene-photo);background-size:cover;background-position:center;filter:brightness(.36) saturate(.72)}#sceneTransition img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}#sceneTransition.visible{opacity:1}.screen.scene-changing #video{opacity:0}.screenbar{z-index:4}#presetSandwiches,#presetDrinks{color:var(--green);font-size:10px}
+
+.dialogue-english{color:#dcebd5;overflow-wrap:anywhere}.status-line .dialogue-english{color:#dcebd5;font-size:12px}
+
+#jp mark{background:#f7dc8c;color:#22261d;border-radius:4px;padding:0 .12em;text-shadow:none}

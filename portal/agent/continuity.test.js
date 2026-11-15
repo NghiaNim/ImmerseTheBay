@@ -131,7 +131,7 @@ test('authored recipient cues remain first-person instead of summoning a visible
   for (const action of ['The clerk nods', 'word '.repeat(300)]) {
     const p = composeVisualPrompt(action, undefined, { speaking: true });
     checkBounds(p);
-    assert.match(p, /moves their lips naturally, with listening pauses/);
+    assert.match(p, /moves their lips silently, with listening pauses/);
     assert.equal(composeVisualPrompt(p, undefined, { speaking: true }), p);
   }
   assert.doesNotMatch(composeVisualPrompt('The clerk nods'), /lips/);

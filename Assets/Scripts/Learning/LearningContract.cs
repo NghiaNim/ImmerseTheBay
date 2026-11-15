@@ -70,6 +70,7 @@ namespace ImmerseTheBay.Learning
         public LearningOperation operation;
         public LearningRoute route;
         public LearningSpeech speech;
+        public string[] focusWords;
         // Present only on /sync events. Their cursor is already advanced by the sender.
         public string type, sessionId, lessonId;
         public int beat;

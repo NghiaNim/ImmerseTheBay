@@ -1,28 +1,28 @@
 {
   "id": "ja-konbini-001",
   "title": "コンビニで買い物 — Convenience-store Shopping",
-  "level": "N1",
+  "level": "N5–N4",
   "scenePrompt": "The same young adult woman: oval face, dark brown eyes, dark brown low ponytail with wispy bangs, white collared shirt, beige apron; her gender, age, face, hair and clothing stay unchanged. The clerk behind the convenience-store checkout gives a small welcoming gesture. Keep the supplied store layout, lighting and fixed first-person eye-level camera composition consistent.",
-  "audioPrompt": "A quiet refrigerator hum, soft footsteps on tile, rustling paper wrappers and occasional checkout beeps.",
+  "audioPrompt": "Quiet refrigeration, light packaging rustle, soft footsteps and occasional checkout beeps.",
   "startImage": "lessons/images/konbini-checkout-original.png",
   "beats": [
     {
-      "goal": "Enter the shop and ask where a quick meal is; practice a considerate request and ことだし in natural speech.",
+      "goal": "Find rice balls and the aisle.",
       "lines": [
         {
-          "jp": "すみません、お忙しいところ恐縮ですが、おにぎりはどの辺りにありますか。",
-          "kana": "すみません、おいそがしいところきょうしゅくですが、おにぎりはどのあたりにありますか。",
-          "romaji": "Sumimasen, oisogashii tokoro kyoushuku desu ga, onigiri wa dono atari ni arimasu ka.",
-          "zh": "不好意思，您正忙着还来打扰，请问饭团在哪一带？",
-          "en": "Sorry to interrupt while you are busy, but where can I find the rice balls?",
+          "jp": "おにぎりはどこですか。",
+          "kana": "おにぎりはどこですか。",
+          "romaji": "Onigiri wa doko desu ka?",
+          "zh": "饭团在哪里？",
+          "en": "Where are the rice balls?",
           "cue": "The shop assistant points along the aisle toward the rice-ball shelf."
         },
         {
-          "jp": "時間もないことだし、すぐ食べられるものを二つほど買っていこうと思います。",
-          "kana": "じかんもないことだし、すぐたべられるものをふたつほどかっていこうとおもいます。",
-          "romaji": "Jikan mo nai koto da shi, sugu taberareru mono o futatsu hodo katte ikou to omoimasu.",
-          "zh": "时间也不多了，我想买两样能马上吃的东西带走。",
-          "en": "Since I am short on time, I think I will pick up a couple of things I can eat straight away.",
+          "jp": "通路はどこですか。",
+          "kana": "つうろはどこですか。",
+          "romaji": "Tsūro wa doko desu ka?",
+          "zh": "过道在哪里？",
+          "en": "Where is the aisle?",
           "cue": "The assistant draws a small shopping basket closer to the visitor."
         }
       ],
@@ -44,26 +44,32 @@
           "kana": "しょうひんだな",
           "en": "product shelf along the wall",
           "objectHint": "wall"
+        },
+        {
+          "jp": "おにぎり",
+          "kana": "おにぎり",
+          "en": "rice ball",
+          "objectHint": "rice ball"
         }
       ]
     },
     {
-      "goal": "Ask about a product and make a preference clear; practice というわけではない and ならでは.",
+      "goal": "Ask about the filling and choose a rice ball.",
       "lines": [
         {
-          "jp": "辛いものが苦手というわけではないんですが、こちらはどのくらい辛いですか。",
-          "kana": "からいものがにがてというわけではないんですが、こちらはどのくらいからいですか。",
-          "romaji": "Karai mono ga nigate to iu wake de wa nai n desu ga, kochira wa dono kurai karai desu ka.",
-          "zh": "我倒不是吃不了辣，不过这个大概有多辣？",
-          "en": "It is not that I cannot handle spicy food, but how spicy is this one?",
+          "jp": "この具は何ですか。",
+          "kana": "このぐはなんですか。",
+          "romaji": "Kono gu wa nan desu ka?",
+          "zh": "这个是什么馅？",
+          "en": "What’s the filling?",
           "cue": "The assistant turns a plain rice-ball wrapper toward the visitor."
         },
         {
-          "jp": "せっかくなので、この地域ならではの具が入ったものがあれば、試してみたいです。",
-          "kana": "せっかくなので、このちいきならではのぐがはいったものがあれば、ためしてみたいです。",
-          "romaji": "Sekkaku na node, kono chiiki narade wa no gu ga haitta mono ga areba, tameshite mitai desu.",
-          "zh": "既然来了，如果有放了本地特色馅料的，我想尝尝。",
-          "en": "Since I am here, I would like to try one with a filling special to this area, if you have one.",
+          "jp": "このおにぎりをください。",
+          "kana": "このおにぎりをください。",
+          "romaji": "Kono onigiri o kudasai.",
+          "zh": "请给我这个饭团。",
+          "en": "This rice ball, please.",
           "cue": "The assistant lifts one rice ball from the display tray."
         }
       ],
@@ -89,22 +95,22 @@
       ]
     },
     {
-      "goal": "Compare prices and choose a sensible quantity; practice からといって and にしては.",
+      "goal": "Read the price tag and check whether tax is included.",
       "lines": [
         {
-          "jp": "安いからといって多く買っても食べきれないので、今日は一つずつにします。",
-          "kana": "やすいからといっておおくかってもたべきれないので、きょうはひとつずつにします。",
-          "romaji": "Yasui kara to itte ooku katte mo tabekirenai node, kyou wa hitotsu zutsu ni shimasu.",
-          "zh": "就算便宜，买多了也吃不完，所以今天每种就买一个。",
-          "en": "Even if they are cheap, I cannot finish a lot, so I will just take one of each today.",
+          "jp": "値札を見てもいいですか。",
+          "kana": "ねふだをみてもいいですか。",
+          "romaji": "Nefuda o mite mo ii desu ka?",
+          "zh": "我可以看一下价签吗？",
+          "en": "May I look at the price tag?",
           "cue": "The assistant places two rice balls side by side on the counter."
         },
         {
-          "jp": "この大きさにしては手頃な値段ですね。表示されているのは税込みの金額ですか。",
-          "kana": "このおおきさにしてはてごろなねだんですね。ひょうじされているのはぜいこみのきんがくですか。",
-          "romaji": "Kono ookisa ni shite wa tegoro na nedan desu ne. Hyouji sarete iru no wa zeikomi no kingaku desu ka.",
-          "zh": "这么大一份，价格还挺实惠的。标出来的是含税金额吗？",
-          "en": "That is a reasonable price for this size. Does the displayed amount include tax?",
+          "jp": "税込みですか。",
+          "kana": "ぜいこみですか。",
+          "romaji": "Zeikomi desu ka?",
+          "zh": "含税吗？",
+          "en": "Is tax included?",
           "cue": "The assistant indicates the small price card beside the items."
         }
       ],
@@ -130,22 +136,22 @@
       ]
     },
     {
-      "goal": "Check out, request packing and ask about payment; practice ていただけると助かる and 念のため.",
+      "goal": "Decline a bag and ask about paying by card.",
       "lines": [
         {
-          "jp": "袋は持参したので結構です。温かいものだけ分けていただけると助かります。",
-          "kana": "ふくろはじさんしたのでけっこうです。あたたかいものだけわけていただけるとたすかります。",
-          "romaji": "Fukuro wa jisan shita node kekkou desu. Atatakai mono dake wakete itadakeru to tasukarimasu.",
-          "zh": "我自己带了袋子，就不用了。能把热的东西单独放开就太好了。",
-          "en": "I brought my own bag, so I do not need one. I would appreciate it if you kept the warm items separate.",
+          "jp": "袋はいりません。",
+          "kana": "ふくろはいりません。",
+          "romaji": "Fukuro wa irimasen.",
+          "zh": "不需要袋子。",
+          "en": "No bag, thanks.",
           "cue": "The assistant moves the warm food parcel to a separate part of the counter."
         },
         {
-          "jp": "念のため伺いますが、カードで支払えますか。使えなければ現金にします。",
-          "kana": "ねんのためうかがいますが、かーどでしはらえますか。つかえなければげんきんにします。",
-          "romaji": "Nen no tame ukagaimasu ga, kaado de shiharaemasu ka. Tsukaenakereba genkin ni shimasu.",
-          "zh": "保险起见问一下，可以刷卡吗？不能用的话我就付现金。",
-          "en": "Just to make sure, can I pay by card? If not, I will use cash.",
+          "jp": "カードで払えますか。",
+          "kana": "カードではらえますか。",
+          "romaji": "Kādo de haraemasu ka?",
+          "zh": "可以刷卡吗？",
+          "en": "Can I pay by card?",
           "cue": "The assistant turns the plain payment terminal toward the visitor."
         }
       ],
@@ -167,26 +173,38 @@
           "kana": "けっさいたんまつ",
           "en": "payment terminal on the counter",
           "objectHint": "table"
+        },
+        {
+          "jp": "袋",
+          "kana": "ふくろ",
+          "en": "bag",
+          "objectHint": "bag"
+        },
+        {
+          "jp": "カード",
+          "kana": "カード",
+          "en": "card",
+          "objectHint": "card"
         }
       ]
     },
     {
-      "goal": "Check the receipt, thank the assistant and leave; practice おかげで and 際に in a warm farewell.",
+      "goal": "Ask for the receipt and find the exit.",
       "lines": [
         {
-          "jp": "レシートをいただけますか。後で確認するので、袋に入れずに渡していただけると助かります。",
-          "kana": "れしーとをいただけますか。あとでかくにんするので、ふくろにいれずにわたしていただけるとたすかります。",
-          "romaji": "Reshiito o itadakemasu ka. Ato de kakunin suru node, fukuro ni irezu ni watashite itadakeru to tasukarimasu.",
-          "zh": "可以给我小票吗？我待会儿要核对，麻烦别放进袋子里，直接递给我就好。",
-          "en": "May I have the receipt? I will check it later, so I would appreciate you handing it to me rather than putting it in the bag.",
+          "jp": "レシートをください。",
+          "kana": "レシートをください。",
+          "romaji": "Reshīto o kudasai.",
+          "zh": "请给我收据。",
+          "en": "A receipt, please.",
           "cue": "The assistant holds out the receipt across the counter."
         },
         {
-          "jp": "丁寧に教えてくださったおかげで、迷わず選べました。また近くに来た際に寄ります。",
-          "kana": "ていねいにおしえてくださったおかげで、まよわずえらべました。またちかくにきたさいによります。",
-          "romaji": "Teinei ni oshiete kudasatta okage de, mayowazu erabemashita. Mata chikaku ni kita sai ni yorimasu.",
-          "zh": "多亏您耐心介绍，我才能顺利挑好。下次来附近时我还会再来的。",
-          "en": "Thanks to your helpful explanation, choosing was easy. I will stop by again when I am in the area.",
+          "jp": "出口はどこですか。",
+          "kana": "でぐちはどこですか。",
+          "romaji": "Deguchi wa doko desu ka?",
+          "zh": "出口在哪里？",
+          "en": "Where is the exit?",
           "cue": "The assistant gives a small farewell bow toward the glass entrance door."
         }
       ],

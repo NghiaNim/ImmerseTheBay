@@ -3,7 +3,7 @@ import { hasBannedTerm } from './guardrails.js';
 // A steering constraint, not a claim that a face was visible or verified.
 export const CHARACTER_ANCHOR = 'The established face, hair and clothing remain unchanged.';
 export const SCENE_ANCHOR = 'Static eye-level medium-wide first-person POV, locked position, orientation and focal length; framing and background stay stationary, foreground clear.';
-export const SPEAKING_MOTION = '; the established speaker moves their lips naturally, with listening pauses';
+export const SPEAKING_MOTION = '; the established speaker moves their lips silently, with listening pauses';
 const NEUTRAL_ACTION = 'The host stays in place with a natural expression';
 const CHARACTER = '(?:clerk|assistant|host|person|character|face|facial features|identity|gender|sex|age|hairstyle|hair|skin tone|clothing|outfit|accessories)';
 const conflicts = [
@@ -74,7 +74,7 @@ export function composeVisualPrompt(action, fallback = NEUTRAL_ACTION, { initial
 }
 
 
-export const AMBIENT_ANCHOR = 'Environmental sounds only; no speech, dialogue, narration, voices, singing or music.';
+export const AMBIENT_ANCHOR = 'Environmental sounds only; no speech, dialogue, narration, voices, singing or music, including whispers, crowd chatter and distant announcements; every person is acoustically silent even when their lips move, with only non-vocal sounds from objects or the room.';
 const NEUTRAL_AMBIENCE = 'Soft room ambience with gentle ventilation';
 const VOCAL_OR_MUSIC = /\b(?:speak\w*|speech|spoken|say|says|saying|said|tell|tells|telling|talk\w*|chat\w*|convers\w*|dialog\w*|narrat\w*|voice\w*|vocal\w*|sing\w*|sang|sung|song\w*|lyrics?|music\w*|melody|melodies|announce\w*|greet\w*|welcom\w*|reply|replies|answer\w*|pronounc\w*|read(?:s|ing|out)?|whisper\w*|murmur\w*|utter\w*|laugh\w*|giggl\w*|chuckl\w*|scream\w*|shout\w*|hum(?:s|ming|med)?|radio|television|tv|podcast)\b|(?:说话|說話|人声|人聲|语音|語音|对话|對話|旁白|聊天|唱歌|歌声|歌聲|音乐|音樂|广播|廣播|会話|会话|話し声|話す|声で|ナレーション|歌う|音楽|いらっしゃいませ|欢迎|歡迎|こんにちは|ありがとうございます)/iu;
 

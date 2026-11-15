@@ -10,8 +10,10 @@ Shader "ImmerseTheBay/ImmersiveVisko"
     }
     SubShader
     {
-        Tags { "RenderType"="Opaque" "Queue"="Geometry" }
+        Tags { "RenderType"="Transparent" "Queue"="Transparent" }
         Cull Off
+        ZWrite Off
+        Blend SrcAlpha OneMinusSrcAlpha
         Pass
         {
             CGPROGRAM
@@ -54,7 +56,9 @@ Shader "ImmerseTheBay/ImmersiveVisko"
                 float radius = length((i.uv - float2(0.5, 0.53)) / float2(0.43, 0.49));
                 float centre = 1.0 - smoothstep(0.47, 1.0, radius);
                 fixed3 focus = lerp(photo, video, saturate(_HasVideo));
-                return fixed4(lerp(photo * _EnvironmentDim, focus, centre), 1);
+                float2 margins = min(i.uv, 1.0 - i.uv);
+                float edge = smoothstep(0.0, 0.13, margins.x) * smoothstep(0.0, 0.16, margins.y);
+                return fixed4(lerp(photo * _EnvironmentDim, focus, centre), edge);
             }
             ENDCG
         }

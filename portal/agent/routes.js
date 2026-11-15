@@ -2,8 +2,9 @@ import express from 'express';
 import { createCartesiaSpeech } from './cartesia.js';
 import { createTranscriber, audioType, MAX_AUDIO_BYTES } from './transcribe.js';
 import { createLessonStore } from './lessons.js';
+import { createDialogueTranslator } from './translate.js';
 import { createAgentService } from './service.js';
-export function registerAgentRoutes(app, { authorized = () => true, store = createLessonStore(), service = createAgentService({ store }), transcribe = createTranscriber(), synthesize = createCartesiaSpeech() } = {}) {
+export function registerAgentRoutes(app, { authorized = () => true, store = createLessonStore(), service = createAgentService({ store }), transcribe = createTranscriber(), synthesize = createCartesiaSpeech(), translate = createDialogueTranslator() } = {}) {
   const protect = (req, res, next) => authorized(req) ? next() : res.status(401).json({ error: 'portal_token required' });
   const route = (fn) => async (req, res) => {
     try { await fn(req, res); } catch (e) { res.status(e.status || 500).json({ error: e.status ? e.message : 'Learning service unavailable' }); }
@@ -20,6 +21,17 @@ export function registerAgentRoutes(app, { authorized = () => true, store = crea
     route(async (req, res) => res.json(await transcribe({
       audio: req.body, mimeType: req.get('content-type'), language: req.get('x-audio-language'),
     }))));
+  app.post('/api/agent/translate', protect, route(async (req, res) => {
+    const text = typeof req.body?.text === 'string' ? req.body.text.trim() : '';
+    if (!text || text.length > 2000) return res.status(400).json({ error: 'Invalid utterance' });
+    const controller = new AbortController();
+    const abort = () => { if (!res.writableEnded) controller.abort(); };
+    res.on('close', abort);
+    try {
+      const english = await translate({ text, signal: controller.signal });
+      if (!controller.signal.aborted) res.set('Cache-Control', 'no-store').json({ english });
+    } finally { res.off('close', abort); }
+  }));
   app.post('/api/agent/speak', protect, route(async (req, res) => {
     if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body) || Object.keys(req.body).some((key) => !['text', 'language'].includes(key))) return res.status(400).json({ error: 'Invalid speech request' });
     const controller = new AbortController();

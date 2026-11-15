@@ -81,3 +81,16 @@ test('deadline and caller cancellation abort a stalled body without buffering fo
   const rejected = assert.rejects(pending, { status: 499 }); controller.abort(); await rejected;
   assert.equal(upstreamSignal.aborted, true); assert.equal(canceled, 2);
 });
+
+test('finalizes streaming WAV sizes after metadata chunks for file decoders', async () => {
+  const streamed = Buffer.concat([
+    Buffer.from('52494646ffffffff57415645', 'hex'),
+    Buffer.from('4c49535403000000494e4600', 'hex'),
+    Buffer.from('64617461ffffffff01000200', 'hex'),
+  ]);
+  const speak = createCartesiaSpeech({ ...options, fetchImpl: async () => audioResponse(streamed) });
+  const complete = await speak(sample);
+  assert.equal(complete.readUInt32LE(4), complete.length - 8);
+  assert.equal(complete.readUInt32LE(28), 4);
+  assert.deepEqual(complete.subarray(32), streamed.subarray(32));
+});

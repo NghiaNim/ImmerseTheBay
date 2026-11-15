@@ -13,6 +13,7 @@ import inc.reactor.sdk.android.VideoFrame
 import java.nio.ByteBuffer
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -152,7 +153,7 @@ class ViskoReactorBridge(private val listener: Listener) {
     // ------------------------------------------------------------ commands
     /** Operations are serialized, including upload+set_image, and correlated by the caller's ID. */
     fun sendCommand(id: String, name: String, argsJson: String?) = operation(id, name) { r ->
-        r.sendCommand(name, if (argsJson.isNullOrEmpty()) null else argsJson)
+        r.sendCommand(name, if (argsJson.isNullOrEmpty()) "{}" else argsJson)
     }
 
     fun uploadImage(id: String, bytes: ByteArray, name: String, mime: String) = operation(id, "set_image") { r ->
@@ -179,6 +180,7 @@ class ViskoReactorBridge(private val listener: Listener) {
             }
             active.launch {
                 try {
+                    val frameBeforeCommand = frameId
                     val reply = withTimeout(90000L) { commands.withLock {
                         check(reactor === r) { "Connection changed" }
                         action(r)
@@ -196,7 +198,13 @@ class ViskoReactorBridge(private val listener: Listener) {
                         "reset" -> "generation_reset"
                         else -> null
                     }
-                    check(expected == null || reply.type == expected) { "$name did not return $expected: ${reply.type}" }
+                    val startVerifiedByFrame = name == "start" && reply.type == null && withTimeout(30000L) {
+                        while (frameId <= frameBeforeCommand) delay(50L)
+                        check(reactor === r) { "Connection changed" }
+                        android.util.Log.i("ImmerseVideo", "Native start confirmed by a new decoded frame")
+                        true
+                    }
+                    check(startVerifiedByFrame || expected == null || reply.type == expected) { "$name did not return $expected: ${reply.type}" }
                     if (reactor === r) listener.onOperation(id, name,
                         JSONObject().put("type", reply.type ?: "").put("data", wrap(reply.data)).toString(), "")
                 } catch (e: Exception) {

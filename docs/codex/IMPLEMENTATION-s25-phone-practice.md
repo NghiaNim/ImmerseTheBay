@@ -212,3 +212,104 @@ It was restored after the local HelloMR test showed black output. Do not replace
 it with future experimental builds or change its scene/rig/controller structure.
 All product functionality belongs in `com.immersethebay.app`; compare each
 increment against the preserved baseline on the actual phone and glasses.
+
+## Dev scene and phone controller checkpoint
+
+Built the XRI Starter Assets DemoScene from the isolated SDK 3.1 template
+checkout under Builds/helloMR-baseline. Its scene bytes matched the read-only
+reference. The development build uses Unity 6000.0.85f2, the template's built-in
+render pipeline, and package com.immersethebay.app. It has no course UI yet.
+The working official APK remains installed separately.
+
+Build entry point DevReferenceBuild.Build, log /tmp/il-xri-dev-build.log.
+Unity reported Succeeded, ERRORS=0. The ignored APK is
+Builds/official-hellomr/ImmerseTheBay-XRI-reference-dev.apk, SHA-256
+495e7ab9dc1ac733f617ebe8faca601370c13ebf55cfc4f0f3f09edc044f3f62.
+Its signer matches the previous dev APK. Streamed replacement via wireless ADB
+succeeded. Launched NRXRActivity while ControlGlasses reported SDK ready.
+NativeDisplay and NativeRendering both reported Start Finish.
+
+The 3840×1080 glasses capture shows scene geometry in both eye views. The
+1080×2340 phone capture contains the full XREAL controller, APP and Home buttons,
+and touchpad. Captures are under Builds/official-hellomr/verification. Wearer
+confirmation of stereo fusion and phone controller input is pending. Finish
+that check before adding course management to the dev copy.
+
+The isolated dev build now uses the SDK's XR Interaction Hands Setup in a
+generated copy of the demo scene and sets InitialInputSource to
+ControllerAndHands. The official reference and its installed package were
+preserved. Unity built successfully with zero errors. The APK was installed on
+the S25 with streamed ADB and launched under the existing ControlGlasses runtime.
+The phone capture shows the complete controller and the glasses capture shows
+both tracked hand skeletons in both eye views. Pinch selection and phone trigger
+interaction still require wearer confirmation before course management.
+
+Artifact: Builds/official-hellomr/ImmerseTheBay-XRI-hands-dev.apk
+SHA-256: b3409124672ff76993cbd8e1189e67f8d20eca42a994beb12683bd1678e14e04
+
+For seated input testing, the dev build places a selectable cube 40 cm in front
+of the initial head pose and 9 cm below eye height. The S25 build succeeded with
+zero errors and the wearer confirmed the cube was visible and within reach.
+Contact alone did not produce a selection in the captured Unity log. Left and
+right pinch selection and phone trigger selection remain to be verified.
+
+The wearer subsequently confirmed the seated cube turned green for left pinch,
+right pinch and phone touchpad selection. The next requested increment is live
+video/voice/agent with bilingual dialogue, ahead of course management.
+
+The isolated dev scene adds native Dynamic video, the learning agent and Cartesia
+conversation. The video blends into the dim start image, with an additional
+transparent fade at the image perimeter. On S25, the previous build rendered
+the feathered convenience-store start image in both eyes. Native start
+acknowledgement was missing in two runs. A follow-up test build waits for a new
+decoded frame when the reply has no type. The glasses were disconnected during
+that recheck, so animated video and voice interaction were not verified.
+
+The Unity learning overlay now shows original text with English below each
+speaker. The existing portal translation route serves asynchronous requests from
+Unity. Clearing the dialogue cancels pending requests. The subtitle build
+succeeded with zero errors. Host translation smoke test passed. The S25 saw no
+external display during packaging, so the full native video/voice/agent run
+requires reconnecting the glasses.
+
+The follow-up subtitle build also plays the scripted clerk reply through
+Cartesia WAV, independently of the video command acknowledgements. Live Talk
+continues to use the Cartesia conversational stream. Starting speech input or
+leaving cancels the scripted reply. The portal now fills in streamed WAV sizes
+before Unity decodes it. A real clerk sample decoded at 44.1 kHz, lasted 2.80
+seconds, and had nonzero audio. The zero-error Android build was installed on the
+S25. APK SHA-256:
+4f2ec1585cdede215e7bfb4d6a58650b8c24a5682aeec2e5c13681ba139ab3b3.
+
+On reconnect, the S25 decoded live Dynamic frames. The opening capture shows
+the feathered convenience-store scene and bilingual clerk captions in both eyes.
+Unity logged clerk audio playback. Capture:
+Builds/official-hellomr/verification/bilingual-live/opening.png.
+The wearer reported the screen was inverted and behind them. The isolated dev
+build now uses the horizontal headset heading and world up, and exposes Center
+video on the phone to reposition the screen independently of the session.
+This update built with zero errors and was installed. Wearer confirmation of
+the new placement, microphone input, conversational reply, and learner
+captions is pending.
+
+The updated dev build hides the demo scenery and seated test cube during live
+practice, restores them on End, and gives conversation captions more screen
+space. On S25 it decoded live Dynamic frames and the portal observed the native
+opening agent turn. Android reported an active, unsilenced device microphone
+during Cartesia Talk. Unity logged both speakers' translated turns. The
+two-speaker capture shows their original text and English in both eye views
+with the feathered video edge. The capture angle crops the upper part of the
+scene. Wearer confirmation of audio audibility and centered placement is
+pending. End cleared the portal session. Build SHA-256
+2c053a89011e7c9d0a63e5b7a9bb6d2bd7c6ad7c4ff55ea76a826b83cf59d879.
+
+The next centering build follows headset pitch and heading while using world up
+to avoid roll. Its S25 capture shows the entire upright scene in both eyes,
+including the top feather edge. Android confirmed active app playback routed to
+the Air 2 Ultra USB headset at unmuted volume and active headset microphone
+capture during Talk. This repeat yielded a clerk caption but no new learner
+caption. The earlier two-speaker capture remains the evidence for the full
+caption path. End stopped recording and cleared the portal session.
+The installed official package hash exactly matched the preserved release APK.
+The centering build SHA-256 is
+7373649e9971282d4ca92939d084c57b96d51c2bd3ad831ec710fb8490dd1817.

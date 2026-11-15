@@ -5,6 +5,22 @@ export const DEFAULT_CARTESIA_MODEL = 'sonic-latest';
 export const DEFAULT_CARTESIA_VERSION = '2026-08-14';
 const cancelBody = (body) => { try { Promise.resolve(body?.cancel()).catch(() => {}); } catch {} };
 
+// Cartesia streams WAV with unknown RIFF/data sizes. This endpoint buffers
+// the complete response, so fill in the lengths expected by file decoders.
+function finalizeWav(audio) {
+  if (audio.readUInt32LE(4) !== 0xffffffff) return audio;
+  audio.writeUInt32LE(audio.length - 8, 4);
+  for (let offset = 12; offset + 8 <= audio.length;) {
+    const size = audio.readUInt32LE(offset + 4);
+    if (audio.toString('ascii', offset, offset + 4) === 'data' && size === 0xffffffff) {
+      audio.writeUInt32LE(audio.length - offset - 8, offset + 4);
+      break;
+    }
+    offset += 8 + size + (size & 1);
+  }
+  return audio;
+}
+
 // One configured service instance has two slots; no unbounded text/audio queue.
 // Audio, transcript and provider response bodies are never logged or persisted.
 export function createCartesiaSpeech({ apiKey = process.env.CARTESIA_API_KEY,
@@ -70,7 +86,7 @@ export function createCartesiaSpeech({ apiKey = process.env.CARTESIA_API_KEY,
       if (controller.signal.aborted) throw new AgentError(timedOut ? 504 : 499, timedOut ? 'Speech synthesis timed out' : 'Speech request canceled');
       const audio = Buffer.concat(chunks, total);
       if (audio.length < 12 || audio.toString('ascii', 0, 4) !== 'RIFF' || audio.toString('ascii', 8, 12) !== 'WAVE') throw new AgentError(502, 'Invalid speech audio');
-      return audio;
+      return finalizeWav(audio);
     } catch (error) {
       if (reader) cancelBody(reader);
       else cancelBody(response?.body);

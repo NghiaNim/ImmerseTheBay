@@ -45,6 +45,13 @@ namespace ImmerseTheBay.Learning
         ISpeechToText m_Speech;
         Func<string> m_Debug;
         UnityWebRequest m_Request;
+        UnityWebRequest m_ClerkAudioRequest;
+        AudioSource m_ClerkSpeaker;
+        AudioClip m_ClerkAudio;
+        readonly UnityWebRequest[] m_CaptionRequests = new UnityWebRequest[2];
+        readonly string[] m_CaptionText = new string[2];
+
+        [Serializable] sealed class CaptionTranslation { public string english; }
         string m_Session = "", m_RunLesson = "";
         bool m_HasLesson, m_NeedsRestart, m_RecognitionPending;
         int m_Generation;
@@ -130,7 +137,7 @@ namespace ImmerseTheBay.Learning
             }
             if (context && overlay)
             {
-                context.overlayPanel = overlay.Panel;
+                context.overlayPanel = overlay.ControlsPanel;
                 if (visko) context.viskoScreen = visko.screen;
             }
         }
@@ -208,6 +215,7 @@ namespace ImmerseTheBay.Learning
 
         public void Speak()
         {
+            StopClerkAudio();
             if (m_RecognitionPending)
             {
                 // Stop requests a final result. E retains mic ownership until final/error.
@@ -241,6 +249,7 @@ namespace ImmerseTheBay.Learning
                 if (!SpeechCurrent(generation, speechGeneration)) return;
                 EndRecognition();
                 if (string.IsNullOrWhiteSpace(text)) { SetStatus("No speech heard. Try Speak again."); return; }
+                ShowDialogue(false, text);
                 Submit(text, context ? context.Capture() : null);
             });
             m_ErrorHandler = error => m_Main.Enqueue(() =>
@@ -311,6 +320,11 @@ namespace ImmerseTheBay.Learning
             LearningContract.ValidateOperation(response, id, m_RunId, m_Revision);
             m_RunId = response.operation.runId; m_Revision = response.operation.revision;
             if (!m_Claims.Add(id)) throw new InvalidOperationException("Scene operation already attempted.");
+            if (!IsConversationActive && response.speech?.role == "clerk")
+            {
+                ShowDialogue(true, response.speech.text);
+                PlayClerkAudio(response.speech, generation);
+            }
             foreach (var command in response.visko)
             {
                 EnsureCurrent(generation);
@@ -449,19 +463,120 @@ namespace ImmerseTheBay.Learning
             m_Generation++;
             m_Cancelling = false;
             m_Request?.Abort();
+            ClearDialogue();
+            StopClerkAudio();
             CancelSpeech();
             SetBusy(false);
         }
 
         sealed class TransportException : Exception { public TransportException() : base("Lesson connection interrupted.") { } }
 
+        void StopClerkAudio()
+        {
+            m_ClerkAudioRequest?.Abort();
+            m_ClerkAudioRequest = null;
+            if (m_ClerkSpeaker) { m_ClerkSpeaker.Stop(); m_ClerkSpeaker.clip = null; }
+            if (m_ClerkAudio) Destroy(m_ClerkAudio);
+            m_ClerkAudio = null;
+        }
+
+        async void PlayClerkAudio(LearningSpeech speech, int generation)
+        {
+            if (string.IsNullOrWhiteSpace(speech.text)) return;
+            StopClerkAudio();
+            try
+            {
+                string url = visko.config.portalUrl.TrimEnd('/') + "/api/agent/speak";
+                using var request = new UnityWebRequest(url, "POST");
+                request.downloadHandler = new DownloadHandlerAudioClip(url, AudioType.WAV);
+                string body = "{\"text\":" + LearningContract.Quote(speech.text)
+                    + ",\"language\":" + LearningContract.Quote(speech.language) + "}";
+                request.uploadHandler = new UploadHandlerRaw(Encoding.UTF8.GetBytes(body));
+                request.SetRequestHeader("Content-Type", "application/json");
+                if (!string.IsNullOrEmpty(visko.config.portalToken)) request.SetRequestHeader("portal_token", visko.config.portalToken);
+                request.timeout = 12;
+                m_ClerkAudioRequest = request;
+                try
+                {
+                    var operation = request.SendWebRequest();
+                    while (!operation.isDone) await Task.Yield();
+                    if (!IsCurrent(generation) || m_ClerkAudioRequest != request || IsConversationActive) return;
+                    if (request.result != UnityWebRequest.Result.Success)
+                    {
+                        Debug.LogWarning("[Learning] Clerk speech could not be loaded.");
+                        return;
+                    }
+                    m_ClerkAudio = DownloadHandlerAudioClip.GetContent(request);
+                    if (!m_ClerkAudio) return;
+                    if (!m_ClerkSpeaker)
+                    {
+                        m_ClerkSpeaker = gameObject.AddComponent<AudioSource>();
+                        m_ClerkSpeaker.playOnAwake = false;
+                        m_ClerkSpeaker.spatialBlend = 0;
+                    }
+                    m_ClerkSpeaker.clip = m_ClerkAudio;
+                    m_ClerkSpeaker.Play();
+                    Debug.Log("[Learning] Clerk speech started");
+                }
+                finally { if (m_ClerkAudioRequest == request) m_ClerkAudioRequest = null; }
+            }
+            catch (Exception) { Debug.LogWarning("[Learning] Clerk speech unavailable."); }
+        }
+
+        void ClearDialogue()
+        {
+            ShowDialogue(true, null);
+            ShowDialogue(false, null);
+        }
+
+        async void ShowDialogue(bool clerk, string original)
+        {
+            if (!overlay) return;
+            int slot = clerk ? 0 : 1;
+            original = original?.Trim();
+            if (m_CaptionText[slot] == original) return;
+            m_CaptionText[slot] = original;
+            m_CaptionRequests[slot]?.Abort();
+            m_CaptionRequests[slot] = null;
+            if (clerk) overlay.SetClerkCaption(original); else overlay.SetLearnerCaption(original);
+            if (string.IsNullOrEmpty(original) || !visko || !isActiveAndEnabled) return;
+
+            try
+            {
+                await visko.ConfigReady;
+                if (!this || !isActiveAndEnabled || m_CaptionText[slot] != original) return;
+                using var request = new UnityWebRequest(visko.config.portalUrl.TrimEnd('/') + "/api/agent/translate", "POST");
+                request.uploadHandler = new UploadHandlerRaw(Encoding.UTF8.GetBytes(
+                    "{\"text\":" + LearningContract.Quote(original.Substring(0, Math.Min(original.Length, 2000))) + "}"));
+                request.downloadHandler = new DownloadHandlerBuffer();
+                request.SetRequestHeader("Content-Type", "application/json");
+                if (!string.IsNullOrEmpty(visko.config.portalToken)) request.SetRequestHeader("portal_token", visko.config.portalToken);
+                request.timeout = 10;
+                m_CaptionRequests[slot] = request;
+                try
+                {
+                    var operation = request.SendWebRequest();
+                    while (!operation.isDone) await Task.Yield();
+                    if (!this || !overlay || m_CaptionRequests[slot] != request || request.result != UnityWebRequest.Result.Success) return;
+                    var translation = JsonUtility.FromJson<CaptionTranslation>(request.downloadHandler.text);
+                    if (string.IsNullOrWhiteSpace(translation?.english)) return;
+                    if (clerk) overlay.SetClerkCaption(original, translation.english);
+                    else overlay.SetLearnerCaption(original, translation.english);
+                    Debug.Log("[Learning] English caption displayed for " + (clerk ? "clerk" : "learner"));
+                }
+                finally { if (m_CaptionRequests[slot] == request) m_CaptionRequests[slot] = null; }
+            }
+            catch (OperationCanceledException) { }
+            catch (Exception) { Debug.LogWarning("[Learning] Dialogue translation unavailable."); }
+        }
+
         void Present(LearningResponse response)
         {
             m_LastResponse = response;
             if (!overlay) return;
-            overlay.Show(response.overlay, response.feedback, IsDone);
+            overlay.Show(response.overlay, response.feedback, IsDone, response.focusWords);
             overlay.SetRoute(response.route?.kind == "detour", response.route?.label);
-            overlay.SetClerkCaption(response.speech?.text);
+            if (!m_VoiceActive) ShowDialogue(true, response.speech?.text);
         }
         string BindingJson() => "{\"sessionId\":" + LearningContract.Quote(m_Session) + ",\"lessonId\":" + LearningContract.Quote(m_RunLesson) + "}";
         async Task VerifySnapshot(int generation)
@@ -475,6 +590,7 @@ namespace ImmerseTheBay.Learning
         {
             if (m_VoiceActive || m_VoiceConnecting) { conversation.Disconnect(); return; }
             if (!CanSubmit()) return;
+            StopClerkAudio();
             CancelSpeech();
             int generation = m_Generation;
             m_VoiceConnecting = true; SetBusy(true);
@@ -505,7 +621,12 @@ namespace ImmerseTheBay.Learning
         void OnVoiceTranscript(string role, string text)
         {
             if (!m_VoiceActive) return;
-            if (role == "user") SetStatus(text); else if (overlay) overlay.SetClerkCaption(text);
+            if (role == "user")
+            {
+                SetStatus("");
+                ShowDialogue(false, text);
+            }
+            else if (role == "agent" || role == "assistant" || role == "clerk") ShowDialogue(true, text);
         }
         void OnVoiceInterrupted() { m_AudioTurn++; }
         void OnVoiceState(string state)

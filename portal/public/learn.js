@@ -40,6 +40,39 @@ const idleInvitation = createIdleInvitation({
   invite: () => { void turn({ action: 'idle_hint' }); },
 });
 const lessonOperations = createLessonOperations({ headers: authHeaders });
+const dialogueRequests = new Map();
+function translateDialogue(id, source) {
+  const line = source?.trim().slice(0, 2000) || '';
+  if (line && dialogueRequests.get(id)?.line === line) return;
+  dialogueRequests.get(id)?.controller.abort();
+  dialogueRequests.delete(id);
+  const caption = $(id);
+  caption.hidden = true;
+  caption.textContent = '';
+  if (!line) return;
+  const controller = new AbortController();
+  const request = { line, controller };
+  dialogueRequests.set(id, request);
+  void (async () => {
+    try {
+      const response = await fetch('/api/agent/translate', {
+        method: 'POST', headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: line }), signal: controller.signal,
+      });
+      if (!response.ok) throw new Error('Translation unavailable');
+      const { english } = await response.json();
+      if (dialogueRequests.get(id) !== request) return;
+      caption.textContent = english;
+      caption.hidden = !english;
+    } catch {
+      if (dialogueRequests.get(id) !== request) return;
+      dialogueRequests.delete(id);
+      caption.textContent = 'English translation unavailable';
+      caption.hidden = false;
+    }
+  })();
+}
+
 const lessonSpeech = createLessonSpeech({
   video: $('video'), headers: authHeaders,
   isMicrophoneActive: () => !!recognition || !!recording || micStarting || transcribing,
@@ -88,7 +121,7 @@ const lineVoice = createLineVoice({
     $('conversationStatus').textContent = message || ({ off: '', connecting: 'Connecting voice…', listening: 'Listening · 日本語 / English', speaking: `${partnerLabel()} speaking · you can interrupt` })[state];
     refresh();
   },
-  onText: (text, role) => { if (role === 'user') $('transcript').textContent = text; else { $('clerkCaption').textContent = `${partnerLabel()} · ${text}`; $('clerkCaption').hidden = false; } },
+  onText: (text, role) => { if (role === 'user') { $('transcript').textContent = text; translateDialogue('transcriptEnglish', text); } else { translateDialogue('clerkEnglish', text); $('clerkCaption').textContent = `${partnerLabel()} · ${text}`; $('clerkCaption').hidden = false; } },
   onTool: async (call, current) => {
     if (!current() || !active || finished) throw new Error('The lesson is not active.');
     const parameters = call.parameters || {};
@@ -220,7 +253,7 @@ async function chooseLesson() {
   if (practiceMode !== 'home') return;
   const run = epoch, selected = $('lesson').value;
   const current = () => run === epoch && !closing && practiceMode === 'home' && $('lesson').value === selected;
-  lessonSpeech.cancel(); clerkSpeech = null; $('clerkCaption').hidden = true; $('clerkReplay').hidden = true;
+  lessonSpeech.cancel(); clerkSpeech = null; translateDialogue('clerkEnglish'); translateDialogue('transcriptEnglish'); $('clerkCaption').hidden = true; $('clerkReplay').hidden = true;
   busy = true; refresh();
   try {
     const loaded = await api(`/api/agent/lessons/${encodeURIComponent(selected)}`);
@@ -513,12 +546,36 @@ function renderClerkReply(decision) {
   clerkSpeech = decision.speech?.role === 'clerk' && decision.speech.language === 'ja' && typeof decision.speech.text === 'string' && decision.speech.text.trim()
     ? { text: decision.speech.text, language: 'ja', role: 'clerk' } : null;
   $('clerkCaption').textContent = clerkSpeech ? `${partnerLabel()} · ${clerkSpeech.text}` : '';
+  translateDialogue('clerkEnglish', clerkSpeech?.text);
   $('clerkCaption').hidden = !clerkSpeech; $('clerkReplay').hidden = !clerkSpeech;
 }
+function highlightFocusWords(text, words) {
+  const target = $('jp');
+  target.replaceChildren();
+  const terms = Array.isArray(words) ? words.filter(word => typeof word === 'string' && word) : [];
+  for (let offset = 0; offset < text.length;) {
+    let next = text.length, match = '';
+    for (const word of terms) {
+      const index = text.indexOf(word, offset);
+      if (index >= 0 && (index < next || (index === next && word.length > match.length))) {
+        next = index;
+        match = word;
+      }
+    }
+    target.append(text.slice(offset, next));
+    if (!match) break;
+    const mark = document.createElement('mark');
+    mark.textContent = match;
+    target.append(mark);
+    offset = next + match.length;
+  }
+}
+
 function renderDecision(decision, hasSpeech = false) {
   renderClerkReply(decision);
   const overlay = decision.overlay;
-  for (const field of ['jp', 'kana', 'romaji', 'zh', 'en']) $(field).textContent = overlay?.[field] || '';
+  for (const field of ['kana', 'romaji', 'zh', 'en']) $(field).textContent = overlay?.[field] || '';
+  highlightFocusWords(overlay?.jp || '', decision.focusWords);
   if (!overlay && decision.advance === 'scene_done') { $('jp').textContent = 'お疲れさまでした。'; $('en').textContent = 'Scene complete. Leave the session when you are ready.'; }
   $('hintLevel').hidden = !overlay?.hintLevel;
   $('hintLevel').textContent = overlay?.hintLevel ? `HINT ${overlay.hintLevel}` : '';
@@ -614,7 +671,7 @@ async function finishRecording(pending) {
     const text = typeof result.text === 'string' ? result.text.trim() : '';
     if (!text) throw new Error('No speech was detected. Press Speak and try again.');
     if (text.length > (pending.intentMode ? 500 : 1000)) throw new Error('That phrase was too long. Please record a shorter sentence.');
-    $('transcript').textContent = text; transcribing = false; $('speechStatus').textContent = 'Microphone stopped.'; refresh();
+    $('transcript').textContent = text; translateDialogue('transcriptEnglish', text); transcribing = false; $('speechStatus').textContent = 'Microphone stopped.'; refresh();
     await turn(pending.intentMode ? { intent: text } : { transcript: text }, pending.run);
   } catch (error) {
     if (pending.run === epoch && pending.attempt === speechAttempt && error.name !== 'AbortError') notify(error instanceof TypeError ? 'Could not reach the transcription server. Your microphone permission is already granted; check the portal connection and retry.' : error.message, true);
@@ -685,13 +742,16 @@ function startBrowserSpeech() {
     if (recognition === speech) recognition = null;
     if (run !== epoch || attempt !== speechAttempt) return;
     $('speechStatus').textContent = 'Microphone stopped.'; refresh();
-    if (!failed && finalText.trim()) void turn(intentMode ? { intent: finalText.trim() } : { transcript: finalText.trim() }, run);
+    if (!failed && finalText.trim()) {
+      translateDialogue('transcriptEnglish', finalText);
+      void turn(intentMode ? { intent: finalText.trim() } : { transcript: finalText.trim() }, run);
+    }
   };
   try { speech.start(); refresh(); } catch (error) { recognition = null; notify(microphoneError(error), true); refresh(); }
 }
 function startSpeech() {
   if (voiceActive || voiceReconciling || voiceUnsafe || recognition || recording || micStarting || transcribing || busy || !active || finished) return;
-  idleInvitation.suspend(); lessonSpeech.cancel();
+  idleInvitation.suspend(); lessonSpeech.cancel(); translateDialogue('transcriptEnglish');
   if ($('speechEngine').value === 'browser') startBrowserSpeech(); else void startRecording();
 }
 async function leave(message = 'You have left the lesson.') {
@@ -702,6 +762,7 @@ async function leave(message = 'You have left the lesson.') {
   voiceReconciling = voiceUnsafe = voiceCheckRunning = false;
   idleInvitation.reset(); agentMachine.send('stop');
   scenePoint.clear(); lessonSpeech.cancel(); lessonOperations.reset(); clerkSpeech = null;
+  translateDialogue('clerkEnglish'); translateDialogue('transcriptEnglish');
   $('clerkCaption').hidden = true; $('clerkReplay').hidden = true;
   ++epoch; apiAbort?.abort(); $('retryStatus').hidden = true; const client = reactor, oldId = sessionId, wasPreview = preview;
   reactor = null; active = false; busy = false; sessionId = null; finished = false; latestDecision = null;

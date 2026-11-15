@@ -251,6 +251,12 @@ export function createAgentService({ store = createLessonStore(), llm = createLe
         }
       }
       if (!validateSchema(response)) throw new Error('Internal response validation failed');
+      if (response.overlay) {
+        const words = [...new Set(lesson.beats.flatMap(beat => beat.vocab.map(word => word.jp)))]
+          .filter(word => word && response.overlay.jp.includes(word))
+          .sort((a, b) => b.length - a.length).slice(0, 4);
+        if (words.length) response.focusWords = words;
+      }
       if (response.visko.some((v) => v.name === 'set_prompt')) {
         const remaining = promptIntervalMs - (now() - session.lastPrompt);
         if (remaining > 0) await sleep(remaining);
