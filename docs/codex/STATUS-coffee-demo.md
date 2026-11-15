@@ -2,6 +2,8 @@
 
 November 15, 2026. Android source `a2835a1`. Portal runtime `2da42f1` at port 8793. Quest source `2ffa98a` on its independent `main`. The original XREAL SDK 3.1 MR reference is retained.
 
+Unity Android built with zero errors. The signed `ImmerseTheBay-s25-a2835a1.apk` was installed and matched device SHA-256 `e81c9b38dabe2f4705570f613ad244e9e3e74575baf20d94d9fa614f46454d24`. Tenin activity started. The S25 reported the lock screen and only its built-in physical display during this checkpoint. The Portal suite passed 244 tests and all 12 final MP4s decoded.
+
 | Priority | Area | Current evidence | Remaining work and acceptance | Tracking |
 |---|---|---|---|---|
 | P0 | Phone Courses | Compiled. Order Coffee defaults to first and selected. Courses replaces Pre-made Lesson. English and Japanese use separate rows. An Afternoon at Home is hidden from the new-course catalog. | Confirm all changes in the integrated S25 app and that older saved Home runs still replay. Check course list and detail previews. | #21, #22 |
