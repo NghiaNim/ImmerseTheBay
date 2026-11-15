@@ -21,6 +21,64 @@ function finalizeWav(audio) {
   return audio;
 }
 
+// Give the headset decoder interleaved left/right samples explicitly.
+export function stereoSpeechWav(audio) {
+  const invalidAudio = () => new AgentError(502, 'Invalid speech audio');
+  if (!Buffer.isBuffer(audio) || audio.length < 44 ||
+      audio.toString('latin1', 0, 4) !== 'RIFF' ||
+      audio.toString('latin1', 8, 12) !== 'WAVE' ||
+      audio.readUInt32LE(4) !== audio.length - 8) throw invalidAudio();
+  if (audio.length > MAX_SPEECH_BYTES) throw new AgentError(502, 'Speech response exceeds size limit');
+
+  let format, samples;
+  for (let offset = 12; offset < audio.length;) {
+    const start = offset + 8;
+    if (start > audio.length) throw invalidAudio();
+    const kind = audio.toString('latin1', offset, offset + 4);
+    const length = audio.readUInt32LE(offset + 4);
+    const end = start + length;
+    offset = end + (length & 1);
+    if (offset > audio.length) throw invalidAudio();
+    if (kind === 'fmt ') {
+      if (format || length < 16) throw invalidAudio();
+      format = audio.subarray(start, end);
+    } else if (kind === 'data') {
+      if (samples) throw invalidAudio();
+      samples = audio.subarray(start, end);
+    }
+  }
+  if (!format || !samples?.length) throw invalidAudio();
+  const channels = format.readUInt16LE(2);
+  const rate = format.readUInt32LE(4);
+  const frameSize = channels * 2;
+  if (format.readUInt16LE(0) !== 1 || ![1, 2].includes(channels) || format.readUInt16LE(14) !== 16 ||
+      rate < 1 || rate > Math.floor(0xffffffff / 4) || format.readUInt32LE(8) !== rate * frameSize ||
+      format.readUInt16LE(12) !== frameSize || samples.length % frameSize !== 0) throw invalidAudio();
+  if (channels === 2) return audio;
+
+  const stereoBytes = samples.length * 2;
+  if (44 + stereoBytes > MAX_SPEECH_BYTES) throw new AgentError(502, 'Speech response exceeds size limit');
+  const stereo = Buffer.alloc(44 + stereoBytes);
+  stereo.write('RIFF', 0);
+  stereo.writeUInt32LE(stereo.length - 8, 4);
+  stereo.write('WAVEfmt ', 8);
+  stereo.writeUInt32LE(16, 16);
+  stereo.writeUInt16LE(1, 20);
+  stereo.writeUInt16LE(2, 22);
+  stereo.writeUInt32LE(rate, 24);
+  stereo.writeUInt32LE(rate * 4, 28);
+  stereo.writeUInt16LE(4, 32);
+  stereo.writeUInt16LE(16, 34);
+  stereo.write('data', 36);
+  stereo.writeUInt32LE(stereoBytes, 40);
+  for (let input = 0, output = 44; input < samples.length; input += 2, output += 4) {
+    const sample = samples.readUInt16LE(input);
+    stereo.writeUInt16LE(sample, output);
+    stereo.writeUInt16LE(sample, output + 2);
+  }
+  return stereo;
+}
+
 // One configured service instance has two slots; no unbounded text/audio queue.
 // Audio, transcript and provider response bodies are never logged or persisted.
 export function createCartesiaSpeech({ apiKey = process.env.CARTESIA_API_KEY,
