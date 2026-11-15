@@ -24,6 +24,18 @@ Unity Android built with zero errors. The signed `ImmerseTheBay-s25-a2835a1.apk`
 
 See [delivery plan](PLAN-coffee-demo-delivery.md), [lead-in and gesture media design](IMPLEMENT-demo-video-lookahead.md), and [actual café capture runbook](RUNBOOK-coffee-demo-capture.md).
 
+## Recorded café acceptance
+
+The S25 ran signed APK `8b09c3b` (SHA-256 `be0009349720e49b3cc90caf4284ae14a6bae5c90001e5041a4770969a0b1392`) against Portal `b09ae2a` on port 8793. The official XREAL 3.1 reference remains available as a separate baseline.
+
+- The three authored scenes rendered on the Air 2 Ultra, and the milk and handoff openings were prefetched. The first cached frames appeared in 0.55 s, 0.15 s and 0.15 s respectively.
+- The wearer pointed at the menu during the running milk scene. The left and right display captures show the official XREAL hand mesh and the aim marker. After the selected-frame request, the menu detour rendered and a successful answer automatically restored the milk sentence. Native log timestamps put point selection to visible detour at 22.94 s.
+- The S25 microphone heard slowed male synthetic learner speech played from the Mac. The app produced one retry for coffee and one for milk. Coffee, the menu detour, milk and thanks each then matched at 100 percent. The phone and glasses automatically displayed a six-attempt review. Clearing the lesson returned to Tenin and released the Dynamic session.
+- Guide pronunciation uses Cartesia Yuzuki, set through `CARTESIA_VOICE_ID_TUTOR`, and authored character dialogue uses its own configured cast. Native logs measured about 2.0 s between scene dialogue finishing and guide pronunciation starting. The phone Settings switch defaults to follow-along and writes the setting used by the Unity lesson. Timed highlighting consumes the WAV sample clock in the glasses.
+- The local 1080p demo is `Builds/tutor-demo-20261115.h0CO9p/final/coffee-demo-s25-air2-ultra.mp4`. Phone framing is portrait on the left and a real glasses eye is on the right. Scrcpy recorded Android playback in stereo. The same slow male fixtures used at the microphone were added to the edit at their playback times. There is no web video or simulated hand footage in the export.
+
+The photo dialog now follows phone rotation while capture is open, uses a proportionally cropped 16:9 preview, and restores portrait on close. A physical landscape/portrait comparison, a repeatable optical button-selection test and device-level saved Review highlight verification remain open.
+
 ## First café wearer pass
 
 S25 ran the signed `a2835a1` APK against Portal `2da42f1`. The handset showed Courses, separate English and Japanese title rows, and Order Coffee selected. The wearer confirmed the milk scene was visible and sound reached both ears.
