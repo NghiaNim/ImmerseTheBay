@@ -54,41 +54,122 @@ namespace ImmerseTheBay.Learning
                 controller.GetComponentInChildren<Canvas>(true);
             if (!canvas) yield break;
 
-            // The phone shows this XR activity for the whole lesson (the glasses need it in front),
-            // so this panel is styled like the Tenin "Lesson running" screen.
-            var panel = new GameObject("Lesson running", typeof(RectTransform), typeof(Image), typeof(VerticalLayoutGroup));
+            // Tenin "Lesson running" (Tenin_phone-hifi/7 · Lesson running.png). The phone shows this XR
+            // activity for the whole lesson because the glasses need it in front, so it covers the stock controller.
+            serif = Font.CreateDynamicFontFromOSFont(new[] { "Noto Serif", "Noto Serif CJK JP", "serif" }, 48);
+            var panel = new GameObject("Lesson running", typeof(RectTransform), typeof(Image));
             var rect = panel.GetComponent<RectTransform>();
             rect.SetParent(canvas.transform, false);
-            rect.anchorMin = new Vector2(0f, 0.6f);
-            rect.anchorMax = new Vector2(1f, 1f);
+            rect.SetAsLastSibling();
+            rect.anchorMin = Vector2.zero;
+            rect.anchorMax = Vector2.one;
             rect.offsetMin = rect.offsetMax = Vector2.zero;
-            panel.GetComponent<Image>().color = TeninBg;
-            var group = panel.GetComponent<VerticalLayoutGroup>();
-            group.padding = new RectOffset(56, 56, 90, 40);
-            group.spacing = 18;
-            group.childControlHeight = true;
-            group.childForceExpandHeight = false;
-            Label(panel.transform, 30, TeninPrimary, "TENIN", FontStyle.Bold);
-            heading = Label(panel.transform, 56, TeninInk, "Lesson running", FontStyle.Bold);
-            title = Label(panel.transform, 34, TeninInk, "");
-            status = Label(panel.transform, 28, TeninMuted, "");
-            AddButton(panel.transform, "End lesson", EndLessonAndReturn, primary: true, height: 120);
-            var row = new GameObject("Lesson tools", typeof(RectTransform), typeof(HorizontalLayoutGroup));
-            row.transform.SetParent(panel.transform, false);
-            var rowLayout = row.GetComponent<HorizontalLayoutGroup>();
-            rowLayout.spacing = 16;
-            rowLayout.childControlHeight = true;
-            AddButton(row.transform, "Speak", lesson.Speak);
-            AddButton(row.transform, "Talk", lesson.ToggleConversation);
-            AddButton(row.transform, "Center video", CenterVideo);
-            AddButton(row.transform, "Place controls", PlaceControls);
-            var more = new GameObject("Session tools", typeof(RectTransform), typeof(HorizontalLayoutGroup));
-            more.transform.SetParent(panel.transform, false);
-            var moreLayout = more.GetComponent<HorizontalLayoutGroup>();
-            moreLayout.spacing = 16;
-            moreLayout.childControlHeight = true;
-            AddButton(more.transform, "Start again", StartLive);
-            AddButton(more.transform, "Back to Tenin", OpenPhonePractice);
+            panel.GetComponent<Image>().color = TeninPrimary; // opaque: also blocks touches to the stock controller
+            var t = panel.transform;
+
+            Place(Label(t, 66, Color.white, "Tenin", font: serif), 0.06f, 0.905f, 0.5f, 0.965f);
+            var pill = Box(t, new Color(1f, 1f, 1f, 0.16f), 0.52f, 0.91f, 0.94f, 0.955f, rounded: true);
+            Place(Label(pill.transform, 32, Color.white, "●  Glasses connected", TextAnchor.MiddleCenter, font: serif), 0f, 0f, 1f, 1f);
+
+            // The big circle is the microphone: it listens on its own after each line, and can be tapped any time.
+            speakRing = Box(t, new Color(1f, 1f, 1f, 0.18f), 0.5f, 0.66f, 0.5f, 0.66f, rounded: true).GetComponent<RectTransform>();
+            speakRing.sizeDelta = new Vector2(640, 640);
+            speakButton = RoundButton(t, "Tap to\nspeak", lesson.Speak, 520, 0.5f, 0.66f);
+            speakLabel = speakButton.GetComponentInChildren<Text>();
+
+            heading = Place(Label(t, 74, Color.white, "Lesson running\nin your glasses", TextAnchor.MiddleCenter, font: serif), 0.05f, 0.415f, 0.95f, 0.51f);
+            status = Place(Label(t, 38, new Color(1f, 1f, 1f, 0.92f), "", TextAnchor.MiddleCenter, font: serif), 0.08f, 0.345f, 0.92f, 0.41f);
+
+            title = Place(Label(t, 36, Color.white, "", font: serif), 0.06f, 0.27f, 0.62f, 0.305f);
+            step = Place(Label(t, 36, Color.white, "", TextAnchor.MiddleRight, font: serif), 0.62f, 0.27f, 0.94f, 0.305f);
+            Box(t, new Color(1f, 1f, 1f, 0.25f), 0.06f, 0.255f, 0.94f, 0.262f, rounded: true);
+            progressFill = Box(t, TeninYellow, 0.06f, 0.255f, 0.06f, 0.262f, rounded: true).GetComponent<RectTransform>();
+
+            Place(Label(t, 32, new Color(1f, 1f, 1f, 0.85f), "You can end the lesson anytime.", TextAnchor.MiddleCenter, font: serif), 0.06f, 0.115f, 0.94f, 0.15f);
+            var end = Box(t, Color.white, 0.06f, 0.04f, 0.94f, 0.105f, rounded: true);
+            var endButton = end.AddComponent<Button>();
+            endButton.targetGraphic = end.GetComponent<Image>();
+            endButton.onClick.AddListener(EndLessonAndReturn);
+            endLabel = Place(Label(end.transform, 44, TeninPrimaryDark, "■  End lesson", TextAnchor.MiddleCenter, FontStyle.Bold, serif), 0f, 0f, 1f, 1f);
+        }
+
+        Font serif;
+        Button speakButton;
+        Text speakLabel, step, endLabel;
+        RectTransform speakRing, progressFill;
+        static readonly Color TeninYellow = new Color32(0xFF, 0xE2, 0x99, 0xFF);
+
+        static T Place<T>(T component, float x0, float y0, float x1, float y1) where T : Component
+        {
+            var rect = component.GetComponent<RectTransform>();
+            rect.anchorMin = new Vector2(x0, y0);
+            rect.anchorMax = new Vector2(x1, y1);
+            rect.offsetMin = rect.offsetMax = Vector2.zero;
+            return component;
+        }
+
+        static GameObject Box(Transform parent, Color color, float x0, float y0, float x1, float y1, bool rounded = false)
+        {
+            var go = new GameObject("Box", typeof(RectTransform), typeof(Image));
+            go.transform.SetParent(parent, false);
+            var image = go.GetComponent<Image>();
+            image.color = color;
+            if (rounded) { image.sprite = Pill(); image.type = Image.Type.Sliced; image.pixelsPerUnitMultiplier = 0.5f; }
+            Place(go.GetComponent<RectTransform>(), x0, y0, x1, y1);
+            return go;
+        }
+
+        /// <summary>Large round button centred at an anchor point.</summary>
+        static Button RoundButton(Transform parent, string caption, UnityEngine.Events.UnityAction action, float size, float x, float y)
+        {
+            var go = new GameObject("Speak", typeof(RectTransform), typeof(Image), typeof(Button));
+            var rect = go.GetComponent<RectTransform>();
+            rect.SetParent(parent, false);
+            rect.anchorMin = rect.anchorMax = new Vector2(x, y);
+            rect.sizeDelta = new Vector2(size, size);
+            var image = go.GetComponent<Image>();
+            image.sprite = Circle();
+            image.color = new Color(1f, 1f, 1f, 0.22f);
+            var button = go.GetComponent<Button>();
+            button.targetGraphic = image;
+            button.onClick.AddListener(action);
+            Place(Label(go.transform, 58, Color.white, caption, TextAnchor.MiddleCenter, FontStyle.Bold), 0f, 0f, 1f, 1f);
+            return button;
+        }
+
+        static Sprite circle, pill;
+        /// <summary>White anti-aliased disc, tinted by the Image colour.</summary>
+        static Sprite Circle() => circle ??= Disc(256, 0);
+        /// <summary>Disc with 9-slice borders, so it stretches into a pill or rounded rectangle.</summary>
+        static Sprite Pill() => pill ??= Disc(128, 63);
+
+        static Sprite Disc(int n, int border)
+        {
+            var pixels = new Color32[n * n];
+            float r = n / 2f;
+            for (int y = 0; y < n; y++)
+                for (int x = 0; x < n; x++)
+                {
+                    float d = Vector2.Distance(new Vector2(x + 0.5f, y + 0.5f), new Vector2(r, r));
+                    pixels[y * n + x] = new Color32(255, 255, 255, (byte)(Mathf.Clamp01(r - d) * 255));
+                }
+            var texture = new Texture2D(n, n, TextureFormat.RGBA32, false) { filterMode = FilterMode.Bilinear };
+            texture.SetPixels32(pixels);
+            texture.Apply();
+            return Sprite.Create(texture, new Rect(0, 0, n, n), new Vector2(0.5f, 0.5f), 100, 0, SpriteMeshType.FullRect, new Vector4(border, border, border, border));
+        }
+
+        /// <summary>Speak circle animation: pulses while listening, breathes gently while waiting.</summary>
+        void AnimateSpeak()
+        {
+            if (!speakButton) return;
+            float time = Time.unscaledTime;
+            bool listening = lesson.IsListening, waiting = lesson.IsBusy || lesson.IsClerkSpeaking;
+            float scale = listening ? 1f + 0.07f * Mathf.Sin(time * 6f) : waiting ? 0.94f : 1f + 0.02f * Mathf.Sin(time * 2f);
+            speakButton.transform.localScale = Vector3.one * scale;
+            speakRing.localScale = Vector3.one * (listening ? 1f + 0.12f * (0.5f + 0.5f * Mathf.Sin(time * 6f)) : 1f);
+            speakRing.GetComponent<Image>().color = new Color(1f, 1f, 1f, listening ? 0.28f : 0.12f);
+            speakButton.GetComponent<Image>().color = new Color(1f, 1f, 1f, listening ? 0.38f : waiting ? 0.12f : 0.22f);
         }
 
         static readonly Color TeninBg = new Color32(0xFB, 0xFA, 0xFF, 0xFF);
@@ -147,19 +228,22 @@ namespace ImmerseTheBay.Learning
             }
 
             // Listen after every finished step, once the clerk's line has finished.
-            if (wasBusy && !lesson.IsBusy && practiceVisible && !lesson.IsDone) { autoListenArmed = true; autoListenAt = 0; silentRetries = 0; }
+            if (wasBusy && !lesson.IsBusy && practiceVisible && !lesson.IsDone)
+            { autoListenArmed = true; autoListenAt = 0; silentRetries = 0; Debug.Log("[Flow] step finished; auto-listen armed"); }
             // Recognition that ended without starting a turn was silence: listen again a few times.
             if (wasListening && !lesson.IsListening && !lesson.IsBusy && practiceVisible && !lesson.IsDone
                 && !lesson.IsConversationActive && silentRetries < MaxSilentRetries)
-            { silentRetries++; autoListenArmed = true; autoListenAt = Time.unscaledTime + 1f; }
+            { silentRetries++; autoListenArmed = true; autoListenAt = Time.unscaledTime + 1f; Debug.Log("[Flow] no speech; listening again " + silentRetries); }
             wasBusy = lesson.IsBusy;
             wasListening = lesson.IsListening;
             if (!autoListenArmed) return;
-            if (!practiceVisible || lesson.IsDone || lesson.IsConversationActive || lesson.IsListening) { autoListenArmed = false; return; }
+            if (!practiceVisible || lesson.IsDone || lesson.IsConversationActive || lesson.IsListening)
+            { autoListenArmed = false; Debug.Log($"[Flow] auto-listen skipped visible={practiceVisible} done={lesson.IsDone} talk={lesson.IsConversationActive} listening={lesson.IsListening}"); return; }
             if (lesson.IsBusy || lesson.IsClerkSpeaking) { autoListenAt = 0; return; }
             if (autoListenAt == 0) { autoListenAt = Time.unscaledTime + 0.6f; return; }
             if (Time.unscaledTime < autoListenAt) return;
             autoListenArmed = false;
+            Debug.Log("[Flow] auto-listen: Speak() status=" + lesson.Status);
             lesson.Speak();
         }
 
@@ -253,9 +337,28 @@ namespace ImmerseTheBay.Learning
             }
         }
 
+        int totalLines;
+
+        /// <summary>Line count for the progress bar: every authored line has exactly one "cue" (detours are extra).</summary>
+        IEnumerator FetchLineCount(string lessonId)
+        {
+            totalLines = 0;
+            var url = video.config.portalUrl.TrimEnd('/') + "/api/agent/lessons/" + UnityEngine.Networking.UnityWebRequest.EscapeURL(lessonId);
+            using var request = UnityEngine.Networking.UnityWebRequest.Get(url);
+            if (!string.IsNullOrEmpty(video.config.portalToken)) request.SetRequestHeader("portal_token", video.config.portalToken);
+            request.timeout = 10;
+            yield return request.SendWebRequest();
+            if (request.result != UnityEngine.Networking.UnityWebRequest.Result.Success || lesson.lessonId != lessonId) yield break;
+            var json = request.downloadHandler.text;
+            int count = 0;
+            for (int at = json.IndexOf("\"cue\":"); at >= 0; at = json.IndexOf("\"cue\":", at + 1)) count++;
+            totalLines = count;
+        }
+
         void BeginSelectedLesson()
         {
             lesson.lessonId = pendingLessonId;
+            StartCoroutine(FetchLineCount(pendingLessonId));
             // Only bundled images can be loaded here; Portal-side images (replays of photo sessions) start from the prompt.
             lesson.startImage = pendingStartImage != null && pendingStartImage.StartsWith("lessons/") ? pendingStartImage : "";
             if (pendingImage != null) lesson.BeginLessonWithImage(pendingImage);
@@ -306,11 +409,21 @@ namespace ImmerseTheBay.Learning
                 SetPracticeVisible(false);
             if (status)
             {
-                bool live = practiceVisible && video.IsConnected;
-                heading.text = practiceVisible ? (starting ? "Starting in your glasses…" : lesson.IsDone ? "Lesson complete" : "Lesson running") : "Ready when you are";
-                title.text = currentTitle;
-                status.text = (lesson.IsListening ? "Listening… say the line." : lesson.Status) +
-                    (live || !practiceVisible ? "" : "  ·  " + video.Status) + (placementStatus.Length > 0 ? "  ·  " + placementStatus : "");
+                bool waiting = lesson.IsBusy || lesson.IsClerkSpeaking;
+                heading.text = !practiceVisible ? "Ready when\nyou are" : starting ? "Starting in\nyour glasses…" : lesson.IsDone ? "Lesson\ncomplete" : "Lesson running\nin your glasses";
+                status.text = !practiceVisible ? "Choose a lesson on your phone." : starting ? "Getting the scene ready…"
+                    : lesson.IsDone ? "Well done. End the lesson to see your summary."
+                    : lesson.IsListening ? "Listening… say the line." : waiting ? "Listen to the other person…" : "Say the line, or tap the circle.";
+                speakLabel.text = lesson.IsListening ? "Listening…" : waiting ? "…" : "Tap to\nspeak";
+                speakButton.interactable = practiceVisible && !lesson.IsBusy && !lesson.IsDone;
+                speakButton.gameObject.SetActive(practiceVisible);
+                speakRing.gameObject.SetActive(practiceVisible);
+                title.text = practiceVisible ? currentTitle : "";
+                int done = Mathf.Min(lesson.Beat + (lesson.IsDone ? 1 : 0), Mathf.Max(totalLines, 1));
+                step.text = !practiceVisible || starting ? "" : totalLines > 0 ? $"Step {Mathf.Min(lesson.Beat + 1, totalLines)} of {totalLines}" : $"Step {lesson.Beat + 1}";
+                progressFill.anchorMax = new Vector2(0.06f + 0.88f * (practiceVisible && totalLines > 0 ? (float)done / totalLines : 0f), progressFill.anchorMax.y);
+                endLabel.text = practiceVisible ? "■  End lesson" : "Back to Tenin";
+                AnimateSpeak();
             }
         }
 
@@ -321,15 +434,16 @@ namespace ImmerseTheBay.Learning
             video.screen.enabled = visible;
         }
 
-        static Text Label(Transform parent, int size, Color? color = null, string text = "", FontStyle style = FontStyle.Normal)
+        static Text Label(Transform parent, int size, Color? color = null, string text = "", TextAnchor align = TextAnchor.MiddleLeft,
+            FontStyle style = FontStyle.Normal, Font font = null)
         {
             var go = new GameObject("Label", typeof(RectTransform), typeof(Text));
             go.transform.SetParent(parent, false);
             var label = go.GetComponent<Text>();
-            label.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            label.font = font ? font : Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
             label.fontSize = size;
             label.fontStyle = style;
-            label.alignment = TextAnchor.MiddleLeft;
+            label.alignment = align;
             label.color = color ?? Color.white;
             label.text = text;
             label.horizontalOverflow = HorizontalWrapMode.Wrap;
@@ -337,21 +451,5 @@ namespace ImmerseTheBay.Learning
             return label;
         }
 
-        static void AddButton(Transform row, string caption, UnityEngine.Events.UnityAction action, bool primary = false, float height = 96)
-        {
-            var go = new GameObject(caption, typeof(RectTransform), typeof(Image), typeof(Button), typeof(LayoutElement));
-            go.transform.SetParent(row, false);
-            go.GetComponent<LayoutElement>().minHeight = height;
-            var image = go.GetComponent<Image>();
-            image.color = primary ? TeninPrimary : TeninLine;
-            var button = go.GetComponent<Button>();
-            button.targetGraphic = image;
-            button.onClick.AddListener(action);
-            var label = Label(go.transform, primary ? 36 : 26, primary ? Color.white : TeninPrimaryDark, caption, primary ? FontStyle.Bold : FontStyle.Normal);
-            label.alignment = TextAnchor.MiddleCenter;
-            label.rectTransform.anchorMin = Vector2.zero;
-            label.rectTransform.anchorMax = Vector2.one;
-            label.rectTransform.offsetMin = label.rectTransform.offsetMax = Vector2.zero;
-        }
     }
 }
