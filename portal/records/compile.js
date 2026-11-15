@@ -83,15 +83,18 @@ export function summarizeEvents(events) {
 
 /** Recorded session → an ordinary lesson object, so the existing turn engine replays it. */
 export function compileReplay({ id, record, summary, original, startImage, deck = 'all' }) {
-  if (!['all', 'missed'].includes(deck)) throw new AgentError(400, 'deck must be all or missed');
+  if (!['all', 'missed', 'tricky'].includes(deck)) throw new AgentError(400, 'deck must be all, missed or tricky');
   const snapshot = record.replaySource?.version === 1 ? record.replaySource : null;
   const source = snapshot || original;
   const mainTargets = snapshot
     ? snapshot.beats.flatMap((beat, beatIndex) => Array.from({ length: beat.lineCount }, () => ({ beat, beatIndex })))
     : flattenLesson(original);
   const legacyTargets = snapshot ? null : new Map(mainTargets.map((entry) => [entry.line.jp, entry]));
-  const chosen = summary.lines.filter((l) => deck === 'all' || !l.passed);
-  if (!chosen.length) throw new AgentError(409, deck === 'missed' ? 'Every line in this session was passed; nothing to review' : 'This session has no lines yet');
+  const chosen = deck === 'all' ? summary.lines : summary.lines.filter(line => {
+    if (deck === 'missed') return !line.passed;
+    return line.attempts.length > 1 || (!line.passed && (line.attempts.length > 0 || line.skipped));
+  });
+  if (!chosen.length) throw new AgentError(409, deck === 'all' ? 'This session has no lines yet' : 'This session has no lines for that review');
   const beats = [];
   for (const entry of chosen) {
     const mainIndex = /^main:(\d+)$/.exec(entry.targetId);
@@ -108,7 +111,7 @@ export function compileReplay({ id, record, summary, original, startImage, deck 
   }
   const date = (record.startedAt || '').slice(0, 10);
   return validateLesson({
-    id, title: `Replay · ${source.title}${date ? ` · ${date}` : ''}${deck === 'missed' ? ' · missed lines' : ''}`,
+    id, title: `Replay · ${source.title}${date ? ` · ${date}` : ''}${deck === 'all' ? '' : ` · ${deck} lines`}`,
     level: source.level, scenePrompt: source.scenePrompt, audioPrompt: source.audioPrompt,
     startImage: startImage ?? replayStartImage(record, source),
     ...(source.partnerVoice ? { partnerVoice: source.partnerVoice } : {}),

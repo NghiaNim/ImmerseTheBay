@@ -185,6 +185,8 @@ test('photo replay survives expiration and restart with separate repeated target
   const service = createAgentService({ store: liveStore, llm: null, planner: null, promptIntervalMs: 0, log: async () => {}, recorder: createSessionRecorder(records) });
   const first = await service.turn(turnRequest({ lessonId: photoId, operation: { requestId: 'open', expectedRevision: 0 } }));
   const runId = first.operation.runId;
+  const retry = await service.turn(turnRequest({ lessonId: photoId, transcript: 'こんばんは' }));
+  assert.equal(retry.advance, 'stay');
   const scored = await service.turn(turnRequest({ lessonId: photoId, transcript: firstLine.kana }));
   assert.equal(scored.advance, 'next_line');
   await service.turn(turnRequest({ lessonId: photoId, beat: 1, transcript: 'ちがう' }));
@@ -222,6 +224,9 @@ test('photo replay survives expiration and restart with separate repeated target
   const missed = await replay('missed');
   assert.equal(missed.status, 201);
   assert.deepEqual((await restartedLessons.load((await missed.json()).lessonId)).beats, [original.beats[1]]);
+  const tricky = await replay('tricky');
+  assert.equal(tricky.status, 201);
+  assert.deepEqual((await restartedLessons.load((await tricky.json()).lessonId)).beats, original.beats);
 
   // A replay remains executable through the ordinary turn engine after the restart.
   const replayService = createAgentService({ store: restartedLessons, llm: null, planner: null, promptIntervalMs: 0, log: async () => {} });

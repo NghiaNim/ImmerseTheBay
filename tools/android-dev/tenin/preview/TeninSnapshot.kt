@@ -53,7 +53,7 @@ class TeninSnapshot : BroadcastReceiver() {
             "session" to { s.sessionDetail(sampleSession.copy(phrases = reviewPhrases), {}, {}, {}, nav(TeninUi.Tab.REVIEW)) },
             "vocabularies" to { s.vocabularies(wordRows, TeninVocabularyTab.WORDS, lessons, "", "", "", {}, {}, {}, nav(TeninUi.Tab.VOCABULARIES)) },
             "vocabulary-phrases" to { s.vocabularies(phraseRows, TeninVocabularyTab.PHRASES, lessons, "", "", "", {}, {}, {}, nav(TeninUi.Tab.VOCABULARIES)) },
-            "phrase" to { s.phraseDetail(phrases.first().copy(lesson = "Ordering food · used for real today"), {}, {}, {}, {}, {}, nav(TeninUi.Tab.VOCABULARIES)) },
+            "phrase" to { s.phraseDetail(phrases.first().copy(lesson = "Ordering food · used for real today"), {}, {}, { _, _ -> }, {}, {}, nav(TeninUi.Tab.VOCABULARIES)) },
         )
         val metrics = context.resources.displayMetrics
         val width = metrics.widthPixels

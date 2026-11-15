@@ -11,6 +11,7 @@ import android.text.InputType
 import android.text.SpannableStringBuilder
 import android.text.Spanned
 import android.text.TextWatcher
+import android.text.style.BackgroundColorSpan
 import android.text.style.ForegroundColorSpan
 import android.text.style.StyleSpan
 import android.util.TypedValue
@@ -47,7 +48,7 @@ enum class TeninVocabularyTab(val japanese: String, val english: String) {
 
 data class TeninVocabularyRow(
     val japanese: CharSequence, val reading: String, val meaning: String,
-    val onSpeak: () -> Unit, val onOpen: (() -> Unit)? = null,
+    val onSpeak: ((IntRange?) -> Unit) -> Unit, val onOpen: (() -> Unit)? = null,
 )
 
 data class TeninScenario(
@@ -607,6 +608,22 @@ class TeninScreens(private val context: Context, private val bindPreview: (Strin
             }
         }
 
+    private fun playbackHighlight(text: CharSequence, span: IntRange?): CharSequence {
+        if (span == null || span.isEmpty() || span.first < 0 || span.last >= text.length) return text
+        return SpannableStringBuilder(text).apply {
+            for (existing in getSpans(span.first, span.last + 1, ForegroundColorSpan::class.java)) {
+                val start = getSpanStart(existing)
+                val end = getSpanEnd(existing)
+                val flags = getSpanFlags(existing)
+                removeSpan(existing)
+                if (start < span.first) setSpan(ForegroundColorSpan(existing.foregroundColor), start, span.first, flags)
+                if (end > span.last + 1) setSpan(ForegroundColorSpan(existing.foregroundColor), span.last + 1, end, flags)
+            }
+            setSpan(ForegroundColorSpan(Tenin.INK), span.first, span.last + 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            setSpan(BackgroundColorSpan(0xFF9FEFEE.toInt()), span.first, span.last + 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        }
+    }
+
     private fun phraseText(phrase: TeninPhrase, japaneseSize: Float) = ui.run {
         column(
             text(highlightedJapanese(phrase), japaneseSize),
@@ -621,13 +638,16 @@ class TeninScreens(private val context: Context, private val bindPreview: (Strin
         query: String, status: String, onTab: (TeninVocabularyTab) -> Unit, onFilter: (String) -> Unit,
         onQuery: (String) -> Unit, nav: View) = ui.run {
         val rows = items.flatMapIndexed { i, item ->
+            val title = text(item.japanese, 21f)
             listOfNotNull(if (i > 0) divider().margins(top = 14f, bottom = 14f) else null, row(
-                column(*listOfNotNull(text(item.japanese, 21f),
+                column(*listOfNotNull(title,
                     item.reading.takeIf { it.isNotBlank() }?.let { romaji(it, 17f).margins(top = 5f) },
                     text(item.meaning, 16f, Tenin.MUTED).margins(top = 5f)).toTypedArray()).weighted().apply {
                     item.onOpen?.let { onTap(it) }
                 },
-                roundButton(TeninIcon.SPEAKER, 44f, action = item.onSpeak).margins(left = 10f).apply {
+                roundButton(TeninIcon.SPEAKER, 44f) {
+                    item.onSpeak { title.text = playbackHighlight(item.japanese, it) }
+                }.margins(left = 10f).apply {
                     contentDescription = "Listen to ${item.japanese}"
                 },
             ).fillWidth())
@@ -688,7 +708,11 @@ class TeninScreens(private val context: Context, private val bindPreview: (Strin
     }
 
     // Phrase detail
-    fun phraseDetail(p: TeninPhrase, onListen: () -> Unit, onSlowly: () -> Unit, onWordListen: (TeninWord) -> Unit, onPractice: (() -> Unit)?, onBack: () -> Unit, nav: View) = ui.run {
+    fun phraseDetail(p: TeninPhrase, onListen: ((IntRange?) -> Unit) -> Unit, onSlowly: ((IntRange?) -> Unit) -> Unit,
+        onWordListen: (TeninWord, (Boolean) -> Unit) -> Unit, onPractice: (() -> Unit)?, onBack: () -> Unit, nav: View) = ui.run {
+        val japanese = highlightedJapanese(p, Tenin.YELLOW)
+        val target = text(japanese, 30f, Tenin.WHITE).margins(top = 6f)
+        val highlightSentence: (IntRange?) -> Unit = { target.text = playbackHighlight(japanese, it) }
         fun chip(label: String, kind: TeninIcon, solid: Boolean, action: () -> Unit) = row(icon(kind, 20f, if (solid) Tenin.PRIMARY_DARK else Tenin.WHITE, 2f).margins(right = 8f), text(label, 17f, if (solid) Tenin.PRIMARY_DARK else Tenin.WHITE, 600)).apply {
             background = rounded(if (solid) Tenin.WHITE else 0, dp(12f).toFloat(), 0x77FFFFFF, if (solid) 0 else dp(1f))
             setPadding(dp(16f), dp(10f), dp(16f), dp(11f))
@@ -697,17 +721,24 @@ class TeninScreens(private val context: Context, private val bindPreview: (Strin
             header(onBack),
             card(*listOfNotNull(
                 if (p.lesson.isEmpty()) null else eyebrow(p.lesson, 0xFFE9E3FB.toInt()),
-                text(highlightedJapanese(p, Tenin.YELLOW), 30f, Tenin.WHITE).margins(top = 6f),
+                target,
                 if (p.romaji.isEmpty()) null else romaji(p.romaji, 24f).margins(top = 8f),
                 text(p.en, 18f, Tenin.WHITE).margins(top = 8f),
-                row(chip("Listen", TeninIcon.SPEAKER, true, onListen).margins(right = 8f), chip("Slowly", TeninIcon.TIMER, false, onSlowly)).margins(top = 16f),
+                row(chip("Listen", TeninIcon.SPEAKER, true) { onListen(highlightSentence) }.margins(right = 8f),
+                    chip("Slowly", TeninIcon.TIMER, false) { onSlowly(highlightSentence) }).margins(top = 16f),
             ).toTypedArray(), fill = Tenin.PRIMARY, line = Tenin.PRIMARY, padding = 22f).apply { elevation = dp(6f).toFloat() }.margins(top = 18f),
             if (p.words.isEmpty()) null else eyebrow("Word by word").margins(top = 22f, bottom = 12f),
             if (p.words.isEmpty()) null else card(*p.words.distinctBy { Triple(it.jp, it.kana, it.en) }.flatMapIndexed { i, word ->
+                val wordTitle = text(word.jp, 20f)
                 listOfNotNull(if (i > 0) divider().margins(top = 14f, bottom = 14f) else null, row(
-                    column(text(word.jp, 20f), text(word.reading, 17f, Tenin.PRIMARY_DARK, italic = true),
+                    column(wordTitle, text(word.reading, 17f, Tenin.PRIMARY_DARK, italic = true),
                         text(word.en, 17f, Tenin.MUTED)).weighted(),
-                    roundButton(TeninIcon.SPEAKER, 44f) { onWordListen(word) }.margins(left = 10f).apply {
+                    roundButton(TeninIcon.SPEAKER, 44f) {
+                        onWordListen(word) { playing ->
+                            highlightSentence(if (playing) word.start until word.end else null)
+                            wordTitle.text = playbackHighlight(word.jp, if (playing) word.jp.indices else null)
+                        }
+                    }.margins(left = 10f).apply {
                         contentDescription = "Listen to ${word.jp}"
                     }).fillWidth())
             }.toTypedArray(), padding = 18f),

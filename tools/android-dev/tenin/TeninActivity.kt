@@ -73,9 +73,11 @@ class TeninActivity : Activity() {
     private val bundledPreviewPath = Regex("lessons/images/[A-Za-z0-9][A-Za-z0-9._-]{0,99}")
 
     private val main = Handler(Looper.getMainLooper())
+    private val pronunciation by lazy { TeninPronunciation(applicationContext, main) }
     private var demo = false
     private var tts: TextToSpeech? = null
     private var ttsReady = false
+    private var pendingSpeech: Pair<String, Float>? = null
     private var scenarios: List<TeninScenario> = emptyList()
     private var chosen = 0
     private var sessions: List<TeninSession> = emptyList()
@@ -130,6 +132,7 @@ class TeninActivity : Activity() {
 
     private fun render() {
         if (closed || stack.isEmpty()) return
+        stopExamples()
         root.removeAllViews()
         root.addView(stack[stack.size - 1].invoke(), ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
     }
@@ -274,6 +277,7 @@ class TeninActivity : Activity() {
         if (inGlasses) { inGlasses = false; running?.let(::showStopped) }
     }
     override fun onPause() {
+        stopExamples()
         if (!demo) {
             TeninWorkflow.pause(this)
             TeninGlassesScreen.hide(this)
@@ -410,12 +414,12 @@ class TeninActivity : Activity() {
     private fun reviewScreen(): View {
         val due = sessions.sumOf(::tricky)
         return screens.review(due, sessions, if (sessions.isEmpty()) sessionStatus.ifEmpty { "Lessons you finish will appear here." } else "",
-            onReview = { sessions.firstOrNull { tricky(it) > 0 }?.let { replay(it, "missed") } },
+            onReview = { sessions.firstOrNull { tricky(it) > 0 }?.let { replay(it, "tricky") } },
             onOpen = { session -> go { sessionScreen(session) } }, nav = nav(TeninUi.Tab.REVIEW))
     }
 
     private fun sessionScreen(session: TeninSession): View = screens.sessionDetail(session,
-        onPracticeTricky = if (tricky(session) > 0) ({ replay(session, "missed") }) else null,
+        onPracticeTricky = if (tricky(session) > 0) ({ replay(session, "tricky") }) else null,
         onReplay = { replay(session, "all") }, onBack = ::back, nav = nav(TeninUi.Tab.REVIEW))
 
     private var vocabularyTab = TeninVocabularyTab.WORDS
@@ -436,14 +440,15 @@ class TeninActivity : Activity() {
                 .filter { (_, word) -> matches(word.jp, word.kana, word.romaji, word.en) }
                 .distinctBy { (_, word) -> Triple(word.jp, word.kana, word.en) }
                 .map { (session, word) ->
-                    TeninVocabularyRow(word.jp, word.reading, meaning(word.en, session.title), onSpeak = { speak(word.kana) })
+                    TeninVocabularyRow(word.jp, word.reading, meaning(word.en, session.title),
+                        onSpeak = { update -> playExample(word.kana, word = true) { update(if (it != null) word.jp.indices else null) } })
                 }
         } else {
             filtered.filter { (_, phrase) -> matches(phrase.jp, phrase.romaji, phrase.en) }
                 .distinctBy { (_, phrase) -> Triple(phrase.jp, phrase.romaji, phrase.en) }
                 .map { (session, phrase) ->
                     TeninVocabularyRow(screens.highlightedJapanese(phrase), phrase.romaji, meaning(phrase.en, phrase.lesson),
-                        onSpeak = { speak(phrase.jp) }, onOpen = { go { phraseScreen(session, phrase) } })
+                        onSpeak = { update -> playExample(phrase.jp, onSpan = update) }, onOpen = { go { phraseScreen(session, phrase) } })
                 }
         }
         val emptyMessage = when {
@@ -460,8 +465,10 @@ class TeninActivity : Activity() {
     }
 
     private fun phraseScreen(session: TeninSession, phrase: TeninPhrase): View = screens.phraseDetail(
-        phrase, onListen = { speak(phrase.jp) }, onSlowly = { speak(phrase.jp, 0.55f) },
-        onWordListen = { speak(it.kana) }, onPractice = { replay(session, "all") },
+        phrase, onListen = { playExample(phrase.jp, onSpan = it) },
+        onSlowly = { playExample(phrase.jp, slow = true, onSpan = it) },
+        onWordListen = { word, update -> playExample(word.kana, word = true) { update(it != null) } },
+        onPractice = { replay(session, "all") },
         onBack = ::back, nav = nav(TeninUi.Tab.VOCABULARIES))
 
     /** Compiles a saved session into a lesson on the portal and hands it to the glasses. */
@@ -604,13 +611,47 @@ class TeninActivity : Activity() {
         } finally { connection.disconnect() }
     }
 
+    private fun playExample(japanese: String, slow: Boolean = false, word: Boolean = false, onSpan: (IntRange?) -> Unit) {
+        stopDeviceSpeech()
+        if (demo) { speak(japanese, if (slow) 0.8f else 0.95f); return }
+        pronunciation.play(japanese, slow, word, onSpan) { speak(japanese, if (slow) 0.8f else 0.95f) }
+    }
+
+    private fun stopExamples() {
+        pronunciation.stop()
+        stopDeviceSpeech()
+    }
+
+    private fun stopDeviceSpeech() {
+        pendingSpeech = null
+        tts?.stop()
+    }
+
     private fun speak(japanese: String, rate: Float = 0.95f) {
-        fun say() { tts?.setSpeechRate(rate); tts?.speak(japanese, TextToSpeech.QUEUE_FLUSH, null, "tenin") }
-        if (ttsReady) { say(); return }
+        pendingSpeech = japanese to rate
+        if (ttsReady) { flushDeviceSpeech(); return }
         if (tts != null) return
         tts = TextToSpeech(applicationContext) { status ->
-            if (status == TextToSpeech.SUCCESS && !closed) { tts?.language = Locale.JAPAN; ttsReady = true; say() }
+            main.post {
+                if (closed) return@post
+                if (status == TextToSpeech.SUCCESS) {
+                    tts?.language = Locale.JAPAN
+                    ttsReady = true
+                    flushDeviceSpeech()
+                } else {
+                    pendingSpeech = null
+                    tts?.shutdown()
+                    tts = null
+                }
+            }
         }
+    }
+
+    private fun flushDeviceSpeech() {
+        val (text, rate) = pendingSpeech ?: return
+        pendingSpeech = null
+        tts?.setSpeechRate(rate)
+        tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "tenin")
     }
 
     /** Opens one screen with sample content so each mockup can be compared on a device. */
@@ -649,6 +690,7 @@ class TeninActivity : Activity() {
         closed = true
         displays.unregisterDisplayListener(displayListener)
         if (!demo) TeninWorkflow.cancel(this)
+        pronunciation.close()
         main.removeCallbacksAndMessages(null)
         tts?.shutdown()
         previewWorker.shutdownNow()

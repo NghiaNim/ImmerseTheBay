@@ -155,6 +155,35 @@ object PracticePortal {
 
     private fun read(request: HttpURLConnection) = JSONObject(request.inputStream.bufferedReader().use { it.readText() })
 
+    data class Pronunciation(val wav: ByteArray, val ranges: String?, val slowAtPlayback: Boolean)
+
+    fun pronunciation(context: Context, text: String, slow: Boolean, track: (HttpURLConnection?) -> Unit): Pronunciation {
+        val timed = text.length <= 120
+        val path = if (timed) "/api/agent/pronunciation" else "/api/agent/speak"
+        val body = JSONObject().put("text", text)
+        if (timed) body.put("slow", slow) else body.put("role", "tutor")
+        return call(context, path, track) { request ->
+            send(request, "application/json", body.toString().toByteArray(Charsets.UTF_8), 16000)
+            check(request.responseCode == 200 && request.contentType?.startsWith("audio/wav") == true) { "Example unavailable" }
+            val limit = 8 * 1024 * 1024
+            check(request.contentLength <= limit) { "Example too large" }
+            val bytes = request.inputStream.use { input ->
+                ByteArrayOutputStream().use { output ->
+                    val buffer = ByteArray(8192)
+                    while (true) {
+                        val count = input.read(buffer)
+                        if (count < 0) break
+                        check(output.size() + count <= limit) { "Example too large" }
+                        output.write(buffer, 0, count)
+                    }
+                    output.toByteArray()
+                }
+            }
+            check(bytes.size >= 44) { "Example is not playable" }
+            Pronunciation(bytes, request.getHeaderField("X-Tenin-Speech-Ranges"), slow && !timed)
+        }
+    }
+
     /** Same server transcription as the web app (OpenAI on the Portal; no key on the phone). */
     fun transcribe(context: Context, audio: ByteArray, language: String, track: (HttpURLConnection?) -> Unit = {}): String =
         call(context, "/api/agent/transcribe", track) { request ->
