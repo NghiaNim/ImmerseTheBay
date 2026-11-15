@@ -65,19 +65,24 @@ object TeninGlassesScreen {
             super.onCreate(savedInstanceState)
             // Side-by-side stereo: the same content in the left and right halves reads as one image.
             val eyes = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL; setBackgroundColor(Color.BLACK) }
-            repeat(2) { eyes.addView(eye(), LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f)) }
+            // Size before the first layout. The presentation stays fixed while the phone UI changes.
+            val mode = display.mode
+            val eyeHeight = minOf(mode.physicalHeight.toFloat(), mode.physicalWidth * 9f / 32f)
+            repeat(2) { eyes.addView(eye(eyeHeight), LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f)) }
             setContentView(eyes)
         }
 
-        private fun eye(): FrameLayout {
+        private fun eye(eyeHeight: Float): FrameLayout {
             val title = TextView(context).apply {
                 text = "Tenin"
+                setTextSize(TypedValue.COMPLEX_UNIT_PX, eyeHeight * 0.092f)
                 setTextColor(0xFFE1D6FF.toInt())
                 typeface = Tenin.font(context, 500)
                 gravity = Gravity.CENTER
             }
             val guidance = TextView(context).apply {
                 text = "Continue on your phone"
+                setTextSize(TypedValue.COMPLEX_UNIT_PX, eyeHeight * 0.046f)
                 setTextColor(0xFFE3E0EB.toInt())
                 gravity = Gravity.CENTER
             }
@@ -87,17 +92,7 @@ object TeninGlassesScreen {
                 addView(title)
                 addView(guidance)
             }
-            return object : FrameLayout(context) {
-                override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
-                    super.onSizeChanged(w, h, oldw, oldh)
-                    if (w <= 0 || h <= 0) return
-                    // A presentation display has its own density. Size for each eye's
-                    // available image instead of inheriting a phone text size in sp.
-                    val eyeHeight = minOf(h.toFloat(), w * 9f / 16f)
-                    title.setTextSize(TypedValue.COMPLEX_UNIT_PX, eyeHeight * 0.092f)
-                    guidance.setTextSize(TypedValue.COMPLEX_UNIT_PX, eyeHeight * 0.046f)
-                }
-            }.apply {
+            return FrameLayout(context).apply {
                 addView(content, FrameLayout.LayoutParams(
                     FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
             }
