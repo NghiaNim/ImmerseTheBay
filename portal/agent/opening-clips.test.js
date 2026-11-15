@@ -37,6 +37,9 @@ test('opens only the clip for an exact authored scene revision and serves author
   assert.equal(response.status, 206);
   assert.equal(response.headers.get('content-type'), 'video/mp4');
   assert.equal(await response.text(), 'fixture');
+  const outOfRange = await request(lesson, scene, { portal_token: 'test', range: 'bytes=500-600' });
+  assert.equal(outOfRange.status, 416);
+  assert.equal(outOfRange.headers.get('content-range'), 'bytes */13');
   const changedStore = {
     load: async id => {
       const changed = await store.load(id);

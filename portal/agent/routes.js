@@ -73,6 +73,11 @@ export function registerAgentRoutes(app, { authorized = () => true, store = crea
     res.sendFile(clip, { cacheControl: false, headers: { 'Cache-Control': 'private, no-cache' } }, error => {
       if (!error) return;
       if (res.headersSent) return res.destroy(error);
+      if (error.status === 416) {
+        const extent = error.headers?.['Content-Range'] ?? error.headers?.['content-range'];
+        if (extent) res.set('Content-Range', extent);
+        return res.set('Cache-Control', 'no-store').status(416).end();
+      }
       res.set('Cache-Control', 'no-store').status(error.status === 404 ? 404 : 500)
         .json({ error: 'Scene opening unavailable' });
     });
