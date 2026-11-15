@@ -5,7 +5,7 @@ using UnityEngine.XR.Interaction.Toolkit.UI;
 
 namespace ImmerseTheBay.Learning
 {
-    /// <summary>Compact subtitles inside the shared video’s lower safe area. Buttons use the scene's XRI UI input module.</summary>
+    /// <summary>Stable, readable subtitles inside the shared video’s lower safe area. Buttons use the scene's XRI UI input module.</summary>
     public class LearningOverlay : MonoBehaviour
     {
         public Renderer screen;
@@ -35,6 +35,11 @@ namespace ImmerseTheBay.Learning
         public void PlaceControls(Pose pose) => m_Tabletop = pose;
 
         const float Width = 1400f;
+        const float ReferenceHeight = 900f;
+        const int JapaneseSize = 60;
+        const int PronunciationSize = 40;
+        const int TranslationSize = 36;
+        const int DialogueSize = 40;
         RectTransform m_Panel;
         Canvas m_Canvas;
         Text m_Japanese, m_Romaji, m_Kana, m_Translation, m_Status, m_SpeakLabel, m_Clerk, m_Learner, m_ConversationLabel;
@@ -46,7 +51,7 @@ namespace ImmerseTheBay.Learning
         Func<string> m_Debug;
         string m_StatusOverride = "";
         float m_Height;
-        float m_AvailableHeight = 380;
+        float m_AvailableHeight = ReferenceHeight * 0.52f;
 
         void Awake()
         {
@@ -128,13 +133,13 @@ namespace ImmerseTheBay.Learning
             background.GetComponent<Image>().color = new Color(0.015f, 0.025f, 0.04f, 0.72f);
             background.GetComponent<Image>().raycastTarget = false;
 
-            m_Clerk = MakeText("Clerk", font, 26, new Color(0.82f, 0.9f, 0.94f));
-            m_Learner = MakeText("Learner", font, 26, new Color(0.78f, 0.94f, 0.82f));
-            m_Japanese = MakeText("Japanese", font, 42, Color.white);
+            m_Clerk = MakeText("Clerk", font, DialogueSize, new Color(0.82f, 0.9f, 0.94f));
+            m_Learner = MakeText("Learner", font, DialogueSize, new Color(0.78f, 0.94f, 0.82f));
+            m_Japanese = MakeText("Japanese", font, JapaneseSize, Color.white);
             m_Japanese.supportRichText = true;
-            m_Romaji = MakeText("Romaji", font, 29, new Color(0.9f, 0.94f, 0.96f));
-            m_Kana = MakeText("Kana", font, 29, new Color(0.82f, 0.9f, 0.94f));
-            m_Translation = MakeText("Translation", font, 29, new Color(0.82f, 0.9f, 0.94f));
+            m_Romaji = MakeText("Romaji", font, PronunciationSize, new Color(0.9f, 0.94f, 0.96f));
+            m_Kana = MakeText("Kana", font, TranslationSize, new Color(0.82f, 0.9f, 0.94f));
+            m_Translation = MakeText("Translation", font, TranslationSize, new Color(0.82f, 0.9f, 0.94f));
             m_Status = MakeText("Feedback", font, 25, new Color(0.68f, 0.84f, 0.83f));
             m_Conversation = MakeButton("Conversation", 0, font, out m_ConversationLabel);
             m_Return = MakeButton("Return to lesson", 0, font, out _);
@@ -156,6 +161,7 @@ namespace ImmerseTheBay.Learning
             var text = go.GetComponent<Text>();
             text.font = font; text.fontSize = size; text.color = color;
             text.supportRichText = false; text.raycastTarget = false;
+            text.resizeTextForBestFit = false;
             text.alignment = TextAnchor.MiddleCenter;
             text.horizontalOverflow = HorizontalWrapMode.Wrap;
             text.verticalOverflow = VerticalWrapMode.Truncate;
@@ -269,76 +275,86 @@ namespace ImmerseTheBay.Learning
 
         void FitLayout()
         {
-            const float footer = 12;
-            float budget = Mathf.Max(1, m_AvailableHeight - footer - 12);
-            m_Japanese.resizeTextForBestFit = false;
-            m_Romaji.resizeTextForBestFit = false;
-            m_Status.resizeTextForBestFit = false;
-            m_Japanese.fontSize = 42;
-            m_Romaji.fontSize = 29;
+            const float padding = 12;
+            float budget = Mathf.Max(1, m_AvailableHeight - padding * 2);
             float japanese = MeasureLine(m_Japanese);
             float romaji = MeasureLine(m_Romaji);
-            float clerkCaption = MeasureLine(m_Clerk);
-            float learnerCaption = MeasureLine(m_Learner);
-            float dialogueBudget = japanese + romaji > 0 ? budget * 0.55f : budget;
-            float captionScale = Mathf.Min(1, dialogueBudget / Mathf.Max(1, clerkCaption + learnerCaption));
-            clerkCaption *= captionScale;
-            learnerCaption *= captionScale;
-            float clerk = clerkCaption + learnerCaption;
-            float kana = MeasureLine(m_Kana);
             float translation = MeasureLine(m_Translation);
+            float clerk = MeasureLine(m_Clerk);
+            float learner = MeasureLine(m_Learner);
+            float kana = MeasureLine(m_Kana);
             float status = MeasureLine(m_Status);
-            // Pronunciation stays directly under Japanese; collapse optional hints first.
-            if (japanese + romaji + clerk + kana + translation + status > budget) translation = 0;
-            if (japanese + romaji + clerk + kana + translation + status > budget) kana = 0;
-            if (japanese + romaji + clerk + kana + translation + status > budget && m_Overlay != null) status = 0;
-            while (japanese + romaji + clerk + status > budget && (m_Japanese.fontSize > 32 || m_Romaji.fontSize > 23))
+
+            // Never reduce glyph size as captions arrive or wrap. Keep the current
+            // lesson's Japanese, romaji and requested translation ahead of history/hints.
+            if (japanese + romaji + translation + clerk + learner + kana + status > budget) kana = 0;
+            if (japanese + romaji + translation + clerk + learner + status > budget && japanese + romaji > 0)
+                clerk = learner = 0;
+            if (japanese + romaji + translation + clerk + learner + status > budget) status = 0;
+
+            float required = japanese + romaji + translation + clerk + learner;
+            if (required > budget)
             {
-                m_Japanese.fontSize = Mathf.Max(32, m_Japanese.fontSize - 2);
-                m_Romaji.fontSize = Mathf.Max(23, m_Romaji.fontSize - 2);
-                japanese = MeasureLine(m_Japanese);
-                romaji = MeasureLine(m_Romaji);
+                // External transcripts can be arbitrarily long. Bound their rows and
+                // show an explicit ellipsis at the same font size instead of tiny type.
+                float minJapanese = MinimumLineHeight(m_Japanese);
+                float minRomaji = MinimumLineHeight(m_Romaji);
+                float minTranslation = MinimumLineHeight(m_Translation);
+                float minClerk = clerk > 0 ? MinimumLineHeight(m_Clerk) : 0;
+                float minLearner = learner > 0 ? MinimumLineHeight(m_Learner) : 0;
+                float minimum = minJapanese + minRomaji + minTranslation + minClerk + minLearner;
+                float share = Mathf.Clamp01((budget - minimum) / Mathf.Max(1, required - minimum));
+                japanese = minJapanese + (japanese - minJapanese) * share;
+                romaji = minRomaji + (romaji - minRomaji) * share;
+                translation = minTranslation + (translation - minTranslation) * share;
+                clerk = minClerk + (clerk - minClerk) * share;
+                learner = minLearner + (learner - minLearner) * share;
             }
-            if (japanese + romaji + clerk + status > budget && japanese + romaji > 0)
-            {
-                // Unusually long external lines share the remaining safe area. The text
-                // rectangles never overlap the caption or controls, even on narrow displays.
-                float remaining = Mathf.Max(0, budget - clerk - status);
-                float scale = remaining / (japanese + romaji);
-                japanese *= scale;
-                romaji *= scale;
-                m_Japanese.resizeTextForBestFit = true;
-                m_Japanese.resizeTextMinSize = 18;
-                m_Japanese.resizeTextMaxSize = 32;
-                m_Romaji.resizeTextForBestFit = true;
-                m_Romaji.resizeTextMinSize = 18;
-                m_Romaji.resizeTextMaxSize = 23;
-            }
-            if (japanese + romaji == 0 && clerk + status > budget)
-            {
-                m_Status.resizeTextForBestFit = true;
-                m_Status.resizeTextMinSize = 20;
-                m_Status.resizeTextMaxSize = 25;
-                status = Mathf.Max(0, budget - clerk);
-            }
-            float y = 12;
-            FitCaption(m_Clerk, ref y, clerkCaption);
-            FitCaption(m_Learner, ref y, learnerCaption);
-            LayoutLine(m_Japanese, ref y, japanese);
-            LayoutLine(m_Romaji, ref y, romaji);
-            LayoutLine(m_Kana, ref y, kana);
-            LayoutLine(m_Translation, ref y, translation);
-            LayoutLine(m_Status, ref y, status);
-            m_Height = Mathf.Min(m_AvailableHeight, y + footer);
+            float y = padding;
+            LayoutCaption(m_Clerk, ref y, clerk);
+            LayoutCaption(m_Learner, ref y, learner);
+            LayoutCaption(m_Japanese, ref y, japanese);
+            LayoutCaption(m_Romaji, ref y, romaji);
+            LayoutCaption(m_Translation, ref y, translation);
+            LayoutCaption(m_Kana, ref y, kana);
+            LayoutCaption(m_Status, ref y, status);
+            m_Height = Mathf.Min(m_AvailableHeight, y + padding);
             m_Panel.sizeDelta = new Vector2(Width, m_Height);
         }
 
-        static void FitCaption(Text text, ref float y, float height)
+        void LayoutCaption(Text text, ref float y, float height)
         {
-            text.resizeTextForBestFit = true;
-            text.resizeTextMinSize = 16;
-            text.resizeTextMaxSize = 26;
             LayoutLine(text, ref y, height);
+            if (height <= 0 || text.preferredHeight + 6 <= height) return;
+            // Japanese is the only rich-text row; truncate the source before adding
+            // vocabulary highlights so an ellipsis can never leave a broken color tag.
+            string source = text == m_Japanese
+                ? m_Overlay?.jp ?? (m_Done ? "お疲れさまでした" : "")
+                : text.text;
+            var boundaries = System.Globalization.StringInfo.ParseCombiningCharacters(source);
+            int low = 0, high = boundaries.Length;
+            while (low < high)
+            {
+                int mid = (low + high + 1) / 2;
+                int end = mid < boundaries.Length ? boundaries[mid] : source.Length;
+                string candidate = source.Substring(0, end).TrimEnd() + "…";
+                text.text = text == m_Japanese ? Highlight(candidate) : candidate;
+                if (text.preferredHeight + 6 <= height) low = mid;
+                else high = mid - 1;
+            }
+            int length = low < boundaries.Length ? boundaries[low] : source.Length;
+            string fitted = source.Substring(0, length).TrimEnd() + "…";
+            text.text = text == m_Japanese ? Highlight(fitted) : fitted;
+        }
+
+        static float MinimumLineHeight(Text text)
+        {
+            if (string.IsNullOrEmpty(text.text)) return 0;
+            string source = text.text;
+            text.text = "…";
+            float height = MeasureLine(text);
+            text.text = source;
+            return height;
         }
 
         static float MeasureLine(Text text)
@@ -397,9 +413,13 @@ namespace ImmerseTheBay.Learning
                 bottom = headCamera.transform.position + headCamera.transform.forward * distance - up * (screenHeight * 0.5f);
             }
             else return;
-            float pixelScale = width / Width;
-            // Reserve the central view: subtitles and controls occupy only the lower third.
-            float available = screenHeight * (m_ConversationActive ? 0.40f : 0.32f) / pixelScale;
+            // Uniform scale preserves glyph proportions. Height caps the type size on
+            // wide video; width caps it on narrow video. Resolution changes at the
+            // same aspect cannot change typography, and ultrawide media cannot inflate it.
+            float pixelScale = Mathf.Min(width / Width, screenHeight / ReferenceHeight);
+            // The band grows only as needed, up to the lower 52%; controls have their
+            // own tabletop canvas. Keep the upper scene visible even for long captions.
+            float available = screenHeight * 0.52f / pixelScale;
             if (Mathf.Abs(available - m_AvailableHeight) > 0.5f)
             {
                 m_AvailableHeight = available;
