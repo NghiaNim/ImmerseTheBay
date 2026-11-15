@@ -175,7 +175,7 @@ test('photo replay survives expiration and restart with separate repeated target
   const secondLine = { ...firstLine, cue: 'The partner gestures at the door.' };
   const original = {
     ...lesson, id: photoId, startImage: `/api/practice/images/${photoId}`,
-    partnerRole: { ja: '店員', en: 'Clerk' }, visiblePartner: false,
+    partnerRole: { ja: '店員', en: 'Clerk' }, partnerVoice: 'male', visiblePartner: false,
     beats: [
       { goal: 'Make a request', lines: [firstLine], vocab: [] },
       { goal: 'Confirm the request', lines: [secondLine], vocab: [{ jp: 'お願い', kana: 'おねがい', en: 'request', objectHint: 'door' }] },
@@ -214,6 +214,7 @@ test('photo replay survives expiration and restart with separate repeated target
   assert.equal(compiled.startImage, '');
   assert.equal(compiled.visiblePartner, false);
   assert.deepEqual(compiled.partnerRole, original.partnerRole);
+  assert.equal(compiled.partnerVoice, 'male');
   assert.equal(compiled.scenePrompt, original.scenePrompt);
   assert.deepEqual(compiled.beats, original.beats);
   const missed = await replay('missed');
@@ -224,4 +225,5 @@ test('photo replay survives expiration and restart with separate repeated target
   const replayService = createAgentService({ store: restartedLessons, llm: null, planner: null, promptIntervalMs: 0, log: async () => {} });
   const opened = await replayService.turn(turnRequest({ sessionId: 'practice-after-restart', lessonId: compiled.id }));
   assert.equal(opened.overlay.jp, firstLine.jp);
+  assert.equal(replayService.snapshot({ sessionId: 'practice-after-restart', lessonId: compiled.id }).lessonContext.partnerVoice, 'male');
 });

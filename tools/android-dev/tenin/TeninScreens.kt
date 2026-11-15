@@ -33,7 +33,7 @@ data class TeninPhrase(
 
 data class TeninScenario(
     val id: String, val title: String, val jpTitle: String, val blurb: String, val detail: String,
-    val icon: TeninIcon, val phrases: List<TeninPhrase>, val startImage: String = "", val steps: Int = 0, val note: String = "",
+    val icon: TeninIcon, val phrases: List<TeninPhrase>, val startImage: String = "", val steps: Int = 0, val note: String = "", val partnerVoice: String = "",
 )
 
 data class TeninSession(
@@ -147,11 +147,21 @@ class TeninScreens(private val context: Context) {
     }
 
     // 2 · Live photo or voice
-    fun liveLesson(connected: Boolean, onPhoto: () -> Unit, onLibrary: () -> Unit, onVoice: () -> Unit, onBack: () -> Unit, nav: View) = ui.run {
+    fun liveLesson(connected: Boolean, onPhoto: () -> Unit, onLibrary: () -> Unit, onVoice: () -> Unit, onBack: () -> Unit, nav: View, partnerVoice: String = "auto", onPartnerVoice: (String) -> Unit = {}) = ui.run {
         screen(listOf(
             header(onBack, connected = connected),
             title("Live Lesson").margins(top = 18f),
             body("Add a photo of your learning environment, or tell Tenin what you want to do.").margins(top = 12f),
+            text("Partner voice", 16f, Tenin.MUTED, 600).margins(top = 16f, bottom = 6f),
+            row(*listOf("Auto" to "auto", "Female" to "female", "Male" to "male").map { (label, value) ->
+                val selected = value == partnerVoice
+                text(label, 16f, if (selected) Tenin.WHITE else Tenin.PRIMARY_DARK, 600).apply {
+                    gravity = Gravity.CENTER
+                    minHeight = dp(48f)
+                    isSelected = selected
+                    background = rounded(if (selected) Tenin.PRIMARY else Tenin.LAVENDER, dp(16f).toFloat())
+                }.weighted().margins(right = 5f).onTap { onPartnerVoice(value) }
+            }.toTypedArray()).fillWidth(),
             card(
                 FrameLayout(context).apply {
                     background = rounded(Tenin.PRIMARY, dp(20f).toFloat())
@@ -309,7 +319,7 @@ class TeninScreens(private val context: Context) {
 
     // 6 · Put on your glasses
     // `warning` (e.g. low battery) shows above the checklist. Starting waits until the glasses are connected.
-    fun putOnGlasses(connected: Boolean, lessonTitle: String, warning: String, onWearing: () -> Unit, onBack: () -> Unit, photo: Bitmap? = null) = ui.run {
+    fun putOnGlasses(connected: Boolean, lessonTitle: String, warning: String, onWearing: () -> Unit, onBack: () -> Unit, photo: Bitmap? = null, partnerVoice: String = "") = ui.run {
         screen(listOfNotNull(
             header(onBack),
             if (photo != null) scenePhoto(photo).margins(top = 26f) else FrameLayout(context).apply {
@@ -327,8 +337,10 @@ class TeninScreens(private val context: Context) {
             checklist(listOf(
                 TeninStep(if (connected) "Glasses connected" else "Waiting for the glasses…", connected),
                 TeninStep("Scene ready: $lessonTitle", true),
+                if (partnerVoice == "female") TeninStep("Partner voice: Female", true)
+                else if (partnerVoice == "male") TeninStep("Partner voice: Male", true) else null,
                 TeninStep("The glasses listen once the lesson starts", true),
-            ), outlined = true).margins(top = 22f),
+            ).filterNotNull(), outlined = true).margins(top = 22f),
         ), footer = listOf(if (connected) primaryButton("I’m wearing them", TeninIcon.EYE, onWearing) else busyButton("Waiting for your glasses…")))
     }
 

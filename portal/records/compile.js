@@ -25,6 +25,7 @@ export function snapshotReplaySource(lesson) {
     scenePrompt: lesson.scenePrompt,
     audioPrompt: lesson.audioPrompt,
     startImage: lastingImage(lesson.startImage),
+    ...(lesson.partnerVoice ? { partnerVoice: lesson.partnerVoice } : {}),
     ...(lesson.partnerRole ? { partnerRole: { ja: lesson.partnerRole.ja, en: lesson.partnerRole.en } } : {}),
     ...(lesson.visiblePartner !== undefined ? { visiblePartner: lesson.visiblePartner } : {}),
     // Lesson validation bounds groups, goal lengths and line counts. Vocabulary has a separate budget.
@@ -110,6 +111,7 @@ export function compileReplay({ id, record, summary, original, startImage, deck 
     id, title: `Replay · ${source.title}${date ? ` · ${date}` : ''}${deck === 'missed' ? ' · missed lines' : ''}`,
     level: source.level, scenePrompt: source.scenePrompt, audioPrompt: source.audioPrompt,
     startImage: startImage ?? replayStartImage(record, source),
+    ...(source.partnerVoice ? { partnerVoice: source.partnerVoice } : {}),
     ...(source.partnerRole ? { partnerRole: source.partnerRole } : {}),
     ...(source.visiblePartner !== undefined ? { visiblePartner: source.visiblePartner } : {}),
     beats: beats.map(({ key, ...beat }) => beat),

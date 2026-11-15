@@ -491,11 +491,13 @@ namespace ImmerseTheBay.Learning
             StopClerkAudio();
             try
             {
-                string url = visko.config.portalUrl.TrimEnd('/') + "/api/agent/speak";
+                string url = visko.config.portalUrl.TrimEnd('/') + "/api/agent/clerk-speech";
                 using var request = new UnityWebRequest(url, "POST");
                 request.downloadHandler = new DownloadHandlerAudioClip(url, AudioType.WAV);
-                string body = "{\"text\":" + LearningContract.Quote(speech.text)
-                    + ",\"language\":" + LearningContract.Quote(speech.language) + "}";
+                string body = "{\"sessionId\":" + LearningContract.Quote(m_Session)
+                    + ",\"lessonId\":" + LearningContract.Quote(m_RunLesson)
+                    + ",\"runId\":" + LearningContract.Quote(m_RunId)
+                    + ",\"revision\":" + m_Revision.ToString(System.Globalization.CultureInfo.InvariantCulture) + "}";
                 request.uploadHandler = new UploadHandlerRaw(Encoding.UTF8.GetBytes(body));
                 request.SetRequestHeader("Content-Type", "application/json");
                 if (!string.IsNullOrEmpty(visko.config.portalToken)) request.SetRequestHeader("portal_token", visko.config.portalToken);

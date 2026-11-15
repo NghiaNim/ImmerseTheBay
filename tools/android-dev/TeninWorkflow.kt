@@ -29,7 +29,7 @@ object TeninWorkflow {
     private const val CAMERA_PERMISSION = 33
     private const val MIC_PERMISSION = 34
     private const val GRANTS = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-    private const val LEVEL = "N4"
+    private const val LEVEL = "N5"
 
     private val worker = Executors.newSingleThreadExecutor()
     private val disconnectWorker = Executors.newSingleThreadExecutor()
@@ -142,17 +142,18 @@ object TeninWorkflow {
     }
 
     private fun buildFromPhoto(activity: TeninActivity, photo: PreparedPhoto, goal: String, run: Int) {
+        val partnerVoice = activity.partnerVoicePreference
         val steps = listOf(TeninStep("Photo ready", true), TeninStep("Goal: $goal", true))
         activity.showPhotoProgress(photo.preview, steps + TeninStep("Building your lesson…", false), ready = false,
             onContinue = {}, onRetake = {})
         worker.execute {
-            val made = runCatching { PracticePortal.createPractice(activity, photo.jpeg, goal, requestTracker(run)) }
+            val made = runCatching { PracticePortal.createPractice(activity, photo.jpeg, goal, partnerVoice, requestTracker(run)) }
             ui(activity, run) {
                 made.onSuccess { practice ->
                     pendingPhoto = null
                     PracticePortal.remember(practice)
                     activity.showPhotoProgress(photo.preview, steps + TeninStep(englishTitle(practice.title).let { "Lesson ready: $it" }, true), ready = true,
-                        onContinue = { activity.showPutOnGlasses(practice.id, "", practice.title, photo.preview) },
+                        onContinue = { activity.showPutOnGlasses(practice.id, "", practice.title, photo.preview, practice.partnerVoice) },
                         onRetake = { start(activity, "photo", goal) }, update = true)
                 }.onFailure {
                     // Try again: same photo and goal. Retake: a new photo.
@@ -242,9 +243,10 @@ object TeninWorkflow {
     }
 
     private fun writeLesson(activity: TeninActivity, goal: String, run: Int) {
+        val partnerVoice = activity.partnerVoicePreference
         activity.showSayGoal(goal, false, 0f, onMic = {}, update = true, busy = true)
         worker.execute {
-            val written = runCatching { PracticePortal.createScenario(activity, goal, LEVEL, "", requestTracker(run)) }
+            val written = runCatching { PracticePortal.createScenario(activity, goal, LEVEL, "", partnerVoice, requestTracker(run)) }
             ui(activity, run) {
                 written.onSuccess { lesson ->
                     val title = lesson.getString("title")
@@ -255,7 +257,7 @@ object TeninWorkflow {
                         first?.let { "${it.optString("jp")} · ${it.optString("en")}" }.orEmpty(),
                         // Adding a photo grounds the same goal in the real place (photo practice).
                         onAddPhoto = { start(activity, "photo", goal) },
-                        onContinue = { activity.showPutOnGlasses(lesson.getString("id"), lesson.optString("startImage"), title) },
+                        onContinue = { activity.showPutOnGlasses(lesson.getString("id"), lesson.optString("startImage"), title, partnerVoice = lesson.optString("partnerVoice")) },
                         onAgain = { listen(activity) })
                 }.onFailure { failed(activity, it.message ?: "Could not write a lesson from that.") { listen(activity) } }
             }

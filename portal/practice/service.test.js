@@ -133,3 +133,11 @@ test('photo rejects two/four turns and long speech within one retry without stor
     assert.equal(calls, 2); assert.equal(stored, 0);
   }
 });
+
+test('photo casting is scoped to the conversation partner and allows explicit voice override', () => {
+  assert.equal(buildPracticeLesson({ ...output, voiceRecommendation: 'male' }).partnerVoice, 'female');
+  assert.equal(buildPracticeLesson({ ...output, visiblePartner: true, voiceRecommendation: 'male' }).partnerVoice, 'male');
+  assert.equal(buildPracticeLesson({ ...output, visiblePartner: true, voiceRecommendation: 'unknown' }).partnerVoice, 'female');
+  assert.equal(buildPracticeLesson(output, undefined, { partnerVoice: 'male' }).partnerVoice, 'male');
+  assert.throws(() => parsePracticeInput({ image: photo, goal: 'Water please', partnerVoice: 'provider-id' }), { status: 400 });
+});

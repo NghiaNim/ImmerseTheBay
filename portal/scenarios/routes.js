@@ -1,3 +1,4 @@
+import { partnerVoiceOverride } from '../agent/lessons.js';
 import { LEVELS, createScenarioGenerator } from './generate.js';
 import { LOCAL_USER } from '../records/store.js';
 const PHOTO_REF = /^photo:(ph_[a-f0-9]{16})$/;
@@ -15,11 +16,12 @@ export function registerScenarioRoutes(app, { authorized = () => true, store, ge
   app.get('/api/scenarios/config', protect, (_req, res) => res.json({ configured: generator.configured, levels: LEVELS }));
   app.post('/api/scenarios', protect, route(async (req, res, userId) => {
     const body = req.body;
-    if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some((k) => !['request', 'level', 'image', 'language'].includes(k))) return res.status(400).json({ error: 'Send {request, level, image?, language?}' });
+    if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some((k) => !['request', 'level', 'image', 'language', 'partnerVoice'].includes(k))) return res.status(400).json({ error: 'Send {request, level, image?, language?, partnerVoice?}' });
     const request = typeof body.request === 'string' ? body.request.replace(/\s+/g, ' ').trim() : '';
     if (request.length < 3 || request.length > 500) return res.status(400).json({ error: 'Describe the situation in 3 to 500 characters' });
     if (!LEVELS.includes(body.level)) return res.status(400).json({ error: `level must be one of ${LEVELS.join(', ')}` });
     if (body.language !== undefined && !LANGUAGES.includes(body.language)) return res.status(400).json({ error: 'Unsupported request language' });
+    const partnerVoice = partnerVoiceOverride(body.partnerVoice);
     let startImage = '';
     if (body.image !== undefined && body.image !== null && body.image !== '') {
       const photo = PHOTO_REF.exec(body.image)?.[1], sample = SAMPLE_REF.exec(body.image)?.[1];
@@ -30,7 +32,7 @@ export function registerScenarioRoutes(app, { authorized = () => true, store, ge
     if (inFlight >= maxConcurrent) return res.status(429).json({ error: 'A scenario is already being written. Wait for it to finish.' });
     inFlight++;
     try {
-      const lesson = await generator.generate({ request, level: body.level, requestLanguage: body.language || '', startImage });
+      const lesson = await generator.generate({ request, level: body.level, requestLanguage: body.language || '', startImage, partnerVoice });
       await store.putScenario(userId, lesson);
       res.status(201).json(lesson);
     } finally { inFlight--; }

@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { AgentError, validateLesson } from '../agent/lessons.js';
+import { AgentError, validateLesson, partnerVoiceOverride, castPartnerVoice } from '../agent/lessons.js';
 import { hasBannedTerm, safePrompt } from '../agent/guardrails.js';
 import { strictOutputSchema, DEFAULT_OPENAI_MODEL } from '../agent/openai.js';
 // Learner request (voice transcript or typed, any language) → a complete original
@@ -30,6 +30,7 @@ const object = (properties) => ({ type: 'object', properties, required: Object.k
 export const SCENARIO_SCHEMA = object({
   title: text,
   partnerRole: object({ ja: text, en: text }),
+  voiceRecommendation: { type: 'string', enum: ['female', 'male', 'unknown'] },
   scenePrompt: text,
   audioPrompt: text,
   beats: { type: 'array', minItems: 1, maxItems: 1, items: object({
@@ -41,6 +42,7 @@ export const SCENARIO_SCHEMA = object({
 
 export const SCENARIO_INSTRUCTIONS = [
   'You write short, original Japanese conversation-practice scenarios for one learner. The input JSON has the learner\'s request (any language), a JLPT level and whether a photo of the real place will be the video backdrop.',
+  'If partnerVoice is explicitly supplied, cast the fictional adult partner to match it. Otherwise choose a voiceRecommendation consistent with the adult character you describe, or unknown if there is no clear match.',
   'The scenario is a face-to-face conversation between the learner and ONE adult conversation partner who stands or sits in front of the learner. partnerRole names that person in Japanese and English (for example 店員 / shop clerk, 駅員 / station staff, 同僚 / coworker).',
   'Each line is one exchange: partner = what the partner says first, then jp = the learner\'s proposed answer. Every jp line is spoken by the LEARNER; never give the learner the partner\'s role. The first line may have an empty partner (all partner fields empty strings) when the learner opens the conversation; every other line must have a partner utterance. alternatives = 1 or 2 other natural learner answers that fit the same moment at the same level.',
   DEMO_INSTRUCTIONS,
@@ -71,7 +73,7 @@ function checkUtterance(u, where) {
 }
 
 /** Validate model output and convert it to a lesson. Throws Error (retryable) on bad content. */
-export function scenarioToLesson(candidate, { id, level = DEMO_PROFILE.defaultLevel, request, requestLanguage, startImage = '', createdAt }) {
+export function scenarioToLesson(candidate, { id, level = DEMO_PROFILE.defaultLevel, request, requestLanguage, startImage = '', createdAt, partnerVoice }) {
   const beats = Array.isArray(candidate?.beats) ? candidate.beats : fail('no beats');
   const total = beats.reduce((n, b) => n + (Array.isArray(b?.lines) ? b.lines.length : 0), 0);
   if (beats.length !== 1 || total !== DEMO_PROFILE.turns) fail('scenario must have one beat and exactly three learner exchanges');
@@ -87,6 +89,7 @@ export function scenarioToLesson(candidate, { id, level = DEMO_PROFILE.defaultLe
     audioPrompt: safePrompt(candidate.audioPrompt, '') || fail('invalid audio prompt'),
     startImage,
     partnerRole,
+    partnerVoice: castPartnerVoice(candidate.voiceRecommendation, partnerVoice),
     beats: beats.map((beat, b) => ({
       goal: clean(beat.goal).slice(0, 300) || fail(`beat ${b + 1}: missing goal`),
       lines: beat.lines.map((line) => {
@@ -135,17 +138,18 @@ export function createScenarioGenerator({ apiKey = process.env.OPENAI_API_KEY, m
   return {
     configured: Boolean(key),
     /** One automatic retry, with the validation problem, when the content check fails. */
-    async generate({ request, level = DEMO_PROFILE.defaultLevel, requestLanguage = '', startImage = '' }) {
+    async generate({ request, level = DEMO_PROFILE.defaultLevel, requestLanguage = '', startImage = '', partnerVoice }) {
       if (!key) throw new AgentError(503, 'Scenario generation needs OPENAI_API_KEY in portal/.env');
       level = generationLevel(level);
       const id = `gen-${randomBytes(6).toString('hex')}`;
-      const base = { request, level, profile: DEMO_PROFILE.id, hasPhotoBackdrop: Boolean(startImage) };
+      partnerVoice = partnerVoiceOverride(partnerVoice);
+      const base = { request, level, profile: DEMO_PROFILE.id, hasPhotoBackdrop: Boolean(startImage), partnerVoice };
       let problem = null;
       for (let attempt = 0; attempt < 2; attempt++) {
         let candidate;
         try { candidate = await call(problem ? { ...base, previousAttemptRejected: problem } : base); }
         catch (e) { if (e instanceof AgentError) throw e; problem = 'The previous answer was not valid JSON for the schema.'; console.warn(`[scenarios] attempt ${attempt + 1} rejected: ${e.message}`); continue; }
-        try { return scenarioToLesson(candidate, { id, level, request, requestLanguage, startImage, createdAt: now().toISOString() }); }
+        try { return scenarioToLesson(candidate, { id, level, request, requestLanguage, startImage, partnerVoice, createdAt: now().toISOString() }); }
         catch (e) { if (e instanceof AgentError) throw new AgentError(422, 'The generated scenario failed a safety check. Try rephrasing your request.'); problem = `Fix this: ${e.message}.`; console.warn(`[scenarios] attempt ${attempt + 1} rejected: ${e.message}`); }
       }
       throw new AgentError(502, 'Could not write a valid scenario. Please try again.');

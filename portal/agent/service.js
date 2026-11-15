@@ -139,6 +139,7 @@ export function createAgentService({ store = createLessonStore(), llm = createLe
         throw new AgentError(409, 'Starting image changed; reset the lesson before using a new reference');
       }
       if (!state.sceneContext) {
+        state.partnerVoice = lesson.partnerVoice;
         const originalCast = state.presetSceneSet === PRESET_SET ||
           (lesson.scenePrompt.startsWith(CHECKOUT_IDENTITY) && (!suppliedReference || suppliedReference === lesson.startImage));
         state.sceneContext = {
@@ -327,7 +328,7 @@ export function createAgentService({ store = createLessonStore(), llm = createLe
     const state = session?.lessons.get(request.lessonId);
     if (!state) return null;
     session.touched = now();
-    return structuredClone({ runId: state.flow.runId, revision: state.revision, beat: state.flow.mainBeat, response: state.lastResponse, lessonContext: { scene: state.sceneContext.sceneAnchor.slice(0, 1000), goal: state.sceneContext.mainCheckpoint.goal.slice(0, 1000), ...(state.scene ? { visiblePartner: state.scene.visiblePartner, partnerLocation: state.sceneContext.partnerLocation } : {}), ...(state.partner ? { partnerRole: `${state.partner.role.ja} / ${state.partner.role.en}`, partnerLine: state.partner.line } : {}) } });
+    return structuredClone({ runId: state.flow.runId, revision: state.revision, beat: state.flow.mainBeat, response: state.lastResponse, lessonContext: { scene: state.sceneContext.sceneAnchor.slice(0, 1000), goal: state.sceneContext.mainCheckpoint.goal.slice(0, 1000), ...(state.scene ? { visiblePartner: state.scene.visiblePartner, partnerLocation: state.sceneContext.partnerLocation } : {}), ...(state.partnerVoice ? { partnerVoice: state.partnerVoice } : {}), ...(state.partner ? { partnerRole: `${state.partner.role.ja} / ${state.partner.role.en}`, partnerLine: state.partner.line } : {}) } });
   }
   function summary(input) {
     // Reuse the exact identity validation and pending-operation barrier.

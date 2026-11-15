@@ -172,7 +172,7 @@ class TeninActivity : Activity() {
     private fun prepare(scenario: TeninScenario, photo: Bitmap? = null) {
         TeninHooks.selected = arrayOf(scenario.id, scenario.startImage, scenario.title)
         running = scenario
-        go { screens.putOnGlasses(connected, scenario.title, batteryWarning(), onWearing = ::startInGlasses, onBack = ::back, photo = photo) }
+        go { screens.putOnGlasses(connected, scenario.title, batteryWarning(), onWearing = ::startInGlasses, onBack = ::back, photo = photo, partnerVoice = scenario.partnerVoice) }
     }
 
     private fun battery(): Pair<Int, Boolean> {
@@ -289,13 +289,16 @@ class TeninActivity : Activity() {
     // --- Live Lesson: screens the photo and speech workflow drives -----------------------------
 
     private var liveNote = ""
+    var partnerVoicePreference = "auto"
+        private set
     private fun liveScreen(): View {
         fun start(kind: String) {
             val hook = TeninHooks.liveLesson
             if (hook != null) hook(this, kind) else if (demo) openForReview(if (kind == "voice") "goal" else "reading")
         }
         return screens.liveLesson(connected, onPhoto = { start("photo") }, onLibrary = { start("library") }, onVoice = { start("voice") },
-            onBack = ::back, nav = nav(TeninUi.Tab.START))
+            onBack = ::back, nav = nav(TeninUi.Tab.START), partnerVoice = partnerVoicePreference,
+            onPartnerVoice = { partnerVoicePreference = it; render() })
     }
 
     /** Listening screen for a spoken goal. Call again with the latest transcript and level (0..1). */
@@ -315,8 +318,8 @@ class TeninActivity : Activity() {
         showPreparation({ screens.lessonSummary(connected, icon, situation, remember, practice, onAddPhoto, onContinue, onAgain, ::back) })
 
     /** Continue a generated lesson into the glasses, exactly like a pre-made one. */
-    fun showPutOnGlasses(lessonId: String, startImage: String, title: String, photo: Bitmap? = null) =
-        prepare(TeninScenario(lessonId, title, "", "", "", TeninIcon.CAMERA, emptyList(), startImage), photo)
+    fun showPutOnGlasses(lessonId: String, startImage: String, title: String, photo: Bitmap? = null, partnerVoice: String = "") =
+        prepare(TeninScenario(lessonId, title, "", "", "", TeninIcon.CAMERA, emptyList(), startImage, partnerVoice = partnerVoice), photo)
 
     fun showComplete(summary: String, saved: Int, review: Int, tip: String, completed: Boolean = true) = reset {
         screens.complete(summary, saved, review, tip, onPhrases = { reset(::vocabularyScreen); refreshSessions() },
@@ -359,11 +362,12 @@ class TeninActivity : Activity() {
             val result = runCatching {
                 val made = request("/api/sessions/${session.id}/replay", JSONObject().put("deck", deck))
                 val lesson = request("/api/agent/lessons/${made.getString("lessonId")}")
-                Triple(lesson.getString("id"), lesson.optString("startImage"), session.title)
+                TeninScenario(lesson.getString("id"), session.title, "", "", "", TeninIcon.PLAY, emptyList(),
+                    lesson.optString("startImage"), partnerVoice = lesson.optString("partnerVoice"))
             }
             main.post {
                 if (closed) return@post
-                result.onSuccess { (id, image, title) -> showPutOnGlasses(id, image, title) }
+                result.onSuccess { prepare(it) }
                     .onFailure { sessionStatus = "Could not prepare that review. Check the connection and try again."; render() }
             }
         }
@@ -436,7 +440,8 @@ class TeninActivity : Activity() {
                     Regex("doctor|clinic|hospital").containsMatchIn(id) -> TeninIcon.STETHOSCOPE
                     else -> TeninIcon.PLAY
                 }, phrases, lesson.optString("startImage"), beats.length(),
-                if (lesson.has("graph")) "Side trips can happen, like asking for something else." else "")
+                if (lesson.has("graph")) "Side trips can happen, like asking for something else." else "",
+                partnerVoice = lesson.optString("partnerVoice"))
         }.getOrNull()
     } }.getOrDefault(emptyList())
 

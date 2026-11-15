@@ -18,7 +18,7 @@ import java.net.URL
  * the Tenin UI). Unity reads the hand-off through PhonePracticeActivity's static methods.
  */
 object PracticePortal {
-    class Practice(val id: String, val title: String, val image: ByteArray, val expires: Long)
+    class Practice(val id: String, val title: String, val image: ByteArray, val expires: Long, val partnerVoice: String = "")
 
     @Volatile private var ready: List<Practice> = emptyList()
     @Volatile private var launchRequested = false
@@ -153,9 +153,9 @@ object PracticePortal {
         }
 
     /** Photo-grounded practice: the photo and goal go to the Portal, which keeps them up to 30 minutes. */
-    fun createPractice(context: Context, image: ByteArray, goal: String, track: (HttpURLConnection?) -> Unit = {}): Practice =
+    fun createPractice(context: Context, image: ByteArray, goal: String, partnerVoice: String = "auto", track: (HttpURLConnection?) -> Unit = {}): Practice =
         call(context, "/api/practice/generate", track) { request ->
-            val body = JSONObject().put("image", "data:image/jpeg;base64," + Base64.encodeToString(image, Base64.NO_WRAP)).put("goal", goal)
+            val body = JSONObject().put("image", "data:image/jpeg;base64," + Base64.encodeToString(image, Base64.NO_WRAP)).put("goal", goal).put("partnerVoice", partnerVoice)
             send(request, "application/json", body.toString().toByteArray(Charsets.UTF_8), 40000)
             val status = request.responseCode
             if (status != 200) throw IllegalStateException(when (status) {
@@ -166,13 +166,13 @@ object PracticePortal {
             })
             val result = read(request)
             val lesson = result.getJSONObject("lesson")
-            Practice(lesson.getString("id"), lesson.getString("title"), image, result.getLong("expiresAt"))
+            Practice(lesson.getString("id"), lesson.getString("title"), image, result.getLong("expiresAt"), lesson.optString("partnerVoice"))
         }
 
     /** Voice-only lesson written from the spoken goal (no photo); saved on the Portal as `gen-…`. */
-    fun createScenario(context: Context, goal: String, level: String, language: String, track: (HttpURLConnection?) -> Unit = {}): JSONObject =
+    fun createScenario(context: Context, goal: String, level: String, language: String, partnerVoice: String = "auto", track: (HttpURLConnection?) -> Unit = {}): JSONObject =
         call(context, "/api/scenarios", track) { request ->
-            val body = JSONObject().put("request", goal).put("level", level)
+            val body = JSONObject().put("request", goal).put("level", level).put("partnerVoice", partnerVoice)
             if (language.isNotBlank()) body.put("language", language)
             send(request, "application/json", body.toString().toByteArray(Charsets.UTF_8), 70000)
             val status = request.responseCode

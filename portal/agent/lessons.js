@@ -6,11 +6,20 @@ export const LESSON_ROOT = fileURLToPath(new URL('../../Assets/StreamingAssets/l
 export class AgentError extends Error { constructor(status, message) { super(message); this.status = status; } }
 const plain = (v) => v && typeof v === 'object' && !Array.isArray(v);
 const text = (s) => typeof s === 'string' && s.trim().length > 0 && s.length <= 2000;
+export function partnerVoiceOverride(value) {
+  if (value === undefined || value === 'auto') return undefined;
+  if (value === 'female' || value === 'male') return value;
+  throw new AgentError(400, 'partnerVoice must be auto, female or male');
+}
+export function castPartnerVoice(recommendation, override) {
+  return override ?? (recommendation === 'male' ? 'male' : 'female');
+}
 export function flattenLesson(lesson) { return lesson.beats.flatMap((beat, beatIndex) => beat.lines.map((line) => ({ line, beat, beatIndex }))); }
 export function validateLesson(lesson) {
   if (!plain(lesson) || !/^[a-z0-9][a-z0-9-]{0,79}$/.test(lesson.id) || !['title', 'level', 'scenePrompt', 'audioPrompt'].every((k) => text(lesson[k]))
       || typeof lesson.startImage !== 'string' || !Array.isArray(lesson.beats) || !lesson.beats.length || lesson.beats.length > 100) throw new AgentError(422, 'Invalid lesson metadata');
   if (lesson.visiblePartner !== undefined && typeof lesson.visiblePartner !== 'boolean') throw new AgentError(422, 'Invalid visible partner flag');
+  if (lesson.partnerVoice !== undefined && !['female', 'male'].includes(lesson.partnerVoice)) throw new AgentError(422, 'Invalid partner voice');
   for (const beat of lesson.beats) {
     if (!plain(beat) || !text(beat.goal) || !Array.isArray(beat.lines) || !beat.lines.length || beat.lines.length > 50 || !Array.isArray(beat.vocab)) throw new AgentError(422, 'Invalid lesson beat');
     if (beat.lines.some((line) => !plain(line) || !['jp', 'kana', 'romaji', 'zh', 'en', 'cue'].every((k) => text(line[k])))) throw new AgentError(422, 'Invalid lesson line');

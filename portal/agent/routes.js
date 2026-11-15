@@ -32,15 +32,32 @@ export function registerAgentRoutes(app, { authorized = () => true, store = crea
       if (!controller.signal.aborted) res.set('Cache-Control', 'no-store').json({ english });
     } finally { res.off('close', abort); }
   }));
-  app.post('/api/agent/speak', protect, route(async (req, res) => {
-    if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body) || Object.keys(req.body).some((key) => !['text', 'language'].includes(key))) return res.status(400).json({ error: 'Invalid speech request' });
+  async function sendSpeech(res, params) {
     const controller = new AbortController();
     const abort = () => { if (!res.writableEnded) controller.abort(); };
     res.on('close', abort);
     try {
-      const audio = await synthesize({ ...req.body, signal: controller.signal });
+      const audio = await synthesize({ ...params, signal: controller.signal });
       if (!controller.signal.aborted) res.set('Cache-Control', 'no-store').type('audio/wav').send(audio);
     } finally { res.off('close', abort); }
+  }
+  app.post('/api/agent/speak', protect, route(async (req, res) => {
+    if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body) || Object.keys(req.body).some((key) => !['text', 'language'].includes(key))) return res.status(400).json({ error: 'Invalid speech request' });
+    await sendSpeech(res, req.body);
+  }));
+  app.post('/api/agent/clerk-speech', protect, route(async (req, res) => {
+    const input = req.body;
+    if (!input || typeof input !== 'object' || Array.isArray(input)
+        || Object.keys(input).some((key) => !['sessionId', 'lessonId', 'runId', 'revision'].includes(key))
+        || typeof input.runId !== 'string' || !Number.isSafeInteger(input.revision) || input.revision < 1)
+      return res.status(400).json({ error: 'Invalid clerk speech request' });
+    const state = service.snapshot({ sessionId: input.sessionId, lessonId: input.lessonId });
+    if (!state || state.runId !== input.runId || state.revision !== input.revision)
+      return res.status(409).json({ error: 'Lesson changed before clerk playback' });
+    const speech = state.response?.speech;
+    if (speech?.role !== 'clerk' || !speech.text)
+      return res.status(404).json({ error: 'There is no clerk line for this turn' });
+    await sendSpeech(res, { text: speech.text, language: speech.language, partnerVoice: state.lessonContext?.partnerVoice });
   }));
   app.get('/api/agent/lessons', protect, route(async (_req, res) => res.json({ lessons: await store.list() })));
   app.get('/api/agent/lessons/:id', protect, route(async (req, res) => res.json(await store.load(req.params.id))));
