@@ -2,6 +2,31 @@
 
 Use the native Tenin app on the S25 with Air 2 Ultra attached and the development Portal reachable. Keep Voice example enabled. On the phone, open **Courses**, leave **Order Coffee** selected, and tap **Start in glasses**. Pause at **I’m wearing them** while the recordings start.
 
+## Rehearse the judge flow
+
+1. Check that the standby screen appears in both eyes and the phone says **Scene ready: Order Coffee**. Keep the phone unlocked and verify that the APK's configured Portal can serve all three scene openings.
+2. Enter the lesson. Confirm the café appears upright, the clerk caption includes English, and the teaching voice follows the clerk with approximately two seconds between them. Wait for **Listening** before answering.
+3. Order coffee. On the milk step, try `こんばんは` once and check the retry card in the phone and the glasses. Point at the dark menu beside the barista and hold the pose until the aim confirmation appears. Answer the generated detour, return to the milk request, and finish with the handoff sentence.
+4. Check the attempt review on both displays. On the phone, open the saved session and try **Practice the tricky ones**. A sentence that needed a retry belongs in this replay even after the learner passes it. Stop the lesson before rehearsing USB or network recovery separately.
+
+## Deploy the judge Portal to Railway
+
+Use project **tenin-demo**, environment **production**, service **portal**. Keep one replica in US West with sleep disabled. The HTTP health check is `/api/health`. The volume mounts at `/app/portal/data` and stores clips and records. Provision `PORT=8790`, a private `PORTAL_TOKEN`, and the required Reactor, OpenAI and Cartesia settings from `portal/.env.example` as Railway service variables.
+
+Prepare an upload from the committed revision and the local authored opening cache. From a directory with Railway CLI access, run:
+
+```sh
+stage="$(mktemp -d)"
+sh portal/deploy/stage.sh /path/to/portal/data/scene-openings "$stage"
+(
+  cd "$stage"
+  railway up --detach --project b129c2b2-a712-4be4-8179-e2e0e14f345d \
+    --environment production --service portal
+)
+```
+
+The staged archive contains source and matching authored course clips. The entry point seeds missing clips on the mounted volume. Verify that authorized byte-range requests for `cafe-order`, `cafe-menupour`, and `cafe-serve` return HTTP 206. Configure `portalUrl` and `portalToken` in the ignored development build's `visko.json` before building the hosted APK. Keep the token in the private demo build and server settings.
+
 ## Shoot the lesson
 
 | Beat | What to capture in the glasses | Learner line |
