@@ -50,8 +50,9 @@ namespace ImmerseTheBay.Visko
         public string PortalSessionId => m_PortalSession;
         public Texture2D StartImageTexture { get; private set; }
         public bool HasLiveFrame { get; private set; }
-        bool m_PreparingScene, m_AcceptSceneFrames;
+        bool m_PreparingScene, m_AcceptSceneFrames, m_BackendWasReady;
         long m_SceneFrameFloor;
+        double m_LiveFrameAt;
         float m_LiveBlend;
         const float LessonAspect = 16f / 9f;
         public string Model { get; private set; } = "";
@@ -253,6 +254,7 @@ namespace ImmerseTheBay.Visko
             Status = "DISCONNECTED";
             var backend = m_Backend;
             m_Backend = null;
+            m_BackendWasReady = false;
             FailPending("Visko connection closed");
             m_ImageTask = null;
             m_LastFrame = -1;
@@ -423,9 +425,9 @@ namespace ImmerseTheBay.Visko
 
         public Task SendLearningEvent(string json)
         {
-            if (!isActiveAndEnabled || !m_Hub || !m_Hub.IsConnected) throw new InvalidOperationException("Learning sync is offline");
             if (JsonField(json, "type") != "learn") throw new ArgumentException("Expected a complete learn envelope", nameof(json));
-            return m_Hub.SendText(json);
+            // The lesson and media were already committed; a mirror outage cannot roll them back.
+            return isActiveAndEnabled && m_Hub && m_Hub.IsConnected ? m_Hub.SendText(json) : Task.CompletedTask;
         }
 
         void RequireReady()
@@ -515,8 +517,20 @@ namespace ImmerseTheBay.Visko
         internal void PostStatus(object sender, string s) => EnqueueBackend(sender, () =>
         {
             Status = s;
-            if (s == "DISCONNECTED") FailPending("Reactor disconnected");
-            if (s == "READY") m_Retries = 0;
+            if (s == "DISCONNECTED")
+            {
+                if (m_BackendWasReady)
+                {
+                    DisconnectBackend(keepOpening: false);
+                    return;
+                }
+                FailPending("Reactor disconnected");
+            }
+            if (s == "READY")
+            {
+                m_BackendWasReady = true;
+                m_Retries = 0;
+            }
             SendHubStatus();
             if (s == "READY" && m_OwnsSession)
             {
@@ -623,7 +637,7 @@ namespace ImmerseTheBay.Visko
 
         void PullFrame()
         {
-            if (m_Backend == null || !screen || (m_PreparingScene && !m_AcceptSceneFrames)) return;
+            if (m_Backend == null || !IsConnected || !screen || (m_PreparingScene && !m_AcceptSceneFrames)) return;
             long id = m_Backend.FrameId;
             if (id == m_LastFrame || (m_PreparingScene && id <= m_SceneFrameFloor)) return;
             int w = m_Backend.Width, h = m_Backend.Height;
@@ -631,6 +645,7 @@ namespace ImmerseTheBay.Visko
             var px = m_Backend.GetFrame();
             if (px == null || px.Length != w * h * 4) return;
             m_LastFrame = id;
+            m_LiveFrameAt = Time.realtimeSinceStartupAsDouble;
             if (!m_Texture || m_Texture.width != w || m_Texture.height != h)
             {
                 if (m_Texture) Destroy(m_Texture);

@@ -5,6 +5,7 @@ namespace ImmerseTheBay.Visko
     public partial class ViskoSession
     {
         public bool CanExploreLiveFrame => screen && screen.enabled && HasLiveFrame &&
+            Time.realtimeSinceStartupAsDouble - m_LiveFrameAt <= 1.5 &&
             m_LiveBlend >= 0.99f && m_Texture && screen.material.mainTexture == m_Texture;
 
         /// <summary>Projects a world ray through the same crop and vertical flip used by the live material.</summary>
