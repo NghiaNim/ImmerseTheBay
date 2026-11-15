@@ -1,5 +1,7 @@
 # ImmerseTheBay — Handoff (2026-11-14)
 
+**Latest (2026-11-15):** start with the [drop-off for the phone + glasses app](codex/HANDOFF-dropoff-2026-11-15.md) on `feat/unified-flow`.
+
 For the current S25 app, Portal setup, and next MR tests, start with the [phone and MR handoff](codex/HANDOFF-phone-mr.md).
 
 Immersive language learning on **XREAL Air 2 Ultra + Samsung Galaxy S25** (no Beam Pro), Unity 6000.0.85f2 LTS, XREAL SDK 3.1.0, with **Visko (Reactor) real-time generated video** as the core experience.

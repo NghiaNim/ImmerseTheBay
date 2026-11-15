@@ -40,7 +40,8 @@ namespace ImmerseTheBay.Learning
         float autoListenAt;
         bool wasListening;
         int silentRetries;
-        const int MaxSilentRetries = 3;
+        // Android's recognizer gives up after a few seconds of silence; the Portal recorder already waits up to 20 s.
+        int MaxSilentRetries => lesson.speechProvider is ImmerseTheBay.Visko.AndroidSpeechToText ? 3 : 1;
 
         IEnumerator Start()
         {
