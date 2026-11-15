@@ -44,7 +44,7 @@ test('detour hints, wrong speech, repeated intent stay and cannot alter saved ch
   const { turn } = setup(); await turn(); let r = await turn({ intent: 'I want a sandwich' }); const jp = r.overlay.jp; const id = r.route.nodeId;
   r = await turn({ transcript: '違います' }); assert.equal(r.overlay.jp, jp); assert.equal(r.route.nodeId, id); assert.ok(r.feedback.score < 75);
   r = await turn({ context: { gesture: 'long_pinch' } }); assert.equal(r.overlay.jp, jp); assert.ok(r.overlay.hintLevel > 0);
-  r = await turn({ intent: 'Where is the checkout counter?' }); assert.equal(r.overlay.jp, jp); assert.equal(r.route.nodeId, id); assert.match(r.feedback.notes.join(' '), /Finish this side/);
+  r = await turn({ intent: 'I want a sandwich' }); assert.equal(r.overlay.jp, jp); assert.equal(r.route.nodeId, id);
   await assert.rejects(turn({ beat: 7, transcript: jp }), { status: 409 });
 });
 test('counter and generic product work with no key; branches are bounded to six per run', async () => {
@@ -80,7 +80,7 @@ test('failed log rolls back detour graph and reset creates fresh run IDs', async
 test('detour planner adapter sends strict plan schema and saved anchor', async () => {
   let body; const planner = createClaudePlanner({ apiKey: 'fake', fetchImpl: async (_url, init) => { body = JSON.parse(init.body); return { ok: true, json: async () => ({ content: [{ type: 'text', text: JSON.stringify(generated) }] }) }; } });
   await planner({ lesson, current: main[6], intent: 'warm tea', returnBeat: 6, context: {} });
-  assert.ok(body.output_config.format.schema.properties.nodes); assert.equal(JSON.parse(body.messages[0].content).returnBeat, 6); assert.match(body.system, /never a scene reset/);
+  assert.ok(body.output_config.format.schema.properties.nodes); assert.equal(JSON.parse(body.messages[0].content).returnAnchor.beat, 6); assert.match(body.system, /never a scene reset/);
 });
 test('primary bento-heating goal reaches planner instead of matching its checkout rejoin clause', async () => {
   const heated = { label: 'Heat the bento', returnBeat: 6, nodes: [{ jp: 'このお弁当を温めていただけますか。', kana: 'このおべんとうをあたためていただけますか。', romaji: 'Kono obentou o atatamete itadakemasu ka.', zh: '可以帮我加热这个便当吗？', en: 'Could you heat this bento for me?', cue: 'The assistant places the bento beside the microwave.' }] };

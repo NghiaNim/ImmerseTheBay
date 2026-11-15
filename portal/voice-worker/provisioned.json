@@ -1,0 +1,9 @@
+{
+  "tools": {
+    "branch_scene": "agent_tool_ZgaGkDh8ZWXQeB5MQtnGhX",
+    "return_to_main": "agent_tool_L71nUCU65w5YtVVVehabfw",
+    "rehearse_line": "agent_tool_UDJ3sxGoEePVR6KtEysSDZ"
+  },
+  "agentId": "agent_rvQjQbrxx8Cbo7ht9PASYE",
+  "model": "gemini-3.5-flash-lite"
+}

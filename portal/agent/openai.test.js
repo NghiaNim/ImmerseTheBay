@@ -21,7 +21,7 @@ test('OpenAI Responses request uses Bearer auth and strict text.format without s
 });
 test('OpenAI plans use bounded plan schema, saved anchor and continuity instructions', async () => {
   let body; const client = createOpenAIClient({ apiKey: 'sk-test', model: 'explicit-model', planMode: true, fetchImpl: async (_url, init) => { body = JSON.parse(init.body); return success({ label: 'Tea', returnBeat: 0, nodes: [line] }); } });
-  await client(input); assert.equal(body.model, 'explicit-model'); assert.equal(body.text.format.name, 'lesson_detour'); assert.ok(body.text.format.schema.properties.nodes); assert.equal(JSON.parse(body.input).returnBeat, 0); assert.match(body.instructions, /never a scene reset/);
+  await client(input); assert.equal(body.model, 'explicit-model'); assert.equal(body.text.format.name, 'lesson_detour'); assert.ok(body.text.format.schema.properties.nodes); assert.equal(JSON.parse(body.input).returnAnchor.beat, 0); assert.match(body.instructions, /never a scene reset/);
 });
 test('HTTP errors, incomplete output, refusals and malformed JSON reject without secret echo', async () => {
   for (const result of [

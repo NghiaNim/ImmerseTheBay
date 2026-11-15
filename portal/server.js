@@ -11,6 +11,8 @@ import os from 'node:os';
 import { WebSocketServer } from 'ws';
 import { attachCast } from './cast/castHub.js';
 import { registerAgentRoutes } from './agent/routes.js';
+import { createAgentService } from './agent/service.js';
+import { registerVoiceRoutes } from './voice/routes.js';
 import { registerVisionRoutes } from './vision/routes.js';
 
 const PORT = Number(process.env.PORT || 8790);
@@ -37,7 +39,9 @@ function authorized(req) {
   return req.get('portal_token') === PORTAL_TOKEN || req.query.portal_token === PORTAL_TOKEN;
 }
 
-registerAgentRoutes(app, { authorized });
+const lessonService = createAgentService();
+registerAgentRoutes(app, { authorized, service: lessonService });
+registerVoiceRoutes(app, { authorized, snapshot: input => lessonService.snapshot(input) });
 
 app.get('/api/models', (_req, res) => res.json(MODELS));
 

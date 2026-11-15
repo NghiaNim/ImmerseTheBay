@@ -44,7 +44,7 @@ test('room, desk, gaze and RMS assistive signals affect response', async () => {
 test('LLM gets caption/context but cannot replace score, authored overlay or progression', async () => {
   let seen; const { service } = setup({ llm: async (input) => { seen = input; const r = structuredClone(input.fallback); r.visko[0].data.prompt = 'The host pours tea.'; r.overlay.jp = 'wrong'; r.feedback = { score: 1000, notes: ['Try a softer ending.'] }; r.advance = 'scene_done'; return r; } });
   const r = await service.turn(request({ imageRef: { id: 'opaque-ref', caption: 'Low table beside a window.' }, context: { roomLabels: ['table'] } }));
-  assert.equal(seen.photoCaption, 'Low table beside a window.'); assert.equal(r.visko[0].data.prompt, composeVisualPrompt('The host pours tea.')); assert.equal(r.advance, 'stay'); assert.equal(r.overlay.jp, lesson.beats[0].lines[0].jp); assert.equal(r.feedback.score, 0);
+  assert.equal(seen.photoCaption, 'Low table beside a window.'); assert.equal(r.visko[0].data.prompt, composeVisualPrompt(lesson.scenePrompt)); assert.equal(r.advance, 'stay'); assert.equal(r.overlay.jp, lesson.beats[0].lines[0].jp); assert.equal(r.feedback.score, 0);
 });
 test('LLM errors and malformed strict JSON fall back deterministically', async () => {
   for (const llm of [async () => { throw new Error('provider secret'); }, async () => ({ visko: [] }), async ({ fallback }) => ({ ...fallback, unknown: 'field' })]) {

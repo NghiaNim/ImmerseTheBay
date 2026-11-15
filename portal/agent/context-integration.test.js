@@ -21,7 +21,7 @@ function setup(options = {}) {
 }
 function assertAnchored(response) {
   for (const command of response.visko.filter((item) => item.name === 'set_prompt')) {
-    assert.ok(command.data.prompt.startsWith(CHARACTER_ANCHOR));
+    assert.ok(command.data.prompt.includes(CHARACTER_ANCHOR));
     assert.ok(command.data.prompt.endsWith(SCENE_ANCHOR));
     assert.ok(command.data.prompt.length <= 600);
     assert.ok(command.data.prompt.split(/\s+/u).length <= 95);

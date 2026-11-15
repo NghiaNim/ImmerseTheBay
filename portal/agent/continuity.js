@@ -1,9 +1,9 @@
 import { hasBannedTerm } from './guardrails.js';
 
 // A steering constraint, not a claim that a face was visible or verified.
-export const CHARACTER_ANCHOR = 'Preserve each established person from the original starting reference: exact facial structure, eyes, nose and mouth, same age, skin tone, hair, clothing and accessories.';
-export const SCENE_ANCHOR = 'Maintain the original first-person viewpoint, scene and lighting; no cuts, added people or recasting; natural conversational gestures without generated speech.';
-const NEUTRAL_ACTION = 'The scene continues with natural expressions and movement';
+export const CHARACTER_ANCHOR = 'The established face, hair and clothing remain unchanged.';
+export const SCENE_ANCHOR = 'Static eye-level medium-wide first-person POV, locked position, orientation and focal length; framing and background stay stationary, foreground clear.';
+const NEUTRAL_ACTION = 'The host stays in place with a natural expression';
 const CHARACTER = '(?:clerk|assistant|host|person|character|face|facial features|identity|hairstyle|hair|skin tone|clothing|outfit|accessories)';
 const conflicts = [
   new RegExp(`\\b(?:replace|swap|recast|change|alter|transform|redesign)\\b[^.!?。！？]{0,65}\\b${CHARACTER}\\b`, 'iu'),
@@ -11,37 +11,50 @@ const conflicts = [
   /\b(?:face[- ]?swap|age[- ]?shift|de[- ]?age|younger|older|rejuvenat\w*)\b/iu,
   /\b(?:cut to|teleport|scene reset|restart the scene|another store|different store)\b/iu,
   /(?:换脸|更换店员|另一个店员|改变肤色|变年轻|变老|別の店員|顔を変)/u,
+  /\b(?:camera|viewpoint|view|shot|framing)\b[^.!?。！？]{0,70}\b(?:move[sd]?|moving|approach\w*|follow\w*|track\w*|pan\w*|tilt\w*|zoom\w*|dolly|dollies|orbit\w*|rotate\w*|closer|close-up|reframe\w*|cut)\b/iu,
+  /\b(?:zoom\w*|dolly|dollies|close[- ]?up|over[- ]the[- ]shoulder|over[- ]shoulder|third[- ]person)\b/iu,
+  /\b(?:pan|tilt|rotate|move|reframe|orbit)\b[^.!?。！？]{0,35}\b(?:camera|viewpoint|view|shot)\b/iu,
+  /\b(?:visitor|learner|customer|shopper)\s+(?:(?:gently|slowly|then|now)\s+)*(?:places?|puts?|sets?|takes?|picks?|reaches?|walks?|moves?|enters?|appears?|stands?|sits?|holds?|turns?|faces?|looks?|steps?|is visible)\b/iu,
+  /\b(?:new|another|additional|extra)\s+(?:person|customer|shopper|visitor|clerk|assistant)\b|\b(?:person|customer|shopper|visitor)\s+enters?\b/iu,
+  /\b(?:clerk|assistant|host)\b[^.!?。！？]{0,40}\b(?:walks?|leaves?|approaches?|steps?|moves closer|leans? (?:closer|toward|towards)|fetches?)\b/iu,
+  /(?:镜头|鏡頭|カメラ)[^。！？.!?]{0,20}(?:移动|移動|推进|推進|拉近|转向|轉向|ズーム|近づ)|(?:特写|特寫|第三人称|第三人稱|肩越し)/u,
 ];
 function usable(value) {
   if (typeof value !== 'string' || hasBannedTerm(value)) return '';
   const clean = value.normalize('NFKC').replace(/[\u0000-\u001f\p{Cf}]/gu, ' ').replace(/\s+/gu, ' ').trim();
   if (!clean || conflicts.some((pattern) => pattern.test(clean))) return '';
-  return clean;
+  // The learner is the viewpoint, not another visible character. Translate
+  // recipient references in authored cues into fixed screen-space directions.
+  return clean
+    .replace(/\blooks? toward(?:s)? the (?:learner|visitor|customer)\b/giu, 'looks straight ahead')
+    .replace(/\btoward(?:s)? the (?:learner|visitor|customer)\b/giu, 'toward the near counter edge')
+    .replace(/\bcloser to the (?:learner|visitor|customer)\b/giu, 'slightly toward the near counter edge');
 }
 
-/** Compose after model refinement, for visual prompts only. Audio is untouched.
- * Explicit conflicts fall back to an authored action. This small guard is not a
- * semantic classifier; visual continuity must still be checked on actual frames.
+/** Initial WHO/WHERE may use a trusted reference description. Subsequent turns
+ * carry one physical delta, not a repeated character/world description. Positive
+ * camera/identity invariants avoid the model's documented negation noun trap.
  */
-export function composeVisualPrompt(action, fallback = NEUTRAL_ACTION) {
-  // Strip our own anchors to make composition idempotent.
+export function composeVisualPrompt(action, fallback = NEUTRAL_ACTION, { initial = false, subject = '' } = {}) {
   const strip = (value) => typeof value === 'string'
     ? value.replace(CHARACTER_ANCHOR, '').replace(SCENE_ANCHOR, '').trim() : value;
   const selected = usable(strip(action)) || usable(strip(fallback)) || NEUTRAL_ACTION;
   const first = (selected.match(/^[^.!?。！？]+/u)?.[0] || NEUTRAL_ACTION).trim();
-  const overhead = `${CHARACTER_ANCHOR} . ${SCENE_ANCHOR}`;
-  const wordsAvailable = 95 - overhead.split(/\s+/u).length + 1; // the placeholder period is not an action word
+  // subject is server-owned reference metadata, never the learner's caption.
+  const description = initial ? (usable(subject).match(/^[^.!?。！？]+/u)?.[0] || '').slice(0, 180).trim() : '';
+  const prefix = description ? `${description}; ` : '';
+  const overhead = `${prefix}. ${CHARACTER_ANCHOR} ${SCENE_ANCHOR}`;
+  const wordsAvailable = 95 - overhead.split(/\s+/u).length + 1;
   const charsAvailable = 600 - overhead.length;
   let delta = first.split(/\s+/u).slice(0, wordsAvailable).join(' ');
   if (delta.length > charsAvailable) {
     delta = delta.slice(0, charsAvailable);
-    // Prefer a complete word, retaining a bounded CJK/no-space action as well.
     const boundary = delta.lastIndexOf(' ');
     if (boundary > charsAvailable / 2) delta = delta.slice(0, boundary);
     if (/[\uD800-\uDBFF]$/u.test(delta)) delta = delta.slice(0, -1);
   }
   delta = delta.trim() || NEUTRAL_ACTION;
-  return `${CHARACTER_ANCHOR} ${delta}. ${SCENE_ANCHOR}`;
+  return `${prefix}${delta}. ${CHARACTER_ANCHOR} ${SCENE_ANCHOR}`;
 }
 
 
