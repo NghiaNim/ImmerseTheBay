@@ -80,6 +80,8 @@ namespace ImmerseTheBay.Learning
         LearningFeedback m_Feedback;
         bool m_Busy, m_Listening, m_Done, m_ConversationActive, m_AgentSpeaking, m_Detour, m_ControlsLocked;
         bool m_ClerkSpeaking, m_ExampleSpeaking;
+        string m_ExampleSpanText;
+        int m_ExampleStart, m_ExampleEnd;
         string m_ClerkCaption = "", m_ClerkEnglish = "", m_ClerkRomaji = "", m_LearnerCaption = "", m_LearnerEnglish = "", m_RouteLabel = "", m_ConversationStatus = "";
         Func<string> m_Debug;
         string m_StatusOverride = "";
@@ -171,6 +173,31 @@ namespace ImmerseTheBay.Learning
             m_ListeningLevel = Mathf.Clamp01(normalized);
             m_LastListeningSample = Time.unscaledTime;
         }
+        public void SetExampleSpan(string sentence, int start, int end)
+        {
+            if (sentence == m_ExampleSpanText && start == m_ExampleStart && end == m_ExampleEnd) return;
+            m_ExampleSpanText = sentence;
+            m_ExampleStart = start;
+            m_ExampleEnd = end;
+            Refresh();
+        }
+
+        bool ExampleOverlaps(string sentence, int start, int end) =>
+            m_ExampleSpeaking && m_ExampleSpanText != null && sentence == m_ExampleSpanText &&
+            start < m_ExampleEnd && end > m_ExampleStart;
+
+        const string ExampleColorTag = "<color=#79F4FF>";
+
+        string HighlightExample(string text, string sentence, int sentenceOffset = 0, bool wholeGroup = false, bool preserveVocabulary = false)
+        {
+            if (!ExampleOverlaps(sentence, sentenceOffset, sentenceOffset + text.Length)) return null;
+            int start = wholeGroup ? 0 : Mathf.Max(0, m_ExampleStart - sentenceOffset);
+            int end = wholeGroup ? text.Length : Mathf.Min(text.Length, m_ExampleEnd - sentenceOffset);
+            string Outside(string part) => preserveVocabulary ? HighlightVocabulary(part) : EscapeRichText(part);
+            return Outside(text.Substring(0, start)) + ExampleColorTag +
+                EscapeRichText(text.Substring(start, end - start)) + "</color>" + Outside(text.Substring(end));
+        }
+
         public void SetExampleSpeaking(bool speaking)
         {
             if (m_ExampleSpeaking == speaking) return;
@@ -441,7 +468,7 @@ namespace ImmerseTheBay.Learning
                 : clerkTurn ? Dialogue("店員", m_ClerkCaption, "") : "";
             m_Learner.text = reviewing ? Dialogue("Heard", review.Transcript, null)
                 : showLearner ? Dialogue("あなた", m_LearnerCaption, m_LearnerEnglish) : "";
-            m_Japanese.text = reviewing ? EscapeRichText(review.Target ?? "") : m_SceneTransition ? "Preparing next scene…" :
+            m_Japanese.text = reviewing ? (HighlightExample(review.Target ?? "", review.Target) ?? EscapeRichText(review.Target ?? "")) : m_SceneTransition ? "Preparing next scene…" :
                 targetTurn ? Highlight(m_Overlay?.jp ?? (m_Done ? "お疲れさまでした" : "")) : "";
             m_Romaji.text = clerkTurn ? m_ClerkRomaji : targetTurn && showRomaji ? m_Overlay?.romaji ?? "" : "";
             m_Kana.text = targetTurn && showKana ? m_Overlay?.kana ?? "" : "";
@@ -562,6 +589,8 @@ namespace ImmerseTheBay.Learning
 
         string Highlight(string text, int sentenceOffset = 0)
         {
+            string active = HighlightExample(text, m_Overlay?.jp, sentenceOffset, preserveVocabulary: true);
+            if (active != null) return active;
             var correction = m_ShowCorrection ? m_ResultAttempt.correction : null;
             if (correction != null && correction.start >= sentenceOffset && correction.end <= sentenceOffset + text.Length)
             {
@@ -617,7 +646,11 @@ namespace ImmerseTheBay.Learning
             {
                 if (i >= m_ReadingCells.Count) m_ReadingCells.Add(CreateReadingCell());
                 var cell = m_ReadingCells[i];
-                cell.japanese.text = Highlight(groups[i].jp, sentenceOffset);
+                bool exampleActive = ExampleOverlaps(m_Overlay.jp, sentenceOffset, sentenceOffset + groups[i].jp.Length);
+                cell.japanese.text = HighlightExample(groups[i].jp, m_Overlay.jp, sentenceOffset, wholeGroup: true)
+                    ?? Highlight(groups[i].jp, sentenceOffset);
+                var readingColor = exampleActive ? new Color32(121, 244, 255, 255) : m_Romaji.color;
+                cell.kana.color = cell.romaji.color = readingColor;
                 cell.kana.text = groups[i].jp == groups[i].kana ? "" : groups[i].kana ?? "";
                 sentenceOffset += groups[i].jp.Length;
                 cell.romaji.text = groups[i].romaji;

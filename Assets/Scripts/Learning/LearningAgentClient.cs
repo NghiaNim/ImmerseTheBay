@@ -776,20 +776,30 @@ namespace ImmerseTheBay.Learning
             if (m_ExampleSpeaker) { m_ExampleSpeaker.Stop(); m_ExampleSpeaker.clip = null; }
             if (m_ExampleAudio) Destroy(m_ExampleAudio);
             m_ExampleAudio = null;
-            if (overlay) overlay.SetExampleSpeaking(false);
+            if (overlay)
+            {
+                overlay.SetExampleSpan(null, 0, 0);
+                overlay.SetExampleSpeaking(false);
+            }
         }
 
-        async void PlayExample(string japanese, int generation)
+        [Serializable] sealed class ExampleRanges { public ExampleRange[] ranges; }
+        [Serializable] sealed class ExampleRange { public int start, end, from, to; }
+
+        async void PlayExample(string japanese, int generation, bool slow = false)
         {
             if (string.IsNullOrWhiteSpace(japanese)) return;
-            string url = visko.config.portalUrl.TrimEnd('/') + "/api/agent/speak";
+            japanese = japanese.Trim();
+            bool timed = japanese.Length <= 120;
+            string url = visko.config.portalUrl.TrimEnd('/') + (timed ? "/api/agent/pronunciation" : "/api/agent/speak");
             using var request = new UnityWebRequest(url, "POST");
             request.SetRequestHeader("x-tenin-audio-layout", "stereo");
             try
             {
                 request.downloadHandler = new DownloadHandlerAudioClip(url, AudioType.WAV);
                 request.uploadHandler = new UploadHandlerRaw(Encoding.UTF8.GetBytes(
-                    "{\"text\":" + LearningContract.Quote(japanese) + ",\"language\":\"ja\"}"));
+                    "{\"text\":" + LearningContract.Quote(japanese) +
+                    (timed ? ",\"slow\":" + (slow ? "true}" : "false}") : ",\"language\":\"ja\"}")));
                 request.SetRequestHeader("Content-Type", "application/json");
                 if (!string.IsNullOrEmpty(visko.config.portalToken))
                     request.SetRequestHeader("portal_token", visko.config.portalToken);
@@ -814,17 +824,47 @@ namespace ImmerseTheBay.Learning
                     m_ExampleSpeaker.playOnAwake = false;
                     m_ExampleSpeaker.spatialBlend = 0;
                 }
+                var ranges = ReadExampleRanges(request, japanese, m_ExampleAudio.length);
+                int index = 0;
                 m_ExampleSpeaker.clip = m_ExampleAudio;
                 m_ExampleSpeaker.Play();
                 if (overlay) overlay.SetExampleSpeaking(true);
                 while (IsCurrent(generation) && m_ExampleAudioRequest == request && m_ExampleSpeaker.isPlaying)
+                {
+                    int milliseconds = (int)((long)m_ExampleSpeaker.timeSamples * 1000 / m_ExampleAudio.frequency);
+                    while (index < ranges.Length && ranges[index].to <= milliseconds) index++;
+                    var range = index < ranges.Length && ranges[index].from <= milliseconds ? ranges[index] : null;
+                    if (overlay) overlay.SetExampleSpan(range == null ? null : japanese, range?.start ?? 0, range?.end ?? 0);
                     await Task.Yield();
+                }
             }
             catch (Exception) { Debug.LogWarning("[Learning] Pronunciation example unavailable; continuing without it."); }
             finally
             {
                 if (m_ExampleAudioRequest == request) StopExampleAudio();
             }
+        }
+
+        static ExampleRange[] ReadExampleRanges(UnityWebRequest request, string text, float seconds)
+        {
+            string header = request.GetResponseHeader("X-Tenin-Speech-Ranges");
+            if (string.IsNullOrEmpty(header) || header.Length > 8192) return Array.Empty<ExampleRange>();
+            try
+            {
+                var ranges = JsonUtility.FromJson<ExampleRanges>(header)?.ranges;
+                if (ranges == null || ranges.Length > text.Length) return Array.Empty<ExampleRange>();
+                int lastOffset = 0, lastTime = 0;
+                foreach (var range in ranges)
+                {
+                    if (range == null || range.start < lastOffset || range.end <= range.start || range.end > text.Length ||
+                        range.from < lastTime || range.to <= range.from || range.to > seconds * 1000 + 2)
+                        return Array.Empty<ExampleRange>();
+                    lastOffset = range.end;
+                    lastTime = range.to;
+                }
+                return ranges;
+            }
+            catch (ArgumentException) { return Array.Empty<ExampleRange>(); }
         }
 
         void PlayAttemptCue(bool passed)
@@ -1014,12 +1054,15 @@ namespace ImmerseTheBay.Learning
             m_ReviewSpeaker.Play();
         }
 
-        public void PlayReviewExample(int index)
+        public void PlayReviewExample(int index) => PlayReviewExample(index, false);
+        public void PlayReviewExampleSlow(int index) => PlayReviewExample(index, true);
+
+        void PlayReviewExample(int index, bool slow)
         {
             if (!IsDone || index < 0 || index >= m_Review.Count || IsClerkSpeaking) return;
             StopReviewRecording();
             StopExampleAudio();
-            PlayExample(m_Review[index].Target, m_Generation);
+            PlayExample(m_Review[index].Target, m_Generation, slow);
         }
 
         public void StopReviewPlayback()

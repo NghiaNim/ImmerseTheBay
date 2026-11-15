@@ -178,7 +178,7 @@ namespace ImmerseTheBay.Learning
         RawImage startPreview;
         GameObject liveLessonPanel, reviewPanel, reviewCard, reviewAudio, reviewNavigation;
         Text reviewTitle, reviewPosition, reviewTarget, reviewTranscript, reviewOutcome, reviewEmpty, reviewAudioNote;
-        Button reviewPrevious, reviewNext, reviewRecording, reviewExample;
+        Button reviewPrevious, reviewNext, reviewRecording, reviewExample, reviewSlowExample;
         int reviewIndex, shownReviewCount;
         static readonly Color TeninYellow = new Color32(0xFF, 0xE2, 0x99, 0xFF);
 
@@ -243,8 +243,10 @@ namespace ImmerseTheBay.Learning
             reviewAudio = new GameObject("Review audio", typeof(RectTransform));
             reviewAudio.transform.SetParent(panel, false);
             Place(reviewAudio.GetComponent<RectTransform>(), 0.06f, 0.287f, 0.94f, 0.353f);
-            reviewRecording = ActionButton(reviewAudio.transform, "My recording", PlaySelectedRecording, 0f, 0.48f);
-            reviewExample = ActionButton(reviewAudio.transform, "Example", PlaySelectedExample, 0.52f, 1f);
+            reviewRecording = ActionButton(reviewAudio.transform, "My recording", PlaySelectedRecording, 0f, 0.32f);
+            reviewExample = ActionButton(reviewAudio.transform, "Example", PlaySelectedExample, 0.34f, 0.66f);
+            reviewSlowExample = ActionButton(reviewAudio.transform, "Slow example",
+                () => lesson.PlayReviewExampleSlow(reviewIndex), 0.68f, 1f);
             reviewAudioNote = ReviewText(panel, 30, Color.white, 0.07f, 0.235f, 0.93f, 0.283f);
             reviewAudioNote.text = "No recording for this attempt.";
 
@@ -321,6 +323,7 @@ namespace ImmerseTheBay.Learning
                     : "No match score";
             reviewRecording.interactable = attempt.HasRecording;
             reviewExample.interactable = !string.IsNullOrWhiteSpace(attempt.Target);
+            reviewSlowExample.interactable = reviewExample.interactable && attempt.Target.Length <= 120;
             reviewAudioNote.gameObject.SetActive(!attempt.HasRecording);
             reviewPrevious.interactable = reviewIndex > 0;
             reviewNext.interactable = reviewIndex + 1 < shownReviewCount;

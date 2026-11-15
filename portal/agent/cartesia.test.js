@@ -112,3 +112,33 @@ test('finalizes streaming WAV sizes after metadata chunks for file decoders', as
   assert.equal(complete.readUInt32LE(28), 4);
   assert.deepEqual(complete.subarray(32), streamed.subarray(32));
 });
+
+test('timed pronunciation validates actual Japanese spans and preserves audio on unaligned text', async () => {
+  const text = 'ミルクを。';
+  const pcm = Buffer.alloc(88200, 17);
+  let words = [...text];
+  let done = true;
+  const speak = createCartesiaSpeech({ ...options, fetchImpl: async (url, init) => {
+    assert.equal(url, 'https://api.cartesia.ai/tts/sse');
+    const request = JSON.parse(init.body);
+    assert.equal(request.add_timestamps, true);
+    assert.equal(request.use_normalized_timestamps, false);
+    assert.equal(request.output_format.container, 'raw');
+    assert.equal(request.generation_config.speed, 0.8);
+    const events = [
+      { type: 'chunk', data: pcm.toString('base64') },
+      { type: 'timestamps', word_timestamps: { words, start: [0.1, 0.2, 0.3, 0.4, 0.5], end: [0.2, 0.3, 0.4, 0.4, 0.6] } },
+      ...(done ? [{ type: 'done' }] : []),
+    ];
+    return new Response(events.map(event => `data: ${JSON.stringify(event)}\r\n\r\n`).join(''));
+  } });
+  const aligned = await speak({ text, timed: true, slow: true });
+  assert.equal(aligned.audio.readUInt32LE(40), pcm.length);
+  assert.deepEqual(aligned.audio.subarray(44), pcm);
+  assert.deepEqual(aligned.ranges.map(range => [text.slice(range.start, range.end), range.from, range.to]),
+    [['ミ', 100, 200], ['ル', 200, 300], ['ク', 300, 400], ['。', 500, 600]]);
+  words = [...'みるくを。'];
+  assert.deepEqual((await speak({ text, timed: true, slow: true })).ranges, []);
+  done = false;
+  await assert.rejects(speak({ text, timed: true, slow: true }), { status: 502 });
+});

@@ -141,3 +141,21 @@ test('disconnecting the HTTP caller propagates cancellation to speech synthesis'
     finally { clearTimeout(timer); }
   });
 });
+
+test('pronunciation returns verified timing metadata alongside existing stereo WAV format', async () => {
+  const audio = speechWav(1, [12, -9]);
+  const ranges = [{ start: 0, end: 1, from: 0, to: 20 }];
+  const calls = [];
+  await withServer(async request => { calls.push(request); return { audio, ranges }; }, async ({ url, headers }) => {
+    const endpoint = url.replace(/speak$/, 'pronunciation');
+    const post = (body, h = headers) => fetch(endpoint, { method: 'POST', headers: h, body: JSON.stringify(body) });
+    assert.equal((await post({ text: '水' }, { 'content-type': 'application/json' })).status, 401);
+    assert.equal((await post({ text: '水', slow: 'yes' })).status, 400);
+    assert.equal((await post({ text: '水'.repeat(121) })).status, 400);
+    const result = await post({ text: '水', slow: true }, { ...headers, 'x-tenin-audio-layout': 'stereo' });
+    assert.equal(result.status, 200);
+    assert.deepEqual(JSON.parse(result.headers.get('x-tenin-speech-ranges')), { ranges });
+    assert.deepEqual(Buffer.from(await result.arrayBuffer()), speechWav(2, [12, 12, -9, -9]));
+    assert.deepEqual(calls.map(({ text, slow, timed }) => ({ text, slow, timed })), [{ text: '水', slow: true, timed: true }]);
+  });
+});

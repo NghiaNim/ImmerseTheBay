@@ -42,14 +42,26 @@ export function registerAgentRoutes(app, { authorized = () => true, store = crea
     const abort = () => { if (!res.writableEnded) controller.abort(); };
     res.on('close', abort);
     try {
-      const audio = await synthesize({ ...params, signal: controller.signal });
-      if (!controller.signal.aborted)
-        res.set('Cache-Control', 'no-store').type('audio/wav').send(layout === 'stereo' ? stereoSpeechWav(audio) : audio);
+      const result = await synthesize({ ...params, signal: controller.signal });
+      if (controller.signal.aborted) return;
+      const audio = params.timed ? result.audio : result;
+      if (params.timed && result.ranges.length)
+        res.set('X-Tenin-Speech-Ranges', JSON.stringify({ ranges: result.ranges }));
+      res.set('Cache-Control', 'no-store').type('audio/wav').send(layout === 'stereo' ? stereoSpeechWav(audio) : audio);
     } finally { res.off('close', abort); }
   }
   app.post('/api/agent/speak', protect, route(async (req, res) => {
     if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body) || Object.keys(req.body).some((key) => !['text', 'language'].includes(key))) return res.status(400).json({ error: 'Invalid speech request' });
     await sendSpeech(req, res, req.body);
+  }));
+  app.post('/api/agent/pronunciation', protect, route(async (req, res) => {
+    const input = req.body;
+    if (!input || typeof input !== 'object' || Array.isArray(input)
+        || Object.keys(input).some(key => !['text', 'slow'].includes(key))
+        || typeof input.text !== 'string' || !input.text.trim() || input.text.length > 120
+        || (input.slow !== undefined && typeof input.slow !== 'boolean'))
+      return res.status(400).json({ error: 'Invalid pronunciation request' });
+    await sendSpeech(req, res, { text: input.text, slow: input.slow === true, timed: true });
   }));
   app.post('/api/agent/clerk-speech', protect, route(async (req, res) => {
     const input = req.body;
