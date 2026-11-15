@@ -34,7 +34,7 @@ namespace ImmerseTheBay.Visko
     ///  - Video frames (BGRA) from the Android bridge are uploaded to a texture on <see cref="screen"/>; audio plays natively.
     /// Config: StreamingAssets/visko.json (see <see cref="ViskoConfig"/>).
     /// </summary>
-    public class ViskoSession : MonoBehaviour
+    public partial class ViskoSession : MonoBehaviour
     {
         public Renderer screen;
         public ViskoConfig config = new();
@@ -188,6 +188,7 @@ namespace ImmerseTheBay.Visko
                 m_LiveBlend = Mathf.MoveTowards(m_LiveBlend, 1f, Time.unscaledDeltaTime * 4f);
                 ApplyVideoBlend();
             }
+            UpdateSceneOpenings();
             m_FpsT += Time.unscaledDeltaTime;
             if (m_FpsT >= 1f) { m_Fps = m_Frames / m_FpsT; m_Frames = 0; m_FpsT = 0; }
         }
@@ -241,8 +242,12 @@ namespace ImmerseTheBay.Visko
             m_Backend?.SetSceneGain(gain, m_SceneGainRevision);
         }
 
-        public void Leave()
+        public void Leave() => DisconnectBackend(keepOpening: false);
+
+        void DisconnectBackend(bool keepOpening)
         {
+            PrefetchSceneOpening(null, null);
+            if (!keepOpening) ClearSceneOpening();
             ++m_ConnectVersion;
             CancelInvoke(nameof(RetryConnect));
             Status = "DISCONNECTED";
@@ -466,7 +471,8 @@ namespace ImmerseTheBay.Visko
             if (m_Backend == null) { m_LastError = "Visko video needs the Android build (editor: use the web portal)"; return; }
             await ConfigReady;
             if (!this || !isActiveAndEnabled) return;
-            Leave();
+            // Cold startup and pre-ready capacity retries share the opening for this explicit course choice.
+            DisconnectBackend(keepOpening: string.IsNullOrEmpty(sessionId) && string.IsNullOrEmpty(SessionId));
             EnsureBackend();
             int version = m_ConnectVersion;
             m_LastError = "";

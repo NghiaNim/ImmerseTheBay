@@ -5,6 +5,8 @@ Shader "ImmerseTheBay/ImmersiveVisko"
     {
         _MainTex ("Live video", 2D) = "black" {}
         _EnvironmentTex ("Starting photograph", 2D) = "black" {}
+        [NoScaleOffset] _OpeningTex ("Cached opening", 2D) = "black" {}
+        _OpeningBlend ("Cached opening blend", Range(0, 1)) = 0
         _EnvironmentDim ("Peripheral brightness", Range(0, 1)) = 0.36
         _HasVideo ("Live frame available", Float) = 0
         _SceneOpacity ("Scene opacity", Range(0, 1)) = 1
@@ -23,9 +25,9 @@ Shader "ImmerseTheBay/ImmersiveVisko"
             #pragma multi_compile_instancing
             #include "UnityCG.cginc"
 
-            sampler2D _MainTex, _EnvironmentTex;
+            sampler2D _MainTex, _EnvironmentTex, _OpeningTex;
             float4 _MainTex_ST, _EnvironmentTex_ST;
-            float _EnvironmentDim, _HasVideo, _SceneOpacity;
+            float _EnvironmentDim, _HasVideo, _SceneOpacity, _OpeningBlend;
             struct appdata
             {
                 float4 vertex : POSITION;
@@ -56,7 +58,11 @@ Shader "ImmerseTheBay/ImmersiveVisko"
                 fixed3 video = tex2D(_MainTex, TRANSFORM_TEX(i.uv, _MainTex)).rgb;
                 float radius = length((i.uv - float2(0.5, 0.53)) / float2(0.43, 0.49));
                 float centre = 1.0 - smoothstep(0.34, 1.0, radius);
-                fixed3 focus = lerp(photo, video, saturate(_HasVideo));
+                fixed3 preview = photo;
+                UNITY_BRANCH
+                if (_OpeningBlend > 0)
+                    preview = lerp(photo, tex2D(_OpeningTex, i.uv).rgb, _OpeningBlend);
+                fixed3 focus = lerp(preview, video, saturate(_HasVideo));
                 float2 margins = min(i.uv, 1.0 - i.uv);
                 // Apply a second eased falloff to the entire photo/video composite.
                 // This widens the transparent border and fades the corners before

@@ -229,6 +229,7 @@ namespace ImmerseTheBay.Learning
                 await visko.ConfigReady;
                 EnsureCurrent(generation);
                 SetStatus("Preparing lesson…");
+                visko.UseSceneOpening(m_RunLesson, ViskoSession.CourseOpeningSceneId(startImage));
                 await visko.CommandAsync("reset", "{}");
                 EnsureCurrent(generation);
                 await Post("/api/agent/reset", "{\"sessionId\":" + LearningContract.Quote(m_Session) +
@@ -392,6 +393,13 @@ namespace ImmerseTheBay.Learning
             string sceneId = response.scene?.id;
             bool switchScene = !string.IsNullOrEmpty(m_ActiveSceneId) &&
                 !string.IsNullOrEmpty(sceneId) && sceneId != m_ActiveSceneId;
+            bool exploring = response.route?.kind == "detour";
+            if (exploring)
+            {
+                visko.ClearSceneOpening();
+                visko.PrefetchSceneOpening(null, null);
+            }
+            else if (!switchScene) visko.ConfirmSceneOpening(m_RunLesson, sceneId);
             bool preparingNext = switchScene || response.advance == "next_line" && response.visko.Any(command => command.name == "set_prompt");
             if (preparingNext && overlay) overlay.SetSceneTransition(true);
             if (!preparingNext && !IsConversationActive && response.speech?.role == "clerk")
@@ -408,11 +416,13 @@ namespace ImmerseTheBay.Learning
                 image ??= await visko.PrefetchLessonScene(sceneId);
                 EnsureCurrent(generation);
                 visko.PrepareScenePreview(image);
+                if (!exploring) visko.UseSceneOpening(m_RunLesson, sceneId);
                 await visko.CommandAsync("reset", "{}");
                 EnsureCurrent(generation);
                 await visko.SetImage(image);
                 EnsureCurrent(generation);
             }
+            visko.PrefetchSceneOpening(m_RunLesson, exploring ? null : response.nextSceneId);
             foreach (var command in response.visko)
             {
                 EnsureCurrent(generation);
@@ -559,6 +569,7 @@ namespace ImmerseTheBay.Learning
         {
             if (!IsCurrent(generation)) return;
             // A server may already have accepted the turn. Blind retries can skip a line or restart video.
+            visko.PrefetchSceneOpening(null, null);
             m_NeedsRestart = true;
             SetStatus("Lesson interrupted. Leave or begin again. " + error.Message);
         }
@@ -583,6 +594,7 @@ namespace ImmerseTheBay.Learning
         {
             m_ActiveSceneId = m_PrefetchedSceneId = null;
             m_ScenePrefetch = null;
+            if (visko) visko.PrefetchSceneOpening(null, null);
             m_Cancelling = true;
             conversation?.Disconnect();
             m_VoiceActive = m_VoiceConnecting = m_Reconciling = false;

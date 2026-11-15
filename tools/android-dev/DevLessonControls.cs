@@ -428,6 +428,7 @@ namespace ImmerseTheBay.Learning
             }
             selectionGeneration++;
             video.PrepareScenePreview(pendingImage);
+            video.UseSceneOpening(pendingLessonId, ViskoSession.CourseOpeningSceneId(pendingStartImage));
             SetPracticeVisible(true);
             starting = true;
             openingRequested = false;
