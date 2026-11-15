@@ -1,4 +1,4 @@
-import { scoreTranscript } from './guardrails.js';
+import { scoreTranscript, PASS_SCORE } from './guardrails.js';
 // Only known vocabulary supported by an encountered target and its authored reading is reported.
 const COMMON_WORDS = [
   ['サンドイッチ', 'さんどいっち', 'sandwich'], ['おにぎり', 'おにぎり', 'rice ball'],
@@ -36,7 +36,7 @@ export function recordSummary(state, { request, lesson, before, intent, response
         if (!target.attempts) target.firstScore = score;
         target.attempts++;
         target.bestTranscriptMatch = Math.max(target.bestTranscriptMatch ?? 0, score);
-        if (score >= 75 && advanced) target.completed = true;
+        if (score >= PASS_SCORE && advanced) target.completed = true;
       }
     }
   }
@@ -55,13 +55,13 @@ export function recordSummary(state, { request, lesson, before, intent, response
 export function summarize(state, lessonId) {
   const metrics = state.summary || { targets: [], words: [], scoredAttempts: 0, scoreSum: 0, hints: 0, manualSkips: 0 };
   const attempted = metrics.targets.filter(target => target.attempts > 0);
-  const firstSuccess = attempted.filter(target => target.firstScore >= 75).length;
+  const firstSuccess = attempted.filter(target => target.firstScore >= PASS_SCORE).length;
   const targets = metrics.targets.map(({ firstScore, ...target }) => target);
   return structuredClone({ runId: state.flow.runId, revision: state.revision, lessonId, completed: Boolean(state.complete),
     targetsEncountered: targets.length, targetsAttempted: attempted.length, targetsCompleted: targets.filter(target => target.completed).length,
     scoredAttempts: metrics.scoredAttempts, averageTranscriptMatch: metrics.scoredAttempts ? Math.round(metrics.scoreSum / metrics.scoredAttempts) : null,
     firstAttempt: { successes: firstSuccess, total: attempted.length, rate: attempted.length ? Math.round(firstSuccess / attempted.length * 100) : null },
     hints: metrics.hints, manualSkips: metrics.manualSkips, words: metrics.words, targets,
-    review: targets.filter(target => !target.completed || target.bestTranscriptMatch < 75).slice(0, 10),
+    review: targets.filter(target => !target.completed || target.bestTranscriptMatch < PASS_SCORE).slice(0, 10),
   });
 }

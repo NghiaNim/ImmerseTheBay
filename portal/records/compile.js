@@ -1,5 +1,6 @@
 import { flattenLesson, validateLesson, AgentError } from '../agent/lessons.js';
-export const PASS_SCORE = 75;
+export { PASS_SCORE } from '../agent/guardrails.js';
+import { PASS_SCORE } from '../agent/guardrails.js';
 const LINE_FIELDS = ['jp', 'kana', 'romaji', 'zh', 'en', 'cue'];
 // Generated scenarios add the partner's prompt and alternative proposed answers.
 const pickLine = (line) => line ? {

@@ -11,6 +11,7 @@
              one entry in Recents, and returning from the glasses reuses this instance. -->
         <activity android:name="com.immersethebay.phone.TeninActivity"
             android:taskAffinity="xreal.unity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|density|uiMode"
             android:exported="true"
             android:theme="@android:style/Theme.Material.Light.NoActionBar"
             android:windowSoftInputMode="adjustResize">

@@ -27,8 +27,12 @@ export function normalizeKana(value) {
 // One swapped particle is a small edit but a grammar error (ひきどがあけます for
 // ひきどをあけます), so it must not reach the 75 pass threshold.
 const PARTICLES = new Set('はがをにでのもへと');
-const PARTICLE_SWAP_CAP = 70;
-function similarity(a, b) {
+// Transcript similarity needed to pass a line. Phone speech recognition often returns partial
+// sentences, so this is lenient; it is a text match, not a pronunciation score.
+export const PASS_SCORE = 60;
+// A particle-for-particle swap stays just below the pass mark, whatever the pass mark is.
+const PARTICLE_SWAP_CAP = PASS_SCORE - 5;
+function similarity(a, b, cap = true) {
   if (!a || !b) return 0;
   const d = [Array.from({ length: b.length + 1 }, (_, j) => j)];
   for (let i = 1; i <= a.length; i++) {
@@ -43,8 +47,13 @@ function similarity(a, b) {
     } else if (d[i][j] === d[i - 1][j] + 1) i--;
     else j--;
   }
+  // Same length and only particle-for-particle differences (the walk above can pick another path).
+  if (!swapped && a.length === b.length) {
+    const diffs = [...a].map((ch, k) => [ch, b[k]]).filter(([x, y]) => x !== y);
+    swapped = diffs.length > 0 && diffs.every(([x, y]) => PARTICLES.has(x) && PARTICLES.has(y));
+  }
   const score = Math.round(100 * (1 - d[a.length][b.length] / Math.max(a.length, b.length)));
-  return swapped ? Math.min(score, PARTICLE_SWAP_CAP) : score;
+  return swapped && cap ? Math.min(score, PARTICLE_SWAP_CAP) : score;
 }
 // A natural attention-getter before the target line is not an error (すみません、ひきどをあけます).
 const POLITE_OPENER = /^(?:すみません|すいません|あのう|あの|ええと|えっと)/u;
@@ -53,6 +62,12 @@ export function scoreTranscript(transcript, line) {
   const trimmed = actual.replace(POLITE_OPENER, '');
   // Generated scenarios list alternative proposed answers; any of them is a valid reply.
   const answers = [line, ...(Array.isArray(line.alternatives) ? line.alternatives : [])];
-  return Math.max(...answers.flatMap((answer) => [normalizeKana(answer.kana), normalizeKana(answer.jp)].flatMap((target) =>
-    [similarity(actual, target), trimmed !== actual && !POLITE_OPENER.test(target) ? similarity(trimmed, target) : 0])));
+  const versus = (target) => [similarity(actual, target), trimmed !== actual && !POLITE_OPENER.test(target) ? similarity(trimmed, target) : 0];
+  return Math.max(...answers.map((answer) => {
+    const kana = normalizeKana(answer.kana);
+    const best = Math.max(...versus(kana), ...versus(normalizeKana(answer.jp)));
+    // A particle swap found against the reading caps this answer, even if the kanji text scores higher.
+    const raw = Math.max(similarity(actual, kana, false), trimmed !== actual ? similarity(trimmed, kana, false) : 0);
+    return raw > Math.max(...versus(kana)) ? Math.min(best, PARTICLE_SWAP_CAP) : best;
+  }));
 }

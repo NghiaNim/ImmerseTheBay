@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { createAgentService } from './service.js';
-import { hasBannedTerm, scoreTranscript } from './guardrails.js';
+import { hasBannedTerm, scoreTranscript, PASS_SCORE } from './guardrails.js';
 import { lessonSystemPrompt } from './prompts.js';
 // Regression cases from tools/sim-learner/runs/2026-11-15T10-34-00-785Z; no live model calls.
 const findings = JSON.parse(await readFile(new URL('./fixtures/sim-2026-11-15-findings.json', import.meta.url)));
@@ -30,22 +30,22 @@ test('a compliant planner cannot open a detour for a denylisted intent', async (
   }
   assert.equal(planned, 0);
 });
-test('a swapped particle no longer passes the 75 threshold', () => {
-  for (const { label, transcript, target } of findings.grammarErrors) assert.ok(scoreTranscript(transcript, target) < 75, `${label}: ${transcript}`);
+test('a swapped particle never reaches the pass mark', () => {
+  for (const { label, transcript, target } of findings.grammarErrors) assert.ok(scoreTranscript(transcript, target) < PASS_SCORE, `${label}: ${transcript}`);
 });
 test('exact, kanji and small non-particle slips still pass', () => {
   for (const { target } of findings.grammarErrors) {
     assert.equal(scoreTranscript(target.kana, target), 100); assert.equal(scoreTranscript(target.jp, target), 100);
   }
-  assert.ok(scoreTranscript('ざぶとんをくだしゃい。', { jp: '座布団をください。', kana: 'ざぶとんをください。' }) >= 75);
-  assert.ok(scoreTranscript('ありがとうございました', { jp: 'ありがとうございます', kana: 'ありがとうございます' }) >= 75);
+  assert.ok(scoreTranscript('ざぶとんをくだしゃい。', { jp: '座布団をください。', kana: 'ざぶとんをください。' }) >= PASS_SCORE);
+  assert.ok(scoreTranscript('ありがとうございました', { jp: 'ありがとうございます', kana: 'ありがとうございます' }) >= PASS_SCORE);
 });
 test('a leading polite opener does not fail a correct answer', () => {
-  for (const { label, transcript, target } of findings.politePrefix) assert.ok(scoreTranscript(transcript, target) >= 75, `${label}: ${transcript}`);
-  assert.ok(scoreTranscript('あの、つうろはどこですか', { jp: '通路はどこですか。', kana: 'つうろはどこですか。' }) >= 75);
+  for (const { label, transcript, target } of findings.politePrefix) assert.ok(scoreTranscript(transcript, target) >= PASS_SCORE, `${label}: ${transcript}`);
+  assert.ok(scoreTranscript('あの、つうろはどこですか', { jp: '通路はどこですか。', kana: 'つうろはどこですか。' }) >= PASS_SCORE);
   // An authored line that itself opens with すみません is still scored whole.
   assert.equal(scoreTranscript('すみません、おにぎりはどこですか。', { jp: 'すみません、おにぎりはどこですか。', kana: 'すみません、おにぎりはどこですか。' }), 100);
-  assert.ok(scoreTranscript('すみません', { jp: '通路はどこですか。', kana: 'つうろはどこですか。' }) < 75);
+  assert.ok(scoreTranscript('すみません', { jp: '通路はどこですか。', kana: 'つうろはどこですか。' }) < PASS_SCORE);
 });
 test('planner is told to decline non-goals with empty nodes instead of reusing the main line', () => {
   const prompt = lessonSystemPrompt(true);

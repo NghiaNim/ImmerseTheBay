@@ -1,7 +1,7 @@
 // Review saved lesson runs and start a replay of the exact lines (records/ on the server).
 const $ = (id) => document.getElementById(id);
 const token = new URLSearchParams(location.search).get('portal_token') || '';
-const PASS = 75;
+const PASS = 60; // matches PASS_SCORE in portal/agent/guardrails.js
 let current = null, audio = null;
 
 const withToken = (url) => token ? `${url}${url.includes('?') ? '&' : '?'}portal_token=${encodeURIComponent(token)}` : url;
