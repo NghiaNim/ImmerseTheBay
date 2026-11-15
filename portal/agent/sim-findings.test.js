@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { createAgentService } from './service.js';
-import { hasBannedTerm } from './guardrails.js';
+import { hasBannedTerm, scoreTranscript } from './guardrails.js';
 // Regression cases from tools/sim-learner/runs/2026-11-15T10-34-00-785Z; no live model calls.
 const findings = JSON.parse(await readFile(new URL('./fixtures/sim-2026-11-15-findings.json', import.meta.url)));
 const konbini = JSON.parse(await readFile(new URL('./fixtures/ja-konbini-001.json', import.meta.url)));
@@ -28,4 +28,14 @@ test('a compliant planner cannot open a detour for a denylisted intent', async (
     assert.match(response.feedback.notes.join(' '), /character or brand/, label);
   }
   assert.equal(planned, 0);
+});
+test('a swapped particle no longer passes the 75 threshold', () => {
+  for (const { label, transcript, target } of findings.grammarErrors) assert.ok(scoreTranscript(transcript, target) < 75, `${label}: ${transcript}`);
+});
+test('exact, kanji and small non-particle slips still pass', () => {
+  for (const { target } of findings.grammarErrors) {
+    assert.equal(scoreTranscript(target.kana, target), 100); assert.equal(scoreTranscript(target.jp, target), 100);
+  }
+  assert.ok(scoreTranscript('ざぶとんをくだしゃい。', { jp: '座布団をください。', kana: 'ざぶとんをください。' }) >= 75);
+  assert.ok(scoreTranscript('ありがとうございました', { jp: 'ありがとうございます', kana: 'ありがとうございます' }) >= 75);
 });

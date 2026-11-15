@@ -24,15 +24,27 @@ export function safePrompt(value, fallback) {
 export function normalizeKana(value) {
   return String(value || '').normalize('NFKC').toLowerCase().replace(/[ァ-ヶ]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0x60)).replace(/[\s\p{P}\p{S}\p{Cf}]/gu, '');
 }
+// One swapped particle is a small edit but a grammar error (ひきどがあけます for
+// ひきどをあけます), so it must not reach the 75 pass threshold.
+const PARTICLES = new Set('はがをにでのもへと');
+const PARTICLE_SWAP_CAP = 70;
 function similarity(a, b) {
   if (!a || !b) return 0;
-  let row = Array.from({ length: b.length + 1 }, (_, i) => i);
+  const d = [Array.from({ length: b.length + 1 }, (_, j) => j)];
   for (let i = 1; i <= a.length; i++) {
-    const next = [i];
-    for (let j = 1; j <= b.length; j++) next[j] = Math.min(row[j] + 1, next[j - 1] + 1, row[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
-    row = next;
+    d[i] = [i];
+    for (let j = 1; j <= b.length; j++) d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
   }
-  return Math.round(100 * (1 - row[b.length] / Math.max(a.length, b.length)));
+  let swapped = false;
+  for (let i = a.length, j = b.length; i > 0 && j > 0;) {
+    if (d[i][j] === d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)) {
+      if (a[i - 1] !== b[j - 1] && PARTICLES.has(a[i - 1]) && PARTICLES.has(b[j - 1])) swapped = true;
+      i--; j--;
+    } else if (d[i][j] === d[i - 1][j] + 1) i--;
+    else j--;
+  }
+  const score = Math.round(100 * (1 - d[a.length][b.length] / Math.max(a.length, b.length)));
+  return swapped ? Math.min(score, PARTICLE_SWAP_CAP) : score;
 }
 export function scoreTranscript(transcript, line) {
   const actual = normalizeKana(transcript);
