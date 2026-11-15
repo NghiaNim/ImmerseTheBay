@@ -69,6 +69,8 @@ namespace ImmerseTheBay.Visko
         Texture2D m_Texture;
         long m_LastFrame;
         bool m_OwnsSession, m_AudioMuted;
+        float m_SceneGain = 1f;
+        long m_SceneGainRevision;
         int m_ConnectVersion;
         long m_OperationId;
         Task m_ImageTask;
@@ -100,6 +102,7 @@ namespace ImmerseTheBay.Visko
             if (m_Backend == null && isActiveAndEnabled)
             {
                 m_Backend = new AndroidViskoBackend(this);
+                m_Backend.SetSceneGain(m_SceneGain, m_SceneGainRevision);
                 if (m_AudioMuted) m_Backend.SetAudioEnabled(false);
             }
 #endif
@@ -226,6 +229,16 @@ namespace ImmerseTheBay.Visko
         {
             m_AudioMuted = muted;
             m_Backend?.SetAudioEnabled(!muted);
+        }
+
+        /// <summary>Set native scene loudness without changing the microphone's mute state.</summary>
+        public void SetSceneGain(float gain)
+        {
+            gain = Mathf.Clamp01(gain);
+            if (Mathf.Approximately(m_SceneGain, gain)) return;
+            m_SceneGain = gain;
+            ++m_SceneGainRevision;
+            m_Backend?.SetSceneGain(gain, m_SceneGainRevision);
         }
 
         public void Leave()
@@ -684,6 +697,7 @@ namespace ImmerseTheBay.Visko
         void UploadImage(string id, byte[] bytes, string name, string mime);
         void Disconnect();
         void SetAudioEnabled(bool enabled);
+        bool SetSceneGain(float gain, long revision);
         long FrameId { get; }
         int Width { get; }
         int Height { get; }
@@ -716,6 +730,7 @@ namespace ImmerseTheBay.Visko
         public void UploadImage(string id, byte[] bytes, string name, string mime) => m_Bridge.Call("uploadImage", id, bytes, name, mime);
         public void Disconnect() => m_Bridge.Call("disconnect");
         public void SetAudioEnabled(bool enabled) => m_Bridge.Call("setAudioEnabled", enabled);
+        public bool SetSceneGain(float gain, long revision) => m_Bridge.Call<bool>("setSceneGain", gain, revision);
         public long FrameId => m_Bridge.Call<long>("getFrameId");
         public int Width => m_Bridge.Call<int>("getWidth");
         public int Height => m_Bridge.Call<int>("getHeight");

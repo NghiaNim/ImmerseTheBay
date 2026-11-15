@@ -29,6 +29,9 @@ namespace ImmerseTheBay.Learning
         int selectionGeneration;
         bool retryAvailable;
         string startupError = "";
+        bool sceneSound = true;
+        const float QuietSceneGain = 0.18f;
+        const float SpeakingSceneGain = 0.04f;
         float connectDeadline;
         static readonly int SceneOpacity = Shader.PropertyToID("_SceneOpacity");
         MaterialPropertyBlock sceneProperties;
@@ -78,6 +81,13 @@ namespace ImmerseTheBay.Learning
             Place(Label(t, 66, Color.white, "Tenin", font: serif), 0.06f, 0.905f, 0.5f, 0.965f);
             var pill = Box(t, new Color(1f, 1f, 1f, 0.16f), 0.52f, 0.91f, 0.94f, 0.955f, rounded: true);
             Place(Label(pill.transform, 32, Color.white, "●  Glasses connected", TextAnchor.MiddleCenter, font: serif), 0f, 0f, 1f, 1f);
+            var sceneAudio = Box(t, new Color(1f, 1f, 1f, 0.16f), 0.58f, 0.85f, 0.94f, 0.895f, rounded: true);
+            sceneAudioButton = sceneAudio.AddComponent<Button>();
+            sceneAudioButton.targetGraphic = sceneAudio.GetComponent<Image>();
+            sceneAudioButton.onClick.AddListener(ToggleSceneSound);
+            sceneAudioLabel = Place(Label(sceneAudio.transform, 32, Color.white, "Scene sound: On", TextAnchor.MiddleCenter), 0f, 0f, 1f, 1f);
+            sceneAudio.SetActive(false);
+            UpdateSceneGain();
 
             // The big circle is the microphone: it listens on its own after each line, and can be tapped any time.
             speakRing = Box(t, new Color(1f, 1f, 1f, 0.18f), 0.5f, 0.66f, 0.5f, 0.66f, rounded: true).GetComponent<RectTransform>();
@@ -124,8 +134,8 @@ namespace ImmerseTheBay.Learning
         }
 
         Font serif;
-        Button speakButton, retryButton;
-        Text speakLabel, step, endLabel;
+        Button speakButton, retryButton, sceneAudioButton;
+        Text speakLabel, step, endLabel, sceneAudioLabel;
         RectTransform speakRing, progressFill, loadingFill;
         RawImage startPreview;
         static readonly Color TeninYellow = new Color32(0xFF, 0xE2, 0x99, 0xFF);
@@ -219,6 +229,19 @@ namespace ImmerseTheBay.Learning
             EndPractice();
             video.PrepareScenePreview(null);
             ShowPhone(runId);
+        }
+
+        void ToggleSceneSound()
+        {
+            sceneSound = !sceneSound;
+            sceneAudioLabel.text = sceneSound ? "Scene sound: On" : "Scene sound: Off";
+            UpdateSceneGain();
+        }
+
+        void UpdateSceneGain()
+        {
+            bool speaking = lesson.IsClerkSpeaking || lesson.IsConversationActive;
+            video.SetSceneGain(sceneSound ? (speaking ? SpeakingSceneGain : QuietSceneGain) : 0f);
         }
 
         void SpeakOrRetry()
@@ -495,6 +518,8 @@ namespace ImmerseTheBay.Learning
 
             if (status)
             {
+                UpdateSceneGain();
+                sceneAudioButton.gameObject.SetActive(practiceVisible);
                 bool waiting = starting || lesson.IsBusy || lesson.IsClerkSpeaking;
                 heading.text = startupError.Length > 0 ? "Could not start the lesson"
                     : !practiceVisible ? "Ready when\nyou are" : starting ? "Starting in\nyour glasses…"
