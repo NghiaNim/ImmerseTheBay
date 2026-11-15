@@ -85,8 +85,10 @@ was changed to 0 as a reversible diagnostic, but the system reset it to 1 on
 reconnection. Do not report DeX as permanently disabled or AR as working.
 
 This is a vendor display-detection compatibility blocker with this device/OS
-combination. Keep proprietary disassembly and full device logs local; do not
-commit vendor binaries, patch/re-sign ControlGlasses, or change OS/firmware.
+combination. The initial diagnosis was obtained without modifying the official
+APK. Keep proprietary disassembly and full device logs local; do not commit
+vendor binaries or change OS/firmware. The user subsequently authorized the
+local compatibility-patch investigation described below.
 The official XREAL docs still warn about Android 16 compatibility:
 https://docs.xreal.com/Getting%20Started%20with%20XREAL%20SDK
 
@@ -100,3 +102,43 @@ adb -s PHONE_IP:DEBUG_PORT install -r Builds/ImmerseTheBay.apk
 The connection port comes from Wireless debugging's main page, not its pairing
 popup, and may change after restarting debugging or reconnecting Wi-Fi. Installing
 an update stops the running app; launch it again afterwards.
+
+## Authorized local ControlGlasses compatibility investigation
+
+The user explicitly paused the web fallback and asked to tackle a ControlGlasses
+fix. Root owns local patch tooling/notes under `tools/controlglasses/` and this
+brief. Build/decoded/vendor artifacts stay under ignored `Builds/` or `/tmp`.
+Prepare a minimal display-detection compatibility patch and validate package,
+signing and service dependencies before any on-device replacement. Retain the
+unaltered official APK for rollback. Do not alter signature checks, SDK licensing,
+OS/firmware, security protections or unrelated native libraries. A local re-signed
+build is experimental and must not be described as an official vendor release.
+
+The prepared patch is documented in `tools/controlglasses/README.md`. It accepts
+the exact `Air 2 Ultra` name only on a non-primary display, retaining the original
+HDMI/Beam paths and later product/vendor checks. A signed APK was re-decoded and
+compared: only the intended method changed; Android Manifest, resources and all
+15 native libraries retained their original bytes. Signature metadata changed
+as expected. Local APK SHA-256:
+`8e1f7e824fee7455ee55ac4eba06d5581cd643e313cee3799e9ffa2091b8331b`.
+
+Wireless replacement installation succeeded. Both preferences files were
+restored byte-for-byte to the new app UID before first launch (mode 600), including
+`OTA_SKIP=true`, and previously authorized camera/microphone permissions were
+restored. ControlGlasses now shows green `SDK ready`; device logs confirm
+`hasHdmi=true` and `sdkSuccess`. Unity discovers `com.xreal.glassescontrol` as its
+runtime server, loads NRSDK, and starts IMU, camera and perception services.
+
+The main Unity APK embeds a second copy of the same display-detection method.
+Its unpatched copy still reports `isHdmi=false` and `NativeDisplay Start 12`.
+The same narrow patch was applied there, signed with the original main-app
+development key, and passed signature/ZIP alignment and semantic DEX comparison.
+Only `classes.dex` changes in the final APK. Local result and reproducible steps
+are documented in `tools/controlglasses/README.md`; this patch must be reapplied
+after a fresh Unity build until upstream fixes display detection.
+
+Samsung's actual Settings → Samsung DeX → Connected display → **Mirrored**
+selection succeeded; the glasses returned to 3840×1080 at 60 Hz and the setting
+remained off for DeX. This supersedes the earlier unsuccessful raw-setting
+diagnostic. Main-app rendering verification is still in progress; the successful
+Control runtime startup alone does not establish complete AR operation.
