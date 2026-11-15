@@ -619,6 +619,7 @@ namespace ImmerseTheBay.Learning
             {
                 string url = visko.config.portalUrl.TrimEnd('/') + "/api/agent/clerk-speech";
                 using var request = new UnityWebRequest(url, "POST");
+                request.SetRequestHeader("x-tenin-audio-layout", "stereo");
                 request.downloadHandler = new DownloadHandlerAudioClip(url, AudioType.WAV);
                 string body = "{\"sessionId\":" + LearningContract.Quote(m_Session)
                     + ",\"lessonId\":" + LearningContract.Quote(m_RunLesson)
@@ -693,6 +694,7 @@ namespace ImmerseTheBay.Learning
             if (string.IsNullOrWhiteSpace(japanese)) return;
             string url = visko.config.portalUrl.TrimEnd('/') + "/api/agent/speak";
             using var request = new UnityWebRequest(url, "POST");
+            request.SetRequestHeader("x-tenin-audio-layout", "stereo");
             try
             {
                 request.downloadHandler = new DownloadHandlerAudioClip(url, AudioType.WAV);
