@@ -43,7 +43,7 @@ test('coffee asks before the learner, reacts to retry and passed lines, and clos
   assert.equal(passed.attempt.outcome, 'pass');
   assertClerkLine(passed.reaction, 'かしこまりました。', 'Certainly.');
   assertClerkLine(passed.speech, 'ミルクは入れますか。', 'Would you like milk?');
-  assert.equal(passed.scene.id, 'cafe-pour');
+  assert.equal(passed.scene.id, 'cafe-menupour');
   const replay = await service.turn(passRequest);
   assert.deepEqual(replay, { ...passed, operation: { ...passed.operation, replayed: true } });
   const milk = await service.turn(request('milk', 1, passed, attempt(passed.overlay.jp)));

@@ -31,7 +31,7 @@ test('opens only the clip for an exact authored scene revision and serves author
   assert.equal((await request(lesson, scene)).status, 404);
   await rm(filename);
   await writeFile(filename, 'fixture bytes');
-  assert.equal((await request(lesson, 'cafe-pour')).status, 404);
+  assert.equal((await request(lesson, 'cafe-menupour')).status, 404);
   assert.equal((await request('ja-date-demo-001', scene)).status, 404);
   const response = await request(lesson, scene, { portal_token: 'test', range: 'bytes=0-6' });
   assert.equal(response.status, 206);

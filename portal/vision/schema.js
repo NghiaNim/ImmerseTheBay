@@ -10,6 +10,7 @@ export const OBJECTS = Object.freeze({
   rice_ball: { label: 'おにぎり', noun: 'rice ball' },
   cup: { label: 'カップ', noun: 'cup' },
   pitcher: { label: 'ミルクピッチャー', noun: 'milk pitcher' },
+  menu_board: { label: 'メニュー', noun: 'menu board' },
   bag: { label: '袋', noun: 'bag' },
   basket: { label: 'かご', noun: 'shopping basket' },
   counter: { label: 'カウンター', noun: 'checkout counter' },

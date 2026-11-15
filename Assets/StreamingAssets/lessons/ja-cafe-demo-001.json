@@ -49,9 +49,9 @@
     {
       "goal": "Say how you want it",
       "scene": {
-        "id": "cafe-pour",
+        "id": "cafe-menupour",
         "label": "Say how you want it",
-        "prompt": "The barista tips the pitcher, gently pours milk into the cup and steadies the saucer. Steam rises.",
+        "prompt": "The barista tips the pitcher, gently pours milk into the cup and steadies the saucer. Steam rises. The original freestanding menu board remains clearly visible on the right side of the counter.",
         "identity": "A dark-haired adult Japanese barista in an olive apron at a warm espresso bar."
       },
       "lines": [
