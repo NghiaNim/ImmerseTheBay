@@ -7,6 +7,40 @@ const lesson=JSON.parse(await readFile(new URL('./fixtures/ja-konbini-001.json',
 const key={sessionId:'preset-test',lessonId:lesson.id};
 const req=(id,previous,changes={})=>({...key,beat:previous?.route.returnBeat||0,context:{},presetSceneSet:'konbini-original',imageRef:{id:'original-upload-123'},...changes,operation:{requestId:id,expectedRevision:previous?.operation.revision||0,...(previous?{runId:previous.operation.runId}:{})}});
 const setup=options=>createAgentService({store:{load:async()=>lesson},llm:null,planner:null,log:async()=>{},promptIntervalMs:0,...options});
+test('curated three-turn demo uses distinct scene seeds and returns to the saved second scene', async () => {
+ const demo = JSON.parse(await readFile(new URL('../../Assets/StreamingAssets/lessons/ja-konbini-demo-001.json', import.meta.url)));
+ const service = setup({ store: { load: async () => demo } });
+ let previous;
+ const turn = async (id, input = {}) => {
+  previous = await service.turn(req(id, previous, {
+   lessonId: demo.id, presetSceneSet: undefined, imageRef: undefined, ...input,
+  }));
+  assert.ok(validateSchema(previous, WIRE_RESPONSE_SCHEMA));
+  return previous;
+ };
+ let opened = await turn('open');
+ assert.equal(opened.scene.id, 'sandwiches');
+ assert.equal(opened.nextSceneId, 'drinks');
+ assert.deepEqual([opened.progress.mainStep, opened.progress.mainTotal], [1, 3]);
+ let cooler = await turn('advance', { transcript: opened.overlay.jp });
+ assert.equal(cooler.scene.id, 'drinks');
+ assert.equal(cooler.nextSceneId, 'checkout');
+ let detour = await turn('detour', { intent: 'I want a sandwich' });
+ assert.equal(detour.scene.id, 'sandwiches');
+ assert.equal(detour.nextSceneId, undefined);
+ assert.equal(detour.progress.mainStep, 2);
+ cooler = await turn('return', { action: 'return_to_main' });
+ assert.equal(cooler.scene.id, 'drinks');
+ assert.equal(cooler.nextSceneId, 'checkout');
+ const checkout = await turn('pay', { transcript: cooler.overlay.jp });
+ assert.equal(checkout.scene.id, 'checkout');
+ assert.equal(checkout.nextSceneId, undefined);
+ assert.deepEqual([checkout.progress.mainStep, checkout.progress.mainTotal], [3, 3]);
+ const done = await turn('done', { transcript: checkout.overlay.jp });
+ assert.equal(done.advance, 'scene_done');
+ assert.equal(done.progress.mainCompleted, 3);
+ assert.equal(new Set([opened.scene.startImage, cooler.scene.startImage, checkout.scene.startImage]).size, 3);
+});
 test('opted original scene switches deterministically, stays during steps, restores checkout and replays safely',async()=>{
  const service=setup();let r=await service.turn(req('open'));assert.equal(r.scene.id,'checkout');assert.ok(validateSchema(r,WIRE_RESPONSE_SCHEMA));assert.equal(validateSchema(r,RESPONSE_SCHEMA),false);
  const branch=req('branch',r,{intent:'I want a sandwich'});r=await service.turn(branch);assert.equal(r.scene.id,'sandwiches');assert.equal(r.scene.visiblePartner,false);assert.equal(r.scene.startImage,'/scene-presets/konbini-sandwiches.png');

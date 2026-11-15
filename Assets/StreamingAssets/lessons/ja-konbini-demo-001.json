@@ -1,0 +1,95 @@
+{
+  "id": "ja-konbini-demo-001",
+  "title": "コンビニで買い物 — Convenience-store Shopping",
+  "level": "N5",
+  "scenePrompt": "First-person eye-level view of a shelf stocked with boxed sandwiches in a convenience store.",
+  "audioPrompt": "Quiet refrigeration, soft footsteps and a brief checkout beep.",
+  "startImage": "lessons/images/konbini-sandwiches.png",
+  "partnerVoice": "female",
+  "beats": [
+    {
+      "goal": "Ask where the sandwiches are",
+      "lines": [
+        {
+          "jp": "サンドイッチはどこですか。",
+          "kana": "さんどいっちはどこですか。",
+          "romaji": "Sandoitchi wa doko desu ka?",
+          "zh": "三明治在哪里？",
+          "en": "Where are the sandwiches?",
+          "cue": "The neatly packaged sandwiches stay in their original positions on the shelf.",
+          "partner": {
+            "jp": "いらっしゃいませ。",
+            "kana": "いらっしゃいませ。",
+            "romaji": "Irasshaimase.",
+            "zh": "欢迎光临。",
+            "en": "Welcome."
+          }
+        }
+      ],
+      "vocab": [
+        {
+          "jp": "サンドイッチ",
+          "kana": "さんどいっち",
+          "en": "sandwich",
+          "objectHint": "sandwich"
+        }
+      ]
+    },
+    {
+      "goal": "Ask for water",
+      "lines": [
+        {
+          "jp": "お水をください。",
+          "kana": "おみずをください。",
+          "romaji": "Omizu o kudasai.",
+          "zh": "请给我水。",
+          "en": "Water, please.",
+          "cue": "The bottled water stays visible inside the refrigerator.",
+          "partner": {
+            "jp": "飲み物もいかがですか。",
+            "kana": "のみものもいかがですか。",
+            "romaji": "Nomimono mo ikaga desu ka?",
+            "zh": "也要喝点什么吗？",
+            "en": "Would you like a drink too?"
+          }
+        }
+      ],
+      "vocab": [
+        {
+          "jp": "お水",
+          "kana": "おみず",
+          "en": "water",
+          "objectHint": "water"
+        }
+      ]
+    },
+    {
+      "goal": "Ask to pay by card",
+      "lines": [
+        {
+          "jp": "カードで払えますか。",
+          "kana": "かーどではらえますか。",
+          "romaji": "Kādo de haraemasu ka?",
+          "zh": "我可以刷卡吗？",
+          "en": "Can I pay by card?",
+          "cue": "The same clerk gestures toward the card reader on the checkout counter.",
+          "partner": {
+            "jp": "お支払いはどうしますか。",
+            "kana": "おしはらいはどうしますか。",
+            "romaji": "Oshiharai wa dō shimasu ka?",
+            "zh": "您要怎么付款？",
+            "en": "How would you like to pay?"
+          }
+        }
+      ],
+      "vocab": [
+        {
+          "jp": "カード",
+          "kana": "かーど",
+          "en": "card",
+          "objectHint": "card"
+        }
+      ]
+    }
+  ]
+}

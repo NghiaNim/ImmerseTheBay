@@ -28,6 +28,7 @@ export const WIRE_RESPONSE_SCHEMA = { ...RESPONSE_SCHEMA, properties: { ...RESPO
     outcome: { type: 'string', enum: ['pass', 'retry', 'assisted', 'skip'] },
     nextTargetId: { anyOf: [{ type: 'null' }, text] } }),
   progress: object({ mainTotal: { type: 'number' }, mainStep: { type: 'number' }, mainCompleted: { type: 'number' } }),
+  nextSceneId: { type: 'string', enum: ['checkout', 'sandwiches', 'drinks'] },
   focusWords: { type: 'array', items: text }, scene: object({ id: { type: 'string', enum: ['checkout', 'sandwiches', 'drinks'] }, label: text, startImage: text, prompt: text, visiblePartner: { type: 'boolean' } }), operation: object({ requestId: text, runId: text, revision: { type: 'number' }, replayed: { type: 'boolean' } }) } };
 export function validateSchema(value, schema = RESPONSE_SCHEMA) {
   if (schema.anyOf) return schema.anyOf.some((s) => validateSchema(value, s));

@@ -5,7 +5,7 @@ import { AgentError, createLessonStore, flattenLesson } from './lessons.js';
 import { hasBannedTerm, safePrompt, scoreTranscript, PASS_SCORE } from './guardrails.js';
 import { validateSchema, WIRE_RESPONSE_SCHEMA } from './schema.js';
 import { validateOperation, createOperationCache, replayOperation, checkOperationState, rememberOperation, invalidateOperations } from './operations.js';
-import { PRESET_SET, CHECKOUT_IDENTITY, presetDrinkPlan, updatePreset, presetEnvironmentPrompt } from './scene-presets.js';
+import { PRESET_SET, DEMO_LESSON, DEMO_ORDER, CHECKOUT_IDENTITY, presetDrinkPlan, updatePreset, presetEnvironmentPrompt } from './scene-presets.js';
 import { recordSummary, summarize, targetId } from './summary.js';
 import { clerkSpeech, clerkInvitation } from './clerk-speech.js';
 import { readingGroupsFor } from './reading-groups.js';
@@ -127,6 +127,7 @@ export function createAgentService({ store = createLessonStore(), llm = createLe
       const state = structuredClone(existing || { started: false, hintLevel: 0, attempts: 0, revision: 0 });
       if (existing && request.presetSceneSet !== state.presetSceneSet) throw new AgentError(409, 'Preset scene selection changed; restart the lesson');
       if (!existing && request.presetSceneSet) state.presetSceneSet = request.presetSceneSet;
+      state.demoScenes = lesson.id === DEMO_LESSON;
       if (!request.action) state.attempts++;
       const lines = flattenLesson(lesson);
       if (request.beat >= lines.length) throw new AgentError(400, 'beat is outside this lesson');
@@ -141,7 +142,7 @@ export function createAgentService({ store = createLessonStore(), llm = createLe
       }
       if (!state.sceneContext) {
         state.partnerVoice = lesson.partnerVoice;
-        const originalCast = state.presetSceneSet === PRESET_SET ||
+        const originalCast = state.demoScenes || state.presetSceneSet === PRESET_SET ||
           (lesson.scenePrompt.startsWith(CHECKOUT_IDENTITY) && (!suppliedReference || suppliedReference === lesson.startImage));
         state.sceneContext = {
           version: 1, runId: state.flow.runId,
@@ -172,7 +173,7 @@ export function createAgentService({ store = createLessonStore(), llm = createLe
         if (state.flow.detoursUsed >= 6) intentNote = 'Six side interactions have been used in this run. Continue the main lesson or begin a new run.';
         else if (hasBannedTerm(intent)) intentNote = 'Please describe an ordinary original shopping goal without a character or brand.';
         else {
-          let plan = (state.presetSceneSet && presetDrinkPlan(intent, state.flow.mainBeat)) || scriptedPlan(intent, lesson, state.flow.mainBeat);
+          let plan = ((state.presetSceneSet || state.demoScenes) && presetDrinkPlan(intent, state.flow.mainBeat)) || scriptedPlan(intent, lesson, state.flow.mainBeat);
           // Known shopping branches work without a key; other explicit goals may be
           // planned by Claude. The LLM never controls the saved return checkpoint.
           if (!plan && planner) {
@@ -285,6 +286,10 @@ export function createAgentService({ store = createLessonStore(), llm = createLe
       state.revision = (state.revision || 0) + 1;
       if (request.operation) response.operation = { requestId: request.operation.requestId, runId: state.flow.runId, revision: state.revision, replayed: false };
       if (state.scene) response.scene = structuredClone(state.scene);
+      if (state.demoScenes && !state.complete && fallback.route.kind !== 'detour') {
+        const nextSceneId = DEMO_ORDER[state.flow.mainBeat + 1];
+        if (nextSceneId) response.nextSceneId = nextSceneId;
+      }
       recordSummary(state, { request, lesson, before: summaryBefore, intent, response, mainTotal: lines.length });
       await log({ at: new Date(now()).toISOString(), sessionId: request.sessionId, lessonId: request.lessonId, beat: request.beat, transcript: request.transcript || '', intent: intent || null, context: request.context, photoCaption: plain(request.imageRef) ? request.imageRef.caption || '' : '', source, failure, route: response.route, graph: { nodes: state.flow.nodes, edges: state.flow.edges }, response });
       if (recorder) {

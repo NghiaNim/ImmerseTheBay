@@ -1,6 +1,8 @@
 import { SCENE_ANCHOR } from './continuity.js';
 import { primaryIntent } from './flow.js';
 export const PRESET_SET = 'konbini-original';
+export const DEMO_LESSON = 'ja-konbini-demo-001';
+export const DEMO_ORDER = Object.freeze(['sandwiches', 'drinks', 'checkout']);
 // Authored from the approved original image, never inferred from learner text.
 export const CHECKOUT_IDENTITY = 'The same young adult woman: oval face, dark brown eyes, dark brown low ponytail with wispy bangs, white collared shirt, beige apron; her gender, age, face, hair and clothing stay unchanged.';
 const scene = (id, label, startImage, prompt, visiblePartner) => ({ id, label, startImage, prompt, visiblePartner });
@@ -30,8 +32,12 @@ export function presetDrinkPlan(intent, returnBeat) {
  ]};
 }
 export function updatePreset(state, { entered, intent, route }) {
- if (!state.presetSceneSet) return;
- const id = route.kind === 'rejoin' ? 'checkout' : entered ? classifyPresetIntent(intent) || state.scene?.id || 'checkout' : state.scene?.id || 'checkout';
+ const main = state.demoScenes ? DEMO_ORDER[state.flow.mainBeat] : 'checkout';
+ if (!state.presetSceneSet && !state.demoScenes) return;
+ let id = main;
+ if (route.kind === 'detour') {
+  id = (entered && classifyPresetIntent(intent)) || state.scene?.id || main;
+ }
  if (state.scene && state.scene.id !== id) state.sceneContext.recentActions = [];
  state.scene = structuredClone(SCENES[id]);
  state.sceneContext.sceneAnchor = state.scene.prompt;
