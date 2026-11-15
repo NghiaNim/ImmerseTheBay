@@ -44,18 +44,18 @@ test('room, desk, gaze and RMS assistive signals affect response', async () => {
 test('LLM gets caption/context but cannot replace score, authored overlay or progression', async () => {
   let seen; const { service } = setup({ llm: async (input) => { seen = input; const r = structuredClone(input.fallback); r.visko[0].data.prompt = 'The host pours tea.'; r.overlay.jp = 'wrong'; r.feedback = { score: 1000, notes: ['Try a softer ending.'] }; r.advance = 'scene_done'; return r; } });
   const r = await service.turn(request({ imageRef: { id: 'opaque-ref', caption: 'Low table beside a window.' }, context: { roomLabels: ['table'] } }));
-  assert.equal(seen.photoCaption, 'Low table beside a window.'); assert.equal(r.visko[0].data.prompt, composeVisualPrompt(lesson.scenePrompt)); assert.equal(r.advance, 'stay'); assert.equal(r.overlay.jp, lesson.beats[0].lines[0].jp); assert.equal(r.feedback.score, 0);
+  assert.equal(seen.photoCaption, 'Low table beside a window.'); assert.equal(r.visko[0].data.prompt, composeVisualPrompt(lesson.scenePrompt, undefined, { speaking: true })); assert.equal(r.advance, 'stay'); assert.equal(r.overlay.jp, lesson.beats[0].lines[0].jp); assert.equal(r.feedback.score, 0);
 });
 test('LLM errors and malformed strict JSON fall back deterministically', async () => {
   for (const llm of [async () => { throw new Error('provider secret'); }, async () => ({ visko: [] }), async ({ fallback }) => ({ ...fallback, unknown: 'field' })]) {
-    const { service, logs } = setup({ llm }); const r = await service.turn(request()); assert.equal(r.visko[0].data.prompt, composeVisualPrompt(lesson.scenePrompt)); assert.equal(logs[0].source, 'scripted'); assert.doesNotMatch(JSON.stringify(logs), /provider secret/);
+    const { service, logs } = setup({ llm }); const r = await service.turn(request()); assert.equal(r.visko[0].data.prompt, composeVisualPrompt(lesson.scenePrompt, undefined, { speaking: true })); assert.equal(logs[0].source, 'scripted'); assert.doesNotMatch(JSON.stringify(logs), /provider secret/);
   }
 });
 test('banned terms and long prompts repaired, including Unicode obfuscation', async () => {
   assert.ok(hasBannedTerm('Ｄｏｒａｅｍｏｎ')); assert.ok(hasBannedTerm('Dora\u200bemon')); assert.equal(safePrompt('Doraemon appears.', 'safe'), 'safe');
   assert.ok(safePrompt('One. Two. Three. Four.', 'safe').split('.').length <= 4); assert.ok(safePrompt('word '.repeat(400), 'safe').length <= 600);
   const { service } = setup({ llm: async ({ fallback }) => { fallback.visko[0].data.prompt = 'Doraemon enters.'; return fallback; } });
-  assert.equal((await service.turn(request())).visko[0].data.prompt, composeVisualPrompt(lesson.scenePrompt));
+  assert.equal((await service.turn(request())).visko[0].data.prompt, composeVisualPrompt(lesson.scenePrompt, undefined, { speaking: true }));
 });
 test('session serialization rate limits prompts even across lesson IDs', async () => {
   let clock = 1000; const waits = [];

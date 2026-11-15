@@ -1,3 +1,4 @@
+import { createGoalRecorder, renderPracticeReview } from './practice-ui.js';
 import { connectWithCapacityRetry } from './dynamic-retry.js';
 import { installScenePoint } from './scene-point.js';
 import { createLessonSpeech } from './lesson-speech.js';
@@ -25,6 +26,8 @@ let nextAllowedConnectAt = 0, lastRateLimitReason = 'rate_limit';
 let runtimeEvents = [], runtimeState = emptyRuntimeState();
 let mediaStream = new MediaStream();
 let recording = null, micStarting = false, transcribing = false, speechAttempt = 0;
+let practiceMode = 'home', realPhoto = null, goalState = 'idle', ending = false, generated = false;
+let generationAbort = null, generatedExpiresAt = 0;
 let clerkSpeech = null, ttsBusy = false, voiceActive = false, voiceReconciling = false, voiceUnsafe = false, voiceCheckRunning = false;
 let lastMediaTime = 0, lastMediaProgressAt = -Infinity;
 const agentMachine = createAgentMachine({ onChange: (state) => { document.body.dataset.agentState = state; $('runtimeTrace').dataset.agentState = state; idleInvitation.sync(latestDecision?.route?.nodeId || null); } });
@@ -41,12 +44,29 @@ const lessonSpeech = createLessonSpeech({
   onState: ({ state, role, message }) => {
     ttsBusy = state === 'loading' || state === 'playing';
     idleInvitation.sync(latestDecision?.route?.nodeId || null);
-    const label = role === 'clerk' ? '店员' : 'Your line';
+    const label = role === 'clerk' ? partnerLabel() : 'Your line';
     $('ttsStatus').textContent = state === 'loading' ? `${label} · preparing audio…`
       : state === 'playing' ? `${label} · speaking…`
-      : state === 'error' ? `${label} · ${message} ${role === 'clerk' ? 'Press 店员重播 to retry.' : 'Press Listen to retry.'}` : '';
+      : state === 'error' ? `${label} · ${message} ${role === 'clerk' ? 'Press Replay partner to retry.' : 'Press Listen to retry.'}` : '';
     $('ttsStatus').classList.toggle('error', state === 'error');
   },
+});
+
+const goalRecorder = createGoalRecorder({
+  transcribe: async (blob, signal) => {
+    const response = await fetch('/api/agent/transcribe', { method: 'POST', headers: { ...authHeaders(), 'Content-Type': blob.type, 'x-audio-language': $('intentLanguage').value.split('-')[0] }, body: blob, signal });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Could not transcribe your goal. Type it instead.');
+    if (!data.text?.trim()) throw new Error('No speech heard. Try again or type your goal.');
+    return data.text.trim();
+  },
+  onState: (state, message) => {
+    goalState = state;
+    if (message) $('goalStatus').textContent = message;
+    else if (state !== 'idle') $('goalStatus').textContent = ({ permission: 'Allow microphone access…', recording: 'Listening · press Stop when ready', transcribing: 'Transcribing your goal…' })[state] || '';
+    refresh();
+  },
+  onText: text => { $('practiceGoal').value = text.slice(0, 500); invalidateGenerated(); $('goalStatus').textContent = 'Goal captured. You can edit it before creating your practice.'; },
 });
 
 const lineVoice = createLineVoice({
@@ -63,10 +83,10 @@ const lineVoice = createLineVoice({
     voiceActive = state !== 'off'; document.body.dataset.voiceState = state;
     if (state === 'off' && wasActive && active) { voiceReconciling = true; void reconcileVoice(); }
     $('conversationStatus').dataset.state = state;
-    $('conversationStatus').textContent = message || ({ off: '', connecting: 'Connecting voice…', listening: 'Listening · 日本語 / English', speaking: '店员 speaking · you can interrupt' })[state];
+    $('conversationStatus').textContent = message || ({ off: '', connecting: 'Connecting voice…', listening: 'Listening · 日本語 / English', speaking: `${partnerLabel()} speaking · you can interrupt` })[state];
     refresh();
   },
-  onText: (text, role) => { if (role === 'user') $('transcript').textContent = text; else { $('clerkCaption').textContent = `店员 · ${text}`; $('clerkCaption').hidden = false; } },
+  onText: (text, role) => { if (role === 'user') $('transcript').textContent = text; else { $('clerkCaption').textContent = `${partnerLabel()} · ${text}`; $('clerkCaption').hidden = false; } },
   onTool: async (call, current) => {
     if (!current() || !active || finished) throw new Error('The lesson is not active.');
     const parameters = call.parameters || {};
@@ -116,9 +136,17 @@ function recordRuntime(kind, data = {}) {
 function notify(text, error = false) { $('notice').textContent = text; $('notice').classList.toggle('error', error); }
 function refresh() {
   $('conversation').disabled = !voiceActive && (!active || finished || busy || voiceReconciling || voiceUnsafe);
-  $('conversation').textContent = voiceActive ? '结束对话' : '与店员对话';
+  $('conversation').textContent = voiceActive ? '结束对话' : practiceMode === 'real' ? '开始对话' : '与店员对话';
+  $('clerkReplay').textContent = practiceMode === 'real' ? 'Replay partner' : '店员重播';
   $('conversation').setAttribute('aria-pressed', String(voiceActive));
-  $('begin').disabled = busy || active || !lesson;
+  const goalBusy = ['permission', 'recording', 'transcribing'].includes(goalState);
+  $('begin').disabled = busy || active || !lesson || goalBusy || ending;
+  for (const id of ['modeHome', 'modeReal', 'realPhoto', 'practiceGoal']) $(id).disabled = active || busy || goalBusy || ending || !catalog.length;
+  $('generatePractice').disabled = active || busy || goalBusy || !realPhoto || !$('practiceGoal').value.trim();
+  $('recordGoal').disabled = active || busy || goalBusy || !window.MediaRecorder || !navigator.mediaDevices?.getUserMedia;
+  $('stopGoal').hidden = !['permission', 'recording'].includes(goalState);
+  $('endPractice').disabled = !active || busy || ending;
+  $('setupToggle').disabled = ending;
   $('begin').textContent = $('previewOnly').checked ? 'Start practice' : 'Start live lesson';
   $('leave').disabled = !active && !busy && !reactor;
   for (const id of ['lesson', 'sample', 'photo', 'model', 'sessionId', 'previewOnly']) $(id).disabled = busy || active;
@@ -139,6 +167,7 @@ function refresh() {
   $('sound').disabled = !reactor;
   $('sessionInfo').textContent = sessionId ? `${preview ? 'Practice' : model} · ${sessionId}` : sharedSession ? `Shared session available: ${sharedSession.sessionId}` : '';
 }
+function partnerLabel() { return practiceMode === 'real' ? 'Partner' : '店员'; }
 function authHeaders() { return token ? { portal_token: token } : {}; }
 async function api(path, body, signal) {
   const response = await fetch(path, { method: body === undefined ? 'GET' : 'POST', headers: { ...authHeaders(), ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) }, body: body === undefined ? undefined : JSON.stringify(body), signal });
@@ -185,10 +214,15 @@ async function loadCatalog() {
   } catch (error) { notify(`Could not load lessons: ${error.message}`, true); }
 }
 async function chooseLesson() {
+  if (practiceMode !== 'home') return;
+  const run = epoch, selected = $('lesson').value;
+  const current = () => run === epoch && !closing && practiceMode === 'home' && $('lesson').value === selected;
   lessonSpeech.cancel(); clerkSpeech = null; $('clerkCaption').hidden = true; $('clerkReplay').hidden = true;
   busy = true; refresh();
   try {
-    lesson = await api(`/api/agent/lessons/${encodeURIComponent($('lesson').value)}`);
+    const loaded = await api(`/api/agent/lessons/${encodeURIComponent(selected)}`);
+    if (!current()) return;
+    lesson = loaded;
     const count = lesson.beats.reduce((n, b) => n + b.lines.length, 0);
     $('lessonInfo').textContent = `${lesson.level} · ${lesson.beats.length} moments · ${count} spoken lines`;
     const shopping = lesson.id === 'ja-konbini-001';
@@ -205,10 +239,11 @@ async function chooseLesson() {
     }
     clearPhoto();
     if (filename) { $('sample').value = filename; await chooseSample(); } else $('sample').value = '';
+    if (!current()) return;
     $('scenePlaceholder').querySelector('span').textContent = shopping ? 'いらっしゃいませ。' : '日本語で話そう。';
     $('scenePlaceholder').querySelector('p').textContent = shopping ? 'A small shop. An everyday conversation.' : 'Your next conversation starts here.';
-  } catch (error) { lesson = null; notify(error.message, true); }
-  finally { busy = false; refresh(); }
+  } catch (error) { if (current()) { lesson = null; notify(error.message, true); } }
+  finally { if (current()) { busy = false; refresh(); } }
 }
 function clearPhoto() {
   photoFile = null; photoCaption = '';
@@ -223,11 +258,14 @@ function setPhoto(file, caption) {
   refresh();
 }
 async function chooseSample() {
+  const run = epoch, selected = $('sample').value;
+  const current = () => run === epoch && !closing && practiceMode === 'home' && $('sample').value === selected;
   const sample = SAMPLES.find((item) => item.file === $('sample').value);
   if (!sample) { clearPhoto(); return; }
   const response = await fetch(`/lessons/images/${encodeURIComponent(sample.file)}`, { headers: authHeaders() });
   if (!response.ok) throw new Error('This sample is unavailable. Upload your own photo to continue.');
   const blob = await response.blob();
+  if (!current()) return;
   setPhoto(new File([blob], sample.file, { type: blob.type || 'image/jpeg' }), sample.caption);
   $('photo').value = '';
 }
@@ -313,7 +351,9 @@ async function connectReactor(targetModel, joinId, run) {
   return client;
 }
 async function begin() {
-  if (busy || active || !lesson) return;
+  if (busy || active || !lesson || ending || ['permission', 'recording', 'transcribing'].includes(goalState)) return;
+  if (practiceMode === 'real' && generatedExpiresAt && Date.now() >= generatedExpiresAt) { invalidateGenerated(); $('goalStatus').textContent = 'This practice expired. Create it again from your photo and goal.'; setSetupOpen(true); return; }
+  goalRecorder.cancel(); $('practiceReview').hidden = true; $('practiceStage').hidden = false;
   voiceReconciling = voiceUnsafe = voiceCheckRunning = false;
   lessonOperations.reset(); idleInvitation.reset(); agentMachine.send('begin');
   lastMediaTime = 0; lastMediaProgressAt = -Infinity;
@@ -400,7 +440,7 @@ async function executeDecision(decision, run) {
 function renderDecision(decision, hasSpeech = false) {
   clerkSpeech = decision.speech?.role === 'clerk' && decision.speech.language === 'ja' && typeof decision.speech.text === 'string' && decision.speech.text.trim()
     ? { text: decision.speech.text, language: 'ja', role: 'clerk' } : null;
-  $('clerkCaption').textContent = clerkSpeech ? `店员 · ${clerkSpeech.text}` : '';
+  $('clerkCaption').textContent = clerkSpeech ? `${partnerLabel()} · ${clerkSpeech.text}` : '';
   $('clerkCaption').hidden = !clerkSpeech; $('clerkReplay').hidden = !clerkSpeech;
   const overlay = decision.overlay;
   for (const field of ['jp', 'kana', 'romaji', 'zh', 'en']) $(field).textContent = overlay?.[field] || '';
@@ -446,7 +486,8 @@ async function turn({ gesture = null, transcript, intent, action, fromVoice = fa
     hubSend({ type: 'learn', sessionId, lessonId: lesson.id, beat, context, ...(transcript ? { transcript } : {}), ...(intent ? { intent } : {}), ...decision, execution });
     notify(finished ? (preview ? 'Practice complete. Press Leave to start again.' : 'Lesson complete. Press Leave to end the billed session.') : preview ? 'Practice mode: speak a line or try the glasses signals.' : 'Your scene is ready. Speak the Japanese line, or ask for a hint.');
     agentMachine.send('done', { complete: finished });
-    if (clerkSpeech && !voiceActive) void lessonSpeech.play(clerkSpeech);
+    if (clerkSpeech && !voiceActive && !finished) void lessonSpeech.play(clerkSpeech);
+    if (finished) setTimeout(() => { if (run === epoch && active && !ending) void endPractice(); }, 0);
     return true;
   } catch (error) {
     if (run === epoch && error.name !== 'AbortError') { agentMachine.send('fail'); notify(error.status === 409 ? 'Lesson state changed or this request expired. Leave and restart safely; no scene commands were replayed.' : `Turn failed: ${error.message}`, true); }
@@ -574,6 +615,7 @@ function startSpeech() {
   if ($('speechEngine').value === 'browser') startBrowserSpeech(); else void startRecording();
 }
 async function leave(message = 'You have left the lesson.') {
+  goalRecorder.cancel(); generationAbort?.abort(); generationAbort = null;
   active = false; lineVoice.disconnect();
   voiceReconciling = voiceUnsafe = voiceCheckRunning = false;
   idleInvitation.reset(); agentMachine.send('stop');
@@ -589,9 +631,74 @@ async function leave(message = 'You have left the lesson.') {
   refresh(); notify(message);
   if (client) {
     try { await client.disconnect(); }
-    catch (error) { notify(`Disconnect did not confirm: ${error.message}. Check the Reactor dashboard before leaving.`, true); }
+    catch (error) { notify(`Disconnect did not confirm: ${error.message}. Check the Reactor dashboard before leaving.`, true); return false; }
   }
+  return true;
 }
+function invalidateGenerated() {
+  if (practiceMode !== 'real') return;
+  generated = false; lesson = null; $('generatedInfo').textContent = ''; refresh();
+}
+async function selectPracticeMode(mode) {
+  if (active || busy || ending) return;
+  goalRecorder.cancel(); practiceMode = mode;
+  $('modeHome').setAttribute('aria-pressed', String(mode === 'home'));
+  $('modeReal').setAttribute('aria-pressed', String(mode === 'real'));
+  $('homeSetup').hidden = mode !== 'home'; $('realSetup').hidden = mode !== 'real';
+  $('practiceReview').hidden = true; $('practiceStage').hidden = false;
+  if (mode === 'home') await chooseLesson();
+  else {
+    invalidateGenerated(); clearPhoto();
+    if (realPhoto) setPhoto(realPhoto, 'Learner scene photograph for a generated practice.');
+    $('lessonLabel').textContent = 'REAL-WORLD JAPANESE'; $('lessonInfo').textContent = '';
+    $('jp').textContent = 'あなたの場面で、話そう。'; $('romaji').textContent = 'Anata no bamen de, hanasō.';
+    for (const id of ['kana', 'zh', 'en', 'feedback']) $(id).textContent = '';
+    $('scenePlaceholder').querySelector('span').textContent = '日本語で話そう。';
+    $('scenePlaceholder').querySelector('p').textContent = 'Your place. Your next conversation.';
+    notify('Add a scene photo and tell us what you want to practice.');
+  }
+  refresh();
+}
+function fileDataUrl(file) { return new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = () => reject(new Error('Could not read the scene photo.')); reader.readAsDataURL(file); }); }
+async function generatePractice() {
+  if (active || busy || !realPhoto || !$('practiceGoal').value.trim()) return;
+  const file = realPhoto, goal = $('practiceGoal').value.trim();
+  busy = true; generationAbort = new AbortController(); const ownAbort = generationAbort;
+  $('goalStatus').textContent = 'Looking at your scene and preparing a short practice…'; refresh();
+  try {
+    const image = await fileDataUrl(file);
+    if (ownAbort.signal.aborted) return;
+    const result = await api('/api/practice/generate', { image, goal }, AbortSignal.any([ownAbort.signal, AbortSignal.timeout(60000)]));
+    if (ownAbort.signal.aborted || practiceMode !== 'real' || file !== realPhoto) return;
+    lesson = result.lesson; generated = true; generatedExpiresAt = typeof result.expiresAt === 'number' ? result.expiresAt : Date.parse(result.expiresAt);
+    const count = lesson.beats.reduce((sum, item) => sum + item.lines.length, 0);
+    setPhoto(file, lesson.scenePrompt);
+    $('lessonLabel').textContent = 'REAL-WORLD JAPANESE'; $('progress').textContent = lesson.title;
+    $('generatedInfo').textContent = `${lesson.title} · ${count} lines · available for 30 minutes`;
+    $('goalStatus').textContent = 'Ready. Start your practice when you are comfortable.';
+    $('jp').textContent = lesson.beats[0]?.lines[0]?.jp || '日本語で話そう。';
+    $('romaji').textContent = lesson.beats[0]?.lines[0]?.romaji || '';
+    document.title = `${lesson.title} · ImmerseTheBay`;
+    notify('Your practice is ready.');
+  } catch (error) { if (!ownAbort.signal.aborted) { lesson = null; generated = false; $('goalStatus').textContent = `Could not create practice: ${error.message}`; } }
+  finally { if (generationAbort === ownAbort) { generationAbort = null; busy = false; refresh(); } }
+}
+async function endPractice() {
+  if (!active || busy || ending) return;
+  ending = true; busy = true; idleInvitation.suspend(); cancelSpeech(); lessonSpeech.cancel();
+  const run = epoch, binding = { sessionId, lessonId: lesson.id }, title = lesson.title;
+  lineVoice.disconnect(); refresh(); notify('Preparing your practice review…');
+  let summary = null, error = '';
+  try { summary = await api('/api/agent/summary', binding, AbortSignal.timeout(10000)); }
+  catch { error = 'Your practice ended, but the review could not be loaded. No scores have been estimated.'; }
+  if (run !== epoch) { ending = false; refresh(); return; }
+  const disconnected = await leave('Practice ended. Microphone stopped and video disconnected.');
+  if (!disconnected) error = `${error} Video disconnection could not be confirmed. Check the Reactor dashboard before leaving.`.trim();
+  ending = false; setSetupOpen(false); $('practiceStage').hidden = true;
+  renderPracticeReview($('reviewContent'), summary, { title, error });
+  $('practiceReview').hidden = false; $('newPractice').focus(); refresh();
+}
+
 function setSetupOpen(open) {
   $('setupPanel').hidden = !open;
   $('setupToggle').setAttribute('aria-expanded', String(open));
@@ -604,7 +711,7 @@ function unload() {
 
 $('sample').append(...SAMPLES.map((sample) => new Option(sample.label, sample.file)));
 $('lesson').onchange = () => void chooseLesson();
-$('sample').onchange = async () => { busy = true; refresh(); try { await chooseSample(); notify('Start image selected.'); } catch (error) { notify(error.message, true); } finally { busy = false; refresh(); } };
+$('sample').onchange = async () => { const run = epoch; busy = true; refresh(); try { await chooseSample(); if (run === epoch) notify('Start image selected.'); } catch (error) { if (run === epoch) notify(error.message, true); } finally { if (run === epoch) { busy = false; refresh(); } } };
 $('photo').onchange = () => {
   const file = $('photo').files[0]; if (!file) return;
   if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 10 * 1024 * 1024) { notify('Choose a JPEG, PNG or WebP photo under 10 MB.', true); $('photo').value = ''; return; }
@@ -622,6 +729,18 @@ $('translationToggle').onclick = () => {
   $('translations').hidden = !$('translations').hidden;
   $('translationToggle').setAttribute('aria-expanded', String(!$('translations').hidden));
 };
+$('modeHome').onclick = () => void selectPracticeMode('home');
+$('modeReal').onclick = () => void selectPracticeMode('real');
+$('practiceGoal').oninput = invalidateGenerated;
+$('realPhoto').onchange = () => {
+  const file = $('realPhoto').files[0]; if (!file) return;
+  if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 3 * 1024 * 1024) { $('goalStatus').textContent = 'Choose a JPEG, PNG or WebP under 3 MB.'; $('realPhoto').value = ''; return; }
+  realPhoto = file; invalidateGenerated(); setPhoto(file, 'Learner scene photograph; contents not yet analyzed.');
+};
+$('recordGoal').onclick = () => void goalRecorder.start(); $('stopGoal').onclick = () => goalRecorder.stop();
+$('generatePractice').onclick = () => void generatePractice();
+$('endPractice').onclick = () => endPractice();
+$('newPractice').onclick = () => { $('practiceReview').hidden = true; $('practiceStage').hidden = false; setSetupOpen(true); };
 $('begin').onclick = begin; $('leave').onclick = () => leave();
 $('listen').onclick = () => { if (!$('listen').disabled) void lessonSpeech.play({ text: latestDecision.overlay.jp, language: 'ja', role: 'learner' }); };
 $('clerkReplay').onclick = () => { if (!$('clerkReplay').disabled && clerkSpeech) void lessonSpeech.play(clerkSpeech); };

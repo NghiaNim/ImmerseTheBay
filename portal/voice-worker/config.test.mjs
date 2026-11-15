@@ -31,6 +31,12 @@ test('forbidden fallback model and incomplete resource bindings fail closed', ()
 test('changed shopping goals mandate branching before spoken acknowledgement', () => {
   assert.match(INSTRUCTIONS, /call branch_scene BEFORE acknowledging/);
   assert.match(INSTRUCTIONS, /ちょっと待ってください。棚のサンドイッチを買いたいです。案内してください。/);
-  assert.match(INSTRUCTIONS, /new shopping goal takes priority over rehearsal/);
+  assert.match(INSTRUCTIONS, /NEW practice goal takes priority over rehearsal/);
   assert.match(INSTRUCTIONS, /Never say「こちらへどうぞ」/);
+});
+
+test('voice role follows scene context and the current target remains rehearsal', () => {
+ assert.match(INSTRUCTIONS, /\{\{practiceContext\}\}/);
+ assert.match(INSTRUCTIONS, /current learnerLine/);
+ assert.match(INSTRUCTIONS, /call rehearse_line instead/);
 });
