@@ -29,6 +29,7 @@ namespace ImmerseTheBay.Learning
         public event Action SpeakRequested;
         public event Action HintRequested;
         public event Action NextRequested;
+        public event Action ExploreRequested;
         public RectTransform Panel => m_Panel;
         public RectTransform ControlsPanel => m_ControlPanel;
         RectTransform m_ControlPanel;
@@ -52,12 +53,16 @@ namespace ImmerseTheBay.Learning
         RectTransform m_Hud, m_InstructionText, m_ReadingPanel;
         Canvas m_Canvas;
         Text m_Japanese, m_Romaji, m_Kana, m_Translation, m_Status, m_SpeakLabel, m_Clerk, m_Learner, m_ConversationLabel;
-        Text m_ProgressBadge, m_ResultBadge, m_Instruction, m_ControlHint, m_LookDown;
+        Text m_ProgressBadge, m_ResultBadge, m_Instruction, m_ControlHint, m_LookDown, m_ExploreLabel, m_ExploreMarker;
         readonly List<(Text japanese, Text kana, Text romaji, RectTransform underline)> m_ReadingCells = new();
         GameObject m_Backdrop;
         readonly RectTransform[] m_Waveform = new RectTransform[5];
         readonly float[] m_ListeningHistory = new float[5];
-        Button m_Speak, m_Hint, m_Next, m_Conversation, m_Return;
+        Button m_Speak, m_Hint, m_Next, m_Conversation, m_Return, m_Explore;
+        bool m_ExploreAvailable, m_ExploreActive;
+        Vector3? m_ExploreAim;
+        string m_ExploreHint;
+        public bool HoveringLessonAction => m_HoveredButton && m_HoveredButton.isActiveAndEnabled && m_HoveredButton.interactable;
         Button[] m_Buttons;
         Button m_HoveredButton;
         bool m_SceneTransition;
@@ -184,6 +189,16 @@ namespace ImmerseTheBay.Learning
             !string.IsNullOrWhiteSpace(original) && !string.IsNullOrWhiteSpace(target)
             && string.Equals(original.Trim().TrimEnd('。', '？', '！', '.', '?', '!'),
                 target.Trim().TrimEnd('。', '？', '！', '.', '?', '!'), StringComparison.Ordinal);
+        public void SetExploreState(bool available, bool active, Vector3? aim, string hint)
+        {
+            m_ExploreAim = aim;
+            if (available == m_ExploreAvailable && active == m_ExploreActive && hint == m_ExploreHint) return;
+            m_ExploreAvailable = available;
+            m_ExploreActive = active;
+            m_ExploreHint = hint;
+            Refresh();
+        }
+
         public void SetControlsLocked(bool locked) { BuildUi(); m_ControlsLocked = locked; Refresh(); }
         public void Conversation() { if (m_Conversation && m_Conversation.interactable) ConversationRequested?.Invoke(); }
         public void ReturnToLesson() { if (m_Return && m_Return.interactable) ReturnRequested?.Invoke(); }
@@ -247,6 +262,14 @@ namespace ImmerseTheBay.Learning
             m_Instruction = MakeHudBadge("Instruction", font, 27, new Vector2(1, 0), new Vector2(-30, 3), new Vector2(530, 45));
             m_LookDown = MakeHudBadge("Look down", font, 27, new Vector2(0.5f, 0), new Vector2(-48, -8), new Vector2(385, 44));
             m_InstructionText = (RectTransform)m_Instruction.transform;
+            m_ExploreMarker = MakeText("Explore target", font, 57, new Color(0.85f, 0.72f, 1f));
+            var markerRect = m_ExploreMarker.rectTransform;
+            markerRect.SetParent(m_Hud, false);
+            markerRect.anchorMin = markerRect.anchorMax = new Vector2(0.5f, 0.5f);
+            markerRect.sizeDelta = new Vector2(86, 90);
+            m_ExploreMarker.alignment = TextAnchor.MiddleCenter;
+            m_ExploreMarker.text = "＋";
+            m_ExploreMarker.gameObject.SetActive(false);
             for (int i = 0; i < m_Waveform.Length; i++)
             {
                 var bar = new GameObject("Input level", typeof(Image)).GetComponent<Image>();
@@ -272,7 +295,9 @@ namespace ImmerseTheBay.Learning
             m_Speak = MakeButton("Speak", font, out m_SpeakLabel);
             m_Hint = MakeButton("Hint", font, out _);
             m_Next = MakeButton("Next", font, out _);
-            m_Buttons = new[] { m_Conversation, m_Speak, m_Hint, m_Next };
+            m_Explore = MakeButton("Explore", font, out m_ExploreLabel);
+            m_Explore.onClick.AddListener(() => ExploreRequested?.Invoke());
+            m_Buttons = new[] { m_Conversation, m_Speak, m_Hint, m_Next, m_Explore };
             m_Speak.onClick.AddListener(Speak);
             m_Hint.onClick.AddListener(Hint);
             m_Next.onClick.AddListener(Next);
@@ -393,6 +418,9 @@ namespace ImmerseTheBay.Learning
             m_Speak.gameObject.SetActive(manual);
             m_Hint.gameObject.SetActive(manual);
             m_Next.gameObject.SetActive(manual);
+            m_Explore.gameObject.SetActive(manual && !m_Detour);
+            m_ExploreLabel.text = m_ExploreActive ? "Cancel" : "Explore";
+            m_Explore.interactable = manual && m_ExploreAvailable && !m_ControlsLocked;
             m_Return.gameObject.SetActive(controls && m_Detour);
             LayoutButtons();
             FitLayout();
@@ -412,6 +440,7 @@ namespace ImmerseTheBay.Learning
             if (m_SceneTransition) return "";
             if (m_ConversationActive) return !string.IsNullOrEmpty(m_ConversationStatus) ? m_ConversationStatus
                 : m_AgentSpeaking ? "Clerk speaking · you can interrupt" : "Listening · speak naturally";
+            if (!string.IsNullOrEmpty(m_ExploreHint)) return m_ExploreHint;
             if (m_ExampleSpeaking) return "Listen, then repeat";
             if (m_Listening) return m_StatusOverride == "Finishing speech…" ? m_StatusOverride : "Speak the Japanese sentence.";
             if (m_ClerkSpeaking) return "Clerk speaking";
@@ -620,8 +649,8 @@ namespace ImmerseTheBay.Learning
             foreach (var button in m_Buttons) button.targetGraphic.color = button == m_HoveredButton ? HoverPurple : ActionPurple;
             m_Return.targetGraphic.color = m_Return == m_HoveredButton ? HoverPurple : ActionPurple;
             m_ControlHint.text = m_HoveredButton
-                ? $"Pinch to select {m_HoveredButton.name}"
-                : "Aim the pointer at an action";
+                ? $"Pinch to select {(m_HoveredButton == m_Explore ? m_ExploreLabel.text : m_HoveredButton.name)}"
+                : m_ExploreHint ?? "Aim the pointer at an action";
         }
 
         void FitLayout()
@@ -804,6 +833,13 @@ namespace ImmerseTheBay.Learning
             float canvasHeight = screenHeight / pixelScale;
             m_Hud.anchoredPosition = new Vector2(0, -CaptionBottom * canvasHeight);
             m_Hud.sizeDelta = new Vector2(Width, canvasHeight);
+            bool showExploreMarker = m_ExploreAim.HasValue && m_ExploreActive && headCamera;
+            m_ExploreMarker.gameObject.SetActive(showExploreMarker);
+            if (showExploreMarker)
+            {
+                Vector3 hit = m_ExploreAim.Value;
+                m_ExploreMarker.transform.position = hit + (headCamera.transform.position - hit).normalized * screenGap;
+            }
             if (m_ResultBadge.gameObject.activeInHierarchy)
                 m_ResultBadge.transform.parent.localScale = Vector3.one
                     * (1f + 0.09f * Mathf.Clamp01((m_ResultEmphasisUntil - Time.unscaledTime) / 0.24f));

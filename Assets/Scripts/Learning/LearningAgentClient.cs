@@ -15,7 +15,7 @@ namespace ImmerseTheBay.Learning
     /// Serialized lesson turns over the portal. Mirrored learn events only render; they never execute
     /// Reactor commands. BeginLesson explicitly resets the shared scene; no session starts on enable.
     /// </summary>
-    public sealed class LearningAgentClient : MonoBehaviour
+    public sealed partial class LearningAgentClient : MonoBehaviour
     {
         public ViskoSession visko;
         public LearningContext context;
@@ -113,6 +113,7 @@ namespace ImmerseTheBay.Learning
                 overlay.SpeakRequested += Speak;
                 overlay.HintRequested += Hint;
                 overlay.NextRequested += Next;
+                overlay.ExploreRequested += ToggleExplore;
                 if (visko) overlay.screen = visko.screen;
             }
             if (conversation) { conversation.ToolCall += OnVoiceTool; conversation.StateChanged += OnVoiceState; conversation.Transcript += OnVoiceTranscript; conversation.Interrupted += OnVoiceInterrupted; }
@@ -134,6 +135,7 @@ namespace ImmerseTheBay.Learning
                 overlay.SpeakRequested -= Speak;
                 overlay.HintRequested -= Hint;
                 overlay.NextRequested -= Next;
+                overlay.ExploreRequested -= ToggleExplore;
             }
             if (IsBusy) m_NeedsRestart = true;
             m_HasLesson = false; // /sync does not replay missed learn events on re-enable.
@@ -167,6 +169,7 @@ namespace ImmerseTheBay.Learning
                 SetStatus(string.IsNullOrEmpty(session) ? "Join a lesson from the web." : "Connected. Begin a lesson or follow the web.");
             }
             while (m_Main.TryDequeue(out var action)) action();
+            UpdateExplore();
             if (overlay)
             {
                 var portal = m_Speech as PortalSpeechToText;
@@ -207,6 +210,8 @@ namespace ImmerseTheBay.Learning
             { SetStatus("Connect the glasses to Visko before beginning a lesson."); return; }
             if (visko.glassesResolution != "native")
             { SetStatus("Glasses learning requires native resolution."); return; }
+            CancelExploreInput();
+            m_ExploreReturnFrame = null;
             // Capture identity before any await. Update must not invalidate this new operation.
             m_Session = visko.SessionId;
             m_RunLesson = lessonId;
@@ -358,6 +363,7 @@ namespace ImmerseTheBay.Learning
         async void Submit(string transcript, LearningContextSnapshot snapshot, string intent = null, string action = null, bool practiceAttempt = false)
         {
             if (!CanSubmit()) return;
+            CancelExploreInput();
             int generation = m_Generation;
             SetBusy(true);
             try
@@ -371,7 +377,8 @@ namespace ImmerseTheBay.Learning
             finally { if (IsCurrent(generation)) SetBusy(false); }
         }
 
-        async Task ExecuteTurn(string transcript, LearningContextSnapshot snapshot, int generation, string intent = null, string action = null, bool practiceAttempt = false)
+        async Task ExecuteTurn(string transcript, LearningContextSnapshot snapshot, int generation, string intent = null, string action = null,
+            bool practiceAttempt = false, ExplorationSelection exploration = null)
         {
             SetStatus(practiceAttempt ? "Checking your answer…" : "Preparing…");
             if (m_Claims.Count >= 256) throw new InvalidOperationException("Lesson operation limit reached; restart safely.");
@@ -394,26 +401,41 @@ namespace ImmerseTheBay.Learning
             bool switchScene = !string.IsNullOrEmpty(m_ActiveSceneId) &&
                 !string.IsNullOrEmpty(sceneId) && sceneId != m_ActiveSceneId;
             bool exploring = response.route?.kind == "detour";
+            bool enterExploration = exploration != null && exploring &&
+                response.route.step == 1 && response.route.returnBeat == Beat;
+            bool restoreExploration = m_ExploreReturnFrame != null && response.route?.kind == "rejoin";
+            bool reseed = switchScene || enterExploration || restoreExploration;
             if (exploring)
             {
                 visko.ClearSceneOpening();
                 visko.PrefetchSceneOpening(null, null);
             }
-            else if (!switchScene) visko.ConfirmSceneOpening(m_RunLesson, sceneId);
-            bool preparingNext = switchScene || response.advance == "next_line" && response.visko.Any(command => command.name == "set_prompt");
+            else if (!reseed) visko.ConfirmSceneOpening(m_RunLesson, sceneId);
+            bool preparingNext = reseed || response.advance == "next_line" && response.visko.Any(command => command.name == "set_prompt");
             if (preparingNext && overlay) overlay.SetSceneTransition(true);
             if (!preparingNext && !IsConversationActive && response.speech?.role == "clerk")
             {
                 ShowClerkDialogue(response.speech);
                 PlayClerkAudio(response.speech, generation);
             }
-            if (switchScene)
+            if (reseed)
             {
                 if (response.visko.All(command => command.name != "set_prompt"))
                     throw new InvalidOperationException("The new lesson scene has no video prompt.");
-                byte[] image = m_PrefetchedSceneId == sceneId && m_ScenePrefetch != null
-                    ? await m_ScenePrefetch : null;
-                image ??= await visko.PrefetchLessonScene(sceneId);
+                byte[] image;
+                if (enterExploration)
+                {
+                    m_ExploreReturnFrame = exploration.EntryFrame;
+                    image = exploration.StartFrame;
+                }
+                else if (restoreExploration && string.IsNullOrEmpty(sceneId))
+                    image = m_ExploreReturnFrame;
+                else
+                {
+                    image = m_PrefetchedSceneId == sceneId && m_ScenePrefetch != null
+                        ? await m_ScenePrefetch : null;
+                    image ??= await visko.PrefetchLessonScene(sceneId);
+                }
                 EnsureCurrent(generation);
                 visko.PrepareScenePreview(image);
                 if (!exploring) visko.UseSceneOpening(m_RunLesson, sceneId);
@@ -441,10 +463,12 @@ namespace ImmerseTheBay.Learning
                     EnsureCurrent(generation);
                     m_LastPromptAt = Time.realtimeSinceStartupAsDouble;
                 }
-                await visko.CommandAsync(command.name, command.Arguments());
+                string commandArgs = enterExploration && command.name == "set_prompt"
+                    ? "{\"prompt\":" + LearningContract.Quote(exploration.Prompt) + "}" : command.Arguments();
+                await visko.CommandAsync(command.name, commandArgs);
                 EnsureCurrent(generation);
             }
-            if (switchScene)
+            if (reseed)
             {
                 await visko.CommandAsync("start", "{}");
                 EnsureCurrent(generation);
@@ -457,6 +481,9 @@ namespace ImmerseTheBay.Learning
                     EnsureCurrent(generation);
                 }
             }
+            if (restoreExploration) m_ExploreReturnFrame = null;
+            if (enterExploration) Debug.Log("[Learning] Live exploration branch entered");
+            if (restoreExploration) Debug.Log("[Learning] Exploration returned to its saved checkpoint");
             m_ActiveSceneId = sceneId;
             if (m_PrefetchedSceneId != response.nextSceneId)
             {
@@ -592,6 +619,8 @@ namespace ImmerseTheBay.Learning
 
         void CancelWork()
         {
+            CancelExploreInput();
+            m_ExploreReturnFrame = null;
             m_ActiveSceneId = m_PrefetchedSceneId = null;
             m_ScenePrefetch = null;
             if (visko) visko.PrefetchSceneOpening(null, null);

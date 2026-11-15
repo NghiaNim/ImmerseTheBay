@@ -15,13 +15,13 @@ fi
 integration="$dev/Assets/ImmerseIntegration"
 mkdir -p "$integration" "$dev/Assets/StreamingAssets/lessons" "$dev/Assets/Plugins/Android"
 for source in \
-  Assets/Scripts/Visko/{ViskoSession,ViskoSession.Openings,AndroidSpeechToText}.cs \
+  Assets/Scripts/Visko/{ViskoSession,ViskoSession.Openings,ViskoSession.Explore,AndroidSpeechToText}.cs \
   Assets/Scripts/Content/ContentLibrary.cs \
   Assets/Scripts/Tracking/HandInput.cs \
   Assets/Scripts/SensorDebug/DebugRegistry.cs \
   Assets/Scripts/Net/{NetClient,Protocol,RealtimeSession}.cs \
   Assets/Scripts/Audio/{MicrophoneCapture,PcmChunkReader}.cs \
-  Assets/Scripts/Learning/{ISpeechToText,EditorSpeechToText,PortalSpeechToText,LearningAgentClient,LearningContext,LearningContract,LearningOverlay}.cs \
+  Assets/Scripts/Learning/{ISpeechToText,EditorSpeechToText,PortalSpeechToText,LearningAgentClient,LearningAgentClient.Explore,LearningContext,LearningContract,LearningOverlay}.cs \
   Assets/Scripts/Learning/Voice/CartesiaConversationClient.cs \
   Assets/Shaders/ImmersiveVisko.shader Assets/Materials/ImmersiveVisko.mat; do
   cp "$repo/$source" "$repo/$source.meta" "$integration/"
