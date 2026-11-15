@@ -12,6 +12,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.Matrix
+import android.graphics.Rect
 import android.graphics.SurfaceTexture
 import android.hardware.camera2.CameraCaptureSession
 import android.hardware.camera2.CameraCharacteristics
@@ -30,6 +31,7 @@ import android.speech.SpeechRecognizer
 import android.util.Size
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.PixelCopy
 import android.view.Surface
 import android.view.TextureView
 import android.view.View
@@ -539,6 +541,7 @@ private class ScenePhotoCamera(
     private var frameDeadline: Runnable? = null
     private var generation = 0
     private var closed = false
+    private var snapshotPending = false
 
     fun open() {
         // The phone app stays portrait outside capture. Let the viewfinder follow the rear camera
@@ -631,7 +634,7 @@ private class ScenePhotoCamera(
         updateTransform(width, height)
 
     override fun onSurfaceTextureUpdated(texture: SurfaceTexture) {
-        if (closed || session == null || texture.timestamp <= 0L || shutter.isEnabled) return
+        if (closed || snapshotPending || session == null || texture.timestamp <= 0L || shutter.isEnabled) return
         clearFrameDeadline()
         shutter.isEnabled = true
     }
@@ -669,16 +672,45 @@ private class ScenePhotoCamera(
     }
 
     private fun snapshot() {
-        if (!shutter.isEnabled || preview.surfaceTexture?.timestamp?.let { it > 0L } != true) return
-        val frame = runCatching { preview.bitmap }.getOrNull()
-        if (frame == null || frame.width * 9 != frame.height * 16 ||
-            Color.alpha(frame.getPixel(frame.width / 2, frame.height / 2)) == 0) {
-            frame?.recycle()
-            fail(generation)
-            return
+        if (snapshotPending || !shutter.isEnabled || preview.surfaceTexture?.timestamp?.let { it > 0L } != true) return
+        val run = generation
+        val window = dialog.window ?: return fail(run)
+        val width = preview.width
+        val height = preview.height
+        val rotation = preview.display?.rotation
+        if (width <= 0 || width * 9 != height * 16) return fail(run)
+        val location = IntArray(2)
+        preview.getLocationInWindow(location)
+        val bounds = Rect(location[0], location[1], location[0] + width, location[1] + height)
+        val visible = Rect()
+        if (!preview.getLocalVisibleRect(visible) || visible.width() != width || visible.height() != height)
+            return fail(run)
+        val frame = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        snapshotPending = true
+        shutter.isEnabled = false
+        try {
+            // Copy the composed window region, including the applied camera crop.
+            // TextureView.bitmap can scale the camera buffer directly to the destination.
+            PixelCopy.request(window, bounds, frame, { result ->
+                snapshotPending = false
+                if (!active(run) || preview.display?.rotation != rotation ||
+                    preview.width != width || preview.height != height) {
+                    frame.recycle()
+                    if (active(run)) shutter.isEnabled = true
+                } else if (result != PixelCopy.SUCCESS ||
+                    Color.alpha(frame.getPixel(width / 2, height / 2)) == 0) {
+                    frame.recycle()
+                    fail(run)
+                } else {
+                    dismiss()
+                    onPhoto(frame)
+                }
+            }, main)
+        } catch (_: IllegalArgumentException) {
+            snapshotPending = false
+            frame.recycle()
+            fail(run)
         }
-        dismiss()
-        onPhoto(frame)
     }
 
     private fun active(run: Int) = !closed && run == generation

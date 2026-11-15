@@ -365,7 +365,7 @@ class TeninScreens(private val context: Context, private val bindPreview: (Strin
         layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
         if (bitmap != null) {
             addView(ImageView(context).apply {
-                scaleType = ImageView.ScaleType.FIT_CENTER
+                scaleType = ImageView.ScaleType.CENTER_CROP
                 setImageBitmap(bitmap)
                 contentDescription = "Your scene preview"
             }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))

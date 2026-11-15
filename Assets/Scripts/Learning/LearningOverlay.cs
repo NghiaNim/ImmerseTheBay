@@ -59,6 +59,7 @@ namespace ImmerseTheBay.Learning
         Canvas m_Canvas;
         Text m_Japanese, m_Romaji, m_Kana, m_Translation, m_Status, m_SpeakLabel, m_Clerk, m_Learner, m_ConversationLabel, m_TargetCue;
         Text m_ProgressBadge, m_ResultBadge, m_Instruction, m_ControlHint, m_LookDown, m_ExploreMarker;
+        Text m_ReviewTitle;
         readonly List<(Text japanese, Text kana, Text romaji, RectTransform underline)> m_ReadingCells = new();
         GameObject m_Backdrop;
         readonly RectTransform[] m_Waveform = new RectTransform[5];
@@ -325,6 +326,7 @@ namespace ImmerseTheBay.Learning
             m_ProgressBadge = MakeHudBadge("Progress", font, 34, new Vector2(1, 1), new Vector2(-30, -22), new Vector2(405, 62));
             m_ResultBadge = MakeHudBadge("Sentence result", font, 44, new Vector2(0.5f, 0.78f), Vector2.zero, new Vector2(880, 112));
             m_ResultGroup = m_ResultBadge.transform.parent.gameObject.AddComponent<CanvasGroup>();
+            m_ReviewTitle = MakeHudBadge("Lesson review title", font, 62, new Vector2(0.5f, 0.66f), Vector2.zero, new Vector2(870, 126));
             m_Instruction = MakeHudBadge("Instruction", font, 27, new Vector2(1, 0), new Vector2(-30, 3), new Vector2(530, 45));
             m_LookDown = MakeHudBadge("Look down", font, 27, new Vector2(0.5f, 0), new Vector2(-48, -8), new Vector2(385, 44));
             m_InstructionText = (RectTransform)m_Instruction.transform;
@@ -510,6 +512,7 @@ namespace ImmerseTheBay.Learning
             SetBadge(m_LookDown, reviewing ? "↓  Review actions" : controls ? "↓  Look down for actions" : "");
             SetBadge(m_ProgressBadge, reviewing ? $"Review {m_ReviewIndex + 1} / {m_ReviewLines.Count}"
                 : !m_ConversationActive ? Shorten(m_PracticeProgress, 28) : "");
+            SetBadge(m_ReviewTitle, m_Done ? "Lesson review" : "");
             if (reviewing) SetBadge(m_ResultBadge, "");
             else UpdateResultBadge();
             bool showWaveform = m_Listening && controls && !m_ExampleSpeaking && !clerkTurn;
@@ -772,7 +775,7 @@ namespace ImmerseTheBay.Learning
             returnRect.anchoredPosition = new Vector2(0, 212);
             returnRect.sizeDelta = new Vector2(310, 126);
             var restartRect = (RectTransform)m_Restart.transform;
-            restartRect.anchoredPosition = new Vector2(390, 208);
+            restartRect.anchoredPosition = new Vector2(0, -55);
             restartRect.sizeDelta = new Vector2(180, 82);
             var conversationRect = (RectTransform)m_Conversation.transform;
             conversationRect.sizeDelta = new Vector2(m_ConversationActive ? 340 : 222, 154);

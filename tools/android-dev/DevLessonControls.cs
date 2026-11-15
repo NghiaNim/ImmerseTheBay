@@ -161,19 +161,19 @@ namespace ImmerseTheBay.Learning
 
             var detour = new GameObject("Detour actions", typeof(RectTransform));
             detour.transform.SetParent(t, false);
-            Place(detour.GetComponent<RectTransform>(), 0.23f, 0.113f, 0.77f, 0.158f);
+            Place(detour.GetComponent<RectTransform>(), 0.23f, 0.129f, 0.77f, 0.164f);
             returnAction = ActionButton(detour.transform, "Return to lesson", PhoneReturn, 0f, 1f);
             returnAction.gameObject.SetActive(false);
 
-            var end = Box(t, Color.white, 0.06f, 0.04f, 0.64f, 0.105f, rounded: true);
+            var end = Box(t, Color.white, 0.06f, 0.074f, 0.94f, 0.122f, rounded: true);
             var endButton = end.AddComponent<Button>();
             endButton.targetGraphic = end.GetComponent<Image>();
             endButton.onClick.AddListener(EndLessonAndReturn);
             endLabel = Place(Label(end.transform, 44, TeninPrimaryDark, "■  End lesson", TextAnchor.MiddleCenter, FontStyle.Bold, serif), 0f, 0f, 1f, 1f);
             BuildCompletionReview(panel.transform);
-            var restart = new GameObject("Restart corner", typeof(RectTransform));
+            var restart = new GameObject("Restart footer", typeof(RectTransform));
             restart.transform.SetParent(panel.transform, false);
-            Place(restart.GetComponent<RectTransform>(), 0.67f, 0.04f, 0.94f, 0.105f);
+            Place(restart.GetComponent<RectTransform>(), 0.31f, 0.015f, 0.69f, 0.068f);
             restartAction = ActionButton(restart.transform, "Restart", RestartLesson, 0f, 1f);
             restartAction.interactable = false;
         }
@@ -269,7 +269,7 @@ namespace ImmerseTheBay.Learning
 
             var doneRow = new GameObject("Done row", typeof(RectTransform));
             doneRow.transform.SetParent(panel, false);
-            Place(doneRow.GetComponent<RectTransform>(), 0.06f, 0.04f, 0.64f, 0.105f);
+            Place(doneRow.GetComponent<RectTransform>(), 0.06f, 0.081f, 0.94f, 0.134f);
             ActionButton(doneRow.transform, "Done", EndLessonAndReturn, 0f, 1f, primary: true);
             reviewPanel.SetActive(false);
         }
@@ -609,7 +609,7 @@ namespace ImmerseTheBay.Learning
             CenterVideo();
             // Keep the real tabletop visible as the wearer transitions from the lesson to the controls.
             float lookDown = Mathf.InverseLerp(0.22f, 0.60f, -head.transform.forward.y);
-            float target = 1f - Mathf.SmoothStep(0f, 1f, lookDown);
+            float target = lesson.IsDone ? 0f : 1f - Mathf.SmoothStep(0f, 1f, lookDown);
             sceneOpacity = Mathf.MoveTowards(sceneOpacity, target, Time.unscaledDeltaTime * 5f);
             sceneProperties ??= new MaterialPropertyBlock();
             video.screen.GetPropertyBlock(sceneProperties);
