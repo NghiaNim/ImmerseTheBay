@@ -160,7 +160,7 @@ namespace ImmerseTheBay.Learning
             return sb.Append("]}").ToString();
         }
 
-        public static string TurnJson(string session, string lesson, int beat, string transcript, LearningContextSnapshot context, string requestId = null, string runId = null, int revision = 0, string intent = null, string action = null)
+        public static string TurnJson(string session, string lesson, int beat, string transcript, LearningContextSnapshot context, string requestId = null, string runId = null, int revision = 0, string intent = null, string action = null, bool practiceAttempt = false)
         {
             if (transcript != null && transcript.Length > 1000)
                 throw new ArgumentException("Speech result is too long; please use one sentence.");
@@ -172,7 +172,8 @@ namespace ImmerseTheBay.Learning
                 (string.IsNullOrEmpty(runId) ? "" : ",\"runId\":" + Quote(runId)) + "}";
             return "{\"sessionId\":" + Quote(session) + ",\"lessonId\":" + Quote(lesson) +
                 ",\"beat\":" + beat.ToString(CultureInfo.InvariantCulture) +
-                ",\"transcript\":" + Quote(transcript ?? "") + ",\"context\":" + ContextJson(context) + operation + (intent == null ? "" : ",\"intent\":" + Quote(intent)) + (action == null ? "" : ",\"action\":" + Quote(action)) + "}";
+                ",\"transcript\":" + Quote(transcript ?? "") + (practiceAttempt ? ",\"practiceAttempt\":true" : "") +
+                ",\"context\":" + ContextJson(context) + operation + (intent == null ? "" : ",\"intent\":" + Quote(intent)) + (action == null ? "" : ",\"action\":" + Quote(action)) + "}";
         }
 
         public static LearningResponse ParseResponse(string json, bool commandsRequired = true)

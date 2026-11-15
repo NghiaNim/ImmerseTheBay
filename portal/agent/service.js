@@ -18,7 +18,7 @@ const bounded = (v, n) => typeof v === 'string' && v.length <= n;
 function invalid(message) { throw new AgentError(400, message); }
 export function validateRequest(body) {
   if (!plain(body)) invalid('JSON object required');
-  if (Object.keys(body).some((k) => !['sessionId', 'lessonId', 'beat', 'transcript', 'intent', 'imageRef', 'context', 'operation', 'action', 'presetSceneSet'].includes(k))) invalid('Unknown request field');
+  if (Object.keys(body).some((k) => !['sessionId', 'lessonId', 'beat', 'transcript', 'practiceAttempt', 'intent', 'imageRef', 'context', 'operation', 'action', 'presetSceneSet'].includes(k))) invalid('Unknown request field');
   if (!bounded(body.sessionId, 160) || !/^[a-zA-Z0-9_.:-]+$/.test(body.sessionId)) invalid('Invalid sessionId');
   if (!bounded(body.lessonId, 80) || !/^[a-z0-9][a-z0-9-]*$/.test(body.lessonId)) invalid('Invalid lessonId');
   if (!Number.isInteger(body.beat) || body.beat < 0 || body.beat > 5000) invalid('beat must be a nonnegative flattened line index');
@@ -41,6 +41,9 @@ export function validateRequest(body) {
   if (c.rms !== undefined && (typeof c.rms !== 'number' || !Number.isFinite(c.rms) || c.rms < 0 || c.rms > 1)) invalid('rms must be between 0 and 1');
   if (c.glassesKey !== undefined && c.glassesKey !== null && !bounded(c.glassesKey, 80)) invalid('Invalid glassesKey');
   if (body.action && (body.intent || body.transcript || c.gesture || c.glassesKey)) invalid('Agent action cannot be combined with speech or navigation');
+  if (body.practiceAttempt !== undefined &&
+      (body.practiceAttempt !== true || !body.transcript?.trim() || body.intent !== undefined ||
+       body.action !== undefined || c.gesture != null || c.glassesKey != null)) invalid('Practice requires a transcript without navigation');
   return structuredClone(body);
 }
 export async function writeDecision(entry) {
@@ -135,6 +138,7 @@ export function createAgentService({ store = createLessonStore(), llm = createLe
       if (request.beat !== state.flow.mainBeat) throw new AgentError(409, 'beat must match the saved main checkpoint');
       if (state.complete) throw new AgentError(409, 'Lesson complete; reset before starting another run');
       if (request.action && !state.started) throw new AgentError(409, 'Start the lesson before requesting an agent action');
+      if (request.practiceAttempt && !state.started) throw new AgentError(409, 'Start the lesson before submitting a practice attempt');
       const mainTarget = lines[state.flow.mainBeat];
       const suppliedReference = typeof request.imageRef === 'string' ? request.imageRef : request.imageRef?.id;
       if (state.sceneContext && suppliedReference && suppliedReference !== (state.originalReferenceId || state.sceneContext.referenceId)) {
@@ -162,7 +166,7 @@ export function createAgentService({ store = createLessonStore(), llm = createLe
       const activeTarget = state.flow.active?.nodes[state.flow.active.index] || mainTarget.line;
       const summaryBefore = { started: state.started, id: targetId(state.flow), nodeId: previousNodeId, line: structuredClone(activeTarget) };
       const practicedSegment = state.flow.active ? { kind: 'detour', label: state.flow.active.label } : { kind: 'main', label: null };
-      const intent = request.action ? null : detectedIntent(request, activeTarget);
+      const intent = request.action || request.practiceAttempt ? null : detectedIntent(request, activeTarget);
       let entered = false;
       let intentNote = null;
       let enteredPlan = null;
@@ -234,13 +238,14 @@ export function createAgentService({ store = createLessonStore(), llm = createLe
       let response = fallback;
       // Gesture-only/context-only navigation uses authored deltas immediately;
       // reserve optional model refinement for opening and actual spoken practice.
-      if (llm && !request.action && !branchTurn && !intent && (!state.started || request.transcript?.trim())) {
+      if (llm && !request.action && !request.practiceAttempt && !branchTurn && !intent && (!state.started || request.transcript?.trim())) {
         try {
           response = repairOutput(await llm({ lesson, current, transcript: request.transcript || '', context: request.context, photoCaption: state.referenceCaption, sceneContext: structuredClone(state.sceneContext), attempts: state.attempts, fallback: structuredClone(fallback) }), fallback);
           source = 'llm';
         } catch (e) { failure = e.message === 'LLM JSON schema mismatch' ? e.message : 'LLM unavailable or invalid response'; }
       }
       const presented = state.complete ? null : state.flow.active ? state.flow.active.nodes[state.flow.active.index] : lines[state.flow.mainBeat]?.line || null;
+      if (request.practiceAttempt && previousNodeId === response.route.nodeId && !state.complete) response.visko = [];
       // Live voice sessions read the partner's role and current prompt from the snapshot.
       state.partner = lesson.partnerRole ? { role: lesson.partnerRole, line: state.flow.active ? '' : presented?.partner?.jp || '' } : null;
       if (request.action !== 'idle_hint') {

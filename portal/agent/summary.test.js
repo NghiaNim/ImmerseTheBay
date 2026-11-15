@@ -91,3 +91,35 @@ test('wire results identify the attempted sentence and keep branch and manual pr
   assert.deepEqual(r.progress, { mainTotal: 2, mainStep: 2, mainCompleted: 1 });
   assert.equal(service.summary(key).scoredAttempts, 2);
 });
+
+test('explicit rehearsal scores every answer, including off-target shopping requests and the final line', async () => {
+ const refinements = [];
+ const service = setup({llm: async ({ fallback }) => { refinements.push(true); return fallback; }});
+ const practice = {practiceAttempt: true};
+ const unrelatedRequest = 'I want a sandwich';
+ await assert.rejects(service.turn(make('early', null, {...practice, transcript: unrelatedRequest})), {status:409});
+ let r = await service.turn(make('open'));
+ await assert.rejects(service.turn(make('mixed', r, {...practice, transcript: unrelatedRequest, intent: unrelatedRequest})), {status:400});
+
+ const wrong = make('wrong', r, {...practice, transcript: unrelatedRequest});
+ r = await service.turn(wrong);
+ assert.equal(r.route.kind, 'main');
+ assert.equal(r.attempt.outcome, 'retry');
+ assert.equal(r.attempt.text, unrelatedRequest);
+ assert.deepEqual(r.visko, []);
+ assert.deepEqual((await service.turn(wrong)).attempt, r.attempt);
+
+ r = await service.turn(make('branch', r, {intent: unrelatedRequest}));
+ assert.equal(r.route.kind, 'detour');
+ r = await service.turn(make('branch-rehearsal', r, {...practice, transcript: r.overlay.jp}));
+ assert.equal(r.attempt.outcome, 'pass');
+ r = await service.turn(make('return', r, {action:'return_to_main'}));
+ r = await service.turn(make('correct', r, {...practice, transcript: r.overlay.jp}));
+ assert.equal(r.attempt.outcome, 'pass');
+ r = await service.turn(make('finish', r, {...practice, transcript: r.overlay.jp}));
+ assert.equal(r.advance, 'scene_done');
+ assert.equal(r.attempt.outcome, 'pass');
+ assert.equal(r.attempt.nextTargetId, null);
+ assert.equal(service.summary(key).scoredAttempts, 4);
+ assert.equal(refinements.length, 1);
+});

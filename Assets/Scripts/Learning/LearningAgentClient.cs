@@ -174,7 +174,9 @@ namespace ImmerseTheBay.Learning
                 if (m_ListeningVisible != capturing) overlay.SetListening(m_ListeningVisible = capturing);
                 if (capturing && portal) overlay.SetListeningLevel(portal.InputLevel);
             }
-            if (m_LastAttempt != null && Time.unscaledTime >= m_AttemptExpires)
+            if (m_LastAttempt != null && (IsBusy || IsClerkSpeaking || IsExamplePending))
+                m_AttemptExpires = Mathf.Max(m_AttemptExpires, Time.unscaledTime + 3f);
+            else if (m_LastAttempt != null && Time.unscaledTime >= m_AttemptExpires)
             {
                 m_LastAttempt = null;
                 UpdatePracticeLabel();
@@ -306,7 +308,7 @@ namespace ImmerseTheBay.Learning
                 EndRecognition();
                 if (string.IsNullOrWhiteSpace(text)) { SetStatus("No speech heard. Try Speak again."); return; }
                 ShowDialogue(false, text);
-                Submit(text, context ? context.Capture() : null);
+                Submit(text, context ? context.Capture() : null, practiceAttempt: true);
             });
             m_ErrorHandler = error => m_Main.Enqueue(() =>
             {
@@ -352,7 +354,7 @@ namespace ImmerseTheBay.Learning
             return true;
         }
 
-        async void Submit(string transcript, LearningContextSnapshot snapshot, string intent = null, string action = null)
+        async void Submit(string transcript, LearningContextSnapshot snapshot, string intent = null, string action = null, bool practiceAttempt = false)
         {
             if (!CanSubmit()) return;
             int generation = m_Generation;
@@ -361,19 +363,19 @@ namespace ImmerseTheBay.Learning
             {
                 await visko.ConfigReady;
                 EnsureCurrent(generation);
-                await ExecuteTurn(transcript, snapshot, generation, intent, action);
+                await ExecuteTurn(transcript, snapshot, generation, intent, action, practiceAttempt);
             }
             catch (OperationCanceledException) { }
             catch (Exception e) { FailTurn(generation, e); }
             finally { if (IsCurrent(generation)) SetBusy(false); }
         }
 
-        async Task ExecuteTurn(string transcript, LearningContextSnapshot snapshot, int generation, string intent = null, string action = null)
+        async Task ExecuteTurn(string transcript, LearningContextSnapshot snapshot, int generation, string intent = null, string action = null, bool practiceAttempt = false)
         {
             SetStatus("Preparing the next scene…");
             if (m_Claims.Count >= 256) throw new InvalidOperationException("Lesson operation limit reached; restart safely.");
             string id = Guid.NewGuid().ToString("N");
-            string body = LearningContract.TurnJson(m_Session, m_RunLesson, Beat, transcript, snapshot, id, m_RunId, m_Revision, intent, action);
+            string body = LearningContract.TurnJson(m_Session, m_RunLesson, Beat, transcript, snapshot, id, m_RunId, m_Revision, intent, action, practiceAttempt);
             string json;
             try { json = await Post("/api/agent/turn", body, generation); }
             catch (TransportException) { EnsureCurrent(generation); json = await Post("/api/agent/turn", body, generation); }
@@ -1043,8 +1045,10 @@ namespace ImmerseTheBay.Learning
                         else if (call.tool_name == "return_to_main") action = "return_to_main";
                         else throw new InvalidOperationException("Unsupported lesson tool.");
                         SetBusy(true);
-                        await ExecuteTurn(transcript, context ? context.Capture() : null, generation, intent, action);
-                        result = "{\"accepted\":true,\"beat\":" + Beat + ",\"overlay\":" + (m_LastResponse?.overlay == null ? "null" : JsonUtility.ToJson(m_LastResponse.overlay)) + ",\"route\":" + (m_LastResponse?.route == null ? "null" : JsonUtility.ToJson(m_LastResponse.route)) + ",\"complete\":" + (IsDone ? "true" : "false") + "}";
+                        bool rehearse = call.tool_name == "rehearse_line";
+                        await ExecuteTurn(transcript, context ? context.Capture() : null, generation, intent, action, practiceAttempt: rehearse);
+                        result = "{\"accepted\":true,\"beat\":" + Beat + ",\"overlay\":" + (m_LastResponse?.overlay == null ? "null" : JsonUtility.ToJson(m_LastResponse.overlay)) + ",\"route\":" + (m_LastResponse?.route == null ? "null" : JsonUtility.ToJson(m_LastResponse.route)) + ",\"complete\":" + (IsDone ? "true" : "false") +
+                            (rehearse ? ",\"feedback\":" + LearningContract.Quote(LearningContract.AttemptLabel(m_LastResponse?.attempt)) : "") + "}";
                     }
                     catch (OperationCanceledException) { return; }
                     catch (Exception e) { failed = true; result = "{\"accepted\":false,\"error\":" + LearningContract.Quote(e.Message) + "}"; if (IsBusy) FailTurn(generation, e); }

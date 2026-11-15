@@ -235,7 +235,7 @@ namespace ImmerseTheBay.Learning
             m_Hud.SetParent(m_Panel, false);
             m_Hud.anchorMin = m_Hud.anchorMax = m_Hud.pivot = new Vector2(0.5f, 0f);
             m_ProgressBadge = MakeHudBadge("Progress", font, 28, new Vector2(1, 1), new Vector2(-30, -22), new Vector2(405, 57));
-            m_ResultBadge = MakeHudBadge("Sentence result", font, 38, new Vector2(0, 1), new Vector2(30, -22), new Vector2(560, 70));
+            m_ResultBadge = MakeHudBadge("Sentence result", font, 44, new Vector2(0.5f, 0.78f), Vector2.zero, new Vector2(880, 112));
             m_Instruction = MakeHudBadge("Instruction", font, 27, new Vector2(1, 0), new Vector2(-30, 3), new Vector2(530, 45));
             m_InstructionText = (RectTransform)m_Instruction.transform;
             for (int i = 0; i < m_Waveform.Length; i++)
@@ -404,13 +404,13 @@ namespace ImmerseTheBay.Learning
 
         void UpdateResultBadge()
         {
-            string result = m_ConversationActive ? "" : m_PracticeStatus;
+            string result = m_PracticeStatus;
             bool passed = m_PracticeOutcome == "pass" || m_PracticeOutcome == "assisted";
             bool retry = m_PracticeOutcome == "retry";
             var background = m_ResultBadge.transform.parent.GetComponent<Image>();
             background.color = passed ? new Color(0.07f, 0.28f, 0.18f, 0.94f)
                 : retry ? new Color(0.30f, 0.18f, 0.06f, 0.94f) : new Color(0.015f, 0.025f, 0.04f, 0.83f);
-            m_ResultBadge.fontSize = m_ShowCorrection ? 28 : 38;
+            m_ResultBadge.fontSize = m_ShowCorrection ? 34 : 44;
             if (m_ShowCorrection)
             {
                 SetBadge(m_ResultBadge, $"Practice 「{m_ResultAttempt.correction.jp}」\nHeard {Shorten(m_ResultAttempt.text ?? "", 19)}");
