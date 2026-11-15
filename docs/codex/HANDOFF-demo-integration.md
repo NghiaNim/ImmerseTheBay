@@ -57,3 +57,11 @@ The development project needs Internet and development LAN HTTP enabled and a re
 Use this checkpoint and its APK instead of the earlier build above for voice testing. Set the two voice IDs from `portal/.env.example`, restart the dev Portal with the pinned source, and install the signed APK over the matching debug build. Tenin applies the voice selected on the Live Lesson screen during generation and displays the resolved voice on the glasses setup screen. Open a photo-generated lesson and a voice-generated lesson with different choices. Compare the opening lines, retry and branch return, and replay from Review.
 
 Managed Cartesia conversations require both `CARTESIA_AGENT_ID_FEMALE` and `CARTESIA_AGENT_ID_MALE`. These were absent from the local config, so the verified audio path is scripted clerk speech. Live dictation, FPV capture and the rest of the master acceptance sequence remain tracked in #16.
+
+## Shared sentence results checkpoint
+
+Portal and Android source `94868e3d4552bcbf0637043cb04aa2562b170333`. Portal check and all 215 tests passed. Unity Android build reported zero errors. The display patch, signing, and ZIP alignment passed for `ImmerseTheBay-s25-94868e3.apk` (SHA-256 `59d7e54d9a065b724451be6c422ead8c56ab9b9fba46a45aa2f6c1974d93fb3c`).
+
+Phone and glasses consume the same committed sentence result. Confirm a wrong answer shows Try again, then open an explicit Hint and speak the right target to see Matched with a hint. For a successful attempt, read the result next to the previous target even after the next line appears. Compare both displays immediately after the response and check that the same result disappears after six seconds. Verify Next shows Skipped without a percentage. In a side trip, the main step and completion bar must remain unchanged while side-trip progress advances. The Portal regression covers those semantics and one exact lost-response retry. Timing and readability still need a wearer.
+
+At the end of this checkpoint S25 appeared over USB with ADB status unauthorized. Unlock and accept the device prompt before installing with USB. Enable or reconnect wireless debugging before plugging the glasses into USB-C. Keep the official reference available to compare the per-eye display.
