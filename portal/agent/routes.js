@@ -23,13 +23,15 @@ export function registerAgentRoutes(app, { authorized = () => true, store = crea
     }))));
   app.post('/api/agent/translate', protect, route(async (req, res) => {
     const text = typeof req.body?.text === 'string' ? req.body.text.trim() : '';
-    if (!text || text.length > 2000) return res.status(400).json({ error: 'Invalid utterance' });
+    const { includeRomaji } = req.body || {};
+    if (!text || text.length > 2000 || (includeRomaji !== undefined && typeof includeRomaji !== 'boolean'))
+      return res.status(400).json({ error: 'Invalid utterance' });
     const controller = new AbortController();
     const abort = () => { if (!res.writableEnded) controller.abort(); };
     res.on('close', abort);
     try {
-      const english = await translate({ text, signal: controller.signal });
-      if (!controller.signal.aborted) res.set('Cache-Control', 'no-store').json({ english });
+      const caption = await translate({ text, ...(includeRomaji ? { includeRomaji } : {}), signal: controller.signal });
+      if (!controller.signal.aborted) res.set('Cache-Control', 'no-store').json(includeRomaji ? caption : { english: caption });
     } finally { res.off('close', abort); }
   }));
   async function sendSpeech(res, params) {

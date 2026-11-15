@@ -3,11 +3,11 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { AgentError, createLessonStore, flattenLesson } from './lessons.js';
 import { hasBannedTerm, safePrompt, scoreTranscript, PASS_SCORE } from './guardrails.js';
-import { validateSchema } from './schema.js';
+import { validateSchema, WIRE_RESPONSE_SCHEMA } from './schema.js';
 import { validateOperation, createOperationCache, replayOperation, checkOperationState, rememberOperation, invalidateOperations } from './operations.js';
 import { PRESET_SET, CHECKOUT_IDENTITY, presetDrinkPlan, updatePreset, presetEnvironmentPrompt } from './scene-presets.js';
 import { recordSummary, summarize, targetId } from './summary.js';
-import { clerkSpeech } from './clerk-speech.js';
+import { clerkSpeech, clerkInvitation } from './clerk-speech.js';
 import { composeVisualPrompt, composeAmbientPrompt, CHARACTER_ANCHOR, SCENE_ANCHOR } from './continuity.js';
 import { createLessonClient, createLessonPlanner } from './llm.js';
 import { initializeFlow, detectedIntent, scriptedPlan, validatePlan, startDetour, detourTurn, moveMain, rejoinFlow } from './flow.js';
@@ -198,9 +198,7 @@ export function createAgentService({ store = createLessonStore(), llm = createLe
         state.idleInvitedNode = state.flow.current.nodeId;
         current = { line: activeTarget, beat: mainTarget.beat };
         fallback = { visko: [], overlay: makeOverlay(activeTarget, state.hintLevel), feedback: null, advance: 'stay',
-          speech: invite ? { role: 'clerk', language: 'ja', text: state.flow.active
-            ? '別の商品をご覧になりますか。それとも、元のお話に戻りましょうか。'
-            : '何かお探しですか。気になる商品があれば、お聞かせください。' } : null };
+          speech: invite ? clerkInvitation(Boolean(state.flow.active)) : null };
         source = invite ? 'idle-invitation' : 'idle-suppressed';
       } else if (request.action === 'return_to_main') {
         current = mainTarget;
@@ -246,8 +244,12 @@ export function createAgentService({ store = createLessonStore(), llm = createLe
       if (request.action !== 'idle_hint') {
         const entering = !state.started || previousNodeId !== response.route.nodeId;
         // Generated scenarios script the partner's prompt before each learner answer.
-        const partnerLine = entering && response.route.kind !== 'detour' && presented?.partner?.jp ? presented.partner.jp : null;
-        response.speech = !entering ? null : partnerLine ? { role: 'clerk', text: partnerLine, language: 'ja' }
+        const partnerLine = entering && response.route.kind !== 'detour' && presented?.partner?.jp ? presented.partner : null;
+        response.speech = !entering ? null : partnerLine ? {
+          role: 'clerk', text: partnerLine.jp, language: 'ja',
+          ...(typeof partnerLine.romaji === 'string' && partnerLine.romaji.trim() ? { romaji: partnerLine.romaji } : {}),
+          ...(typeof partnerLine.en === 'string' && partnerLine.en.trim() ? { english: partnerLine.en } : {}),
+        }
           : lesson.partnerRole && response.route.kind === 'main' ? null // the learner opens this exchange
           : clerkSpeech({ first: !state.started, route: response.route, cue: fallback.visko.find((item) => item.name === 'set_prompt')?.data.prompt, store: /konbini|convenience/iu.test(lesson.id + lesson.title) });
       }
@@ -263,7 +265,7 @@ export function createAgentService({ store = createLessonStore(), llm = createLe
           else if (previousScene !== state.scene.id) command.data.prompt = composeVisualPrompt(state.scene.prompt, state.scene.prompt, { initial: true, identityAnchor: state.sceneContext.identityAnchor, speaking: Boolean(response.speech) });
         }
       }
-      if (!validateSchema(response)) throw new Error('Internal response validation failed');
+      if (!validateSchema(response, WIRE_RESPONSE_SCHEMA)) throw new Error('Internal response validation failed');
       if (response.overlay) {
         const words = [...new Set(lesson.beats.flatMap(beat => beat.vocab.map(word => word.jp)))]
           .filter(word => word && response.overlay.jp.includes(word))

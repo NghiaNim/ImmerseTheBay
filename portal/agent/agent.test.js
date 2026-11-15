@@ -22,6 +22,19 @@ test('first turn is native before start, no key required, canonical overlay', as
   assert.deepEqual(r.visko.at(-2).data, { resolution: 'native' });
   assert.equal(r.overlay.jp, lesson.beats[0].lines[0].jp); assert.equal(r.advance, 'stay'); assert.ok(validateSchema(r, WIRE_RESPONSE_SCHEMA)); assert.equal(logs[0].source, 'scripted');
 });
+test('scripted speech carries immediate captions from the spoken line metadata', async () => {
+  const { service } = setup();
+  const opening = await service.turn(request());
+  assert.match(opening.speech.romaji, /^Konnichiwa/);
+  assert.match(opening.speech.english, /^Hello/);
+  const generated = structuredClone(lesson);
+  generated.beats[0].lines[0].partner = { jp: 'どうぞ。', romaji: 'Dōzo.', en: 'Please.' };
+  const scripted = setup({ store: { load: async () => structuredClone(generated) } }).service;
+  const captioned = await scripted.turn(request());
+  assert.deepEqual(captioned.speech, { role: 'clerk', text: 'どうぞ。', language: 'ja', romaji: 'Dōzo.', english: 'Please.' });
+  assert.ok(validateSchema(captioned, WIRE_RESPONSE_SCHEMA));
+});
+
 test('speech advances flattened lines, then completes with null overlay', async () => {
   const { service } = setup(); await service.turn(request());
   let r = await service.turn(request({ transcript: 'スワッテモイイデスカ' }));

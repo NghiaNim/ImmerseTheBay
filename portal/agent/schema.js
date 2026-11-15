@@ -1,9 +1,10 @@
 // Small schema validator for our closed JSON surface; no runtime package dependency.
 const text = { type: 'string' };
+const clerkSpeechFields = { role: { type: 'string', enum: ['clerk'] }, text, language: { type: 'string', enum: ['ja'] } };
 const object = (properties, required = Object.keys(properties)) => ({ type: 'object', properties, required, additionalProperties: false });
 export const PLAN_SCHEMA = object({ label: text, returnBeat: { type: 'number' }, nodes: { type: 'array', items: object({ jp: text, kana: text, romaji: text, zh: text, en: text, cue: text }) } });
 export const RESPONSE_SCHEMA = object({
-  speech: { anyOf: [{ type: 'null' }, object({ role: { type: 'string', enum: ['clerk'] }, text, language: { type: 'string', enum: ['ja'] } })] },
+  speech: { anyOf: [{ type: 'null' }, object(clerkSpeechFields)] },
   visko: { type: 'array', items: { anyOf: [
     object({ name: { type: 'string', enum: ['set_prompt', 'set_audio_prompt'] }, data: object({ prompt: text }) }),
     object({ name: { type: 'string', enum: ['set_resolution'] }, data: object({ resolution: text }) }),
@@ -16,6 +17,7 @@ export const RESPONSE_SCHEMA = object({
 }, ['visko', 'overlay', 'feedback', 'advance']);
 // Transport metadata is server-owned and deliberately excluded from model schemas.
 export const WIRE_RESPONSE_SCHEMA = { ...RESPONSE_SCHEMA, properties: { ...RESPONSE_SCHEMA.properties,
+  speech: { anyOf: [{ type: 'null' }, object({ ...clerkSpeechFields, romaji: text, english: text }, Object.keys(clerkSpeechFields))] },
   attempt: object({ id: text, targetId: text, jp: text, text,
     score: { anyOf: [{ type: 'null' }, { type: 'number' }] },
     outcome: { type: 'string', enum: ['pass', 'retry', 'assisted', 'skip'] },

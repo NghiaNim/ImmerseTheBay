@@ -87,9 +87,11 @@ Both model adapters use the same operation-specific allowlist and 12,000-byte UT
 
 ## Cartesia speech
 
-The optional `speech` response field is null or `{role:"clerk",text,language:"ja"}`. It is separate from the learner overlay and emitted on opening and node transitions; hints do not repeat it automatically. Initial clerk lines are deterministic, original acknowledgments/directions keyed to cues; no inventory, price or payment facts are invented.
+The optional `speech` response field is null or `{role:"clerk",text,language:"ja",romaji?,english?}`. Scripted turns carry both caption fields when available, including generated exchanges that already contain partner captions, so clients can show them as playback starts. Rendering uses the original text when either caption is unavailable. It is separate from the learner overlay and emitted on opening and node transitions; hints do not repeat it automatically. Initial clerk lines are deterministic, original acknowledgments/directions keyed to cues; no inventory, price or payment facts are invented.
 
 `POST /api/agent/speak` accepts `{text,language}` (1–1,000 characters; ja/en/zh), requires the usual portal authorization and returns no-store WAV bytes. Cartesia key, voice and model stay in server env. Admission is two concurrent requests per server instance, with a 15-second deadline and 8 MiB response limit. Browser playback cancels on next turn, mic start and Leave, and restores ducked video volume. Cartesia and Visko have independent clocks; no lip-sync or perfect video voice suppression is claimed.
+
+`POST /api/agent/translate` accepts `{text, includeRomaji?:boolean}` with the usual authorization and a 2,000-character input limit. The existing `{text}` request returns `{english}`. Opting in returns `{english, romaji}` in a single request. The romaji string may be empty, for example on a non-Japanese utterance. Clients retain the original utterance if translation fails. These requests do not change lesson state.
 
 ## Photos, saved sessions and replays
 
