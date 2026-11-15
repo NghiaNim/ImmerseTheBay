@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
 using UnityEngine.XR.Interaction.Toolkit.UI;
@@ -42,11 +43,15 @@ namespace ImmerseTheBay.Learning
         const int DialogueSize = 40;
         const float ControlButtonSpacing = 248f;
         const float CaptionBottom = 0.055f;
+        const float CaptionSidePadding = 36f;
+        const int GroupReadingSize = 25;
+        const int MaximumReadingGroups = 24;
         RectTransform m_Panel;
-        RectTransform m_Hud, m_InstructionText;
+        RectTransform m_Hud, m_InstructionText, m_ReadingPanel;
         Canvas m_Canvas;
         Text m_Japanese, m_Romaji, m_Kana, m_Translation, m_Status, m_SpeakLabel, m_Clerk, m_Learner, m_ConversationLabel;
         Text m_ProgressBadge, m_ResultBadge, m_Instruction, m_ControlHint;
+        readonly List<(Text japanese, Text romaji)> m_ReadingCells = new();
         GameObject m_Backdrop;
         readonly RectTransform[] m_Waveform = new RectTransform[5];
         readonly float[] m_ListeningHistory = new float[5];
@@ -62,8 +67,11 @@ namespace ImmerseTheBay.Learning
         string m_PracticeStatus = "";
         string m_PracticeProgress = "";
         string m_PracticeOutcome = "";
+        string m_PracticeAttemptId, m_CompletionSummary = "";
         float m_ListeningLevel, m_NextWaveformSample, m_LastListeningSample;
+        float m_ResultEmphasisUntil;
         float m_Height;
+        float m_ReadingHeight;
         float m_AvailableHeight = ReferenceHeight * 0.38f;
 
         void Awake()
@@ -84,11 +92,20 @@ namespace ImmerseTheBay.Learning
             Refresh();
         }
 
-        public void SetPracticeResult(string progress, string result, string outcome)
+        public void SetPracticeResult(string progress, string result, string outcome, string attemptId = null)
         {
+            if (!string.IsNullOrEmpty(result) && (result != m_PracticeStatus || attemptId != m_PracticeAttemptId))
+                m_ResultEmphasisUntil = Time.unscaledTime + 1.8f;
             m_PracticeProgress = progress ?? "";
             m_PracticeStatus = result ?? "";
             m_PracticeOutcome = outcome ?? "";
+            m_PracticeAttemptId = attemptId;
+            Refresh();
+        }
+
+        public void SetCompletionSummary(string text)
+        {
+            m_CompletionSummary = text ?? "";
             Refresh();
         }
 
@@ -201,6 +218,12 @@ namespace ImmerseTheBay.Learning
             m_Japanese = MakeText("Japanese", font, JapaneseSize, Color.white);
             m_Japanese.supportRichText = true;
             m_Romaji = MakeText("Romaji", font, PronunciationSize, new Color(0.9f, 0.94f, 0.96f));
+            m_ReadingPanel = (RectTransform)new GameObject("Word readings", typeof(RectTransform)).transform;
+            m_ReadingPanel.SetParent(m_Panel, false);
+            m_ReadingPanel.anchorMin = new Vector2(0, 1);
+            m_ReadingPanel.anchorMax = Vector2.one;
+            m_ReadingPanel.pivot = new Vector2(0.5f, 1);
+            m_ReadingPanel.gameObject.SetActive(false);
             m_Kana = MakeText("Kana", font, TranslationSize, new Color(0.82f, 0.9f, 0.94f));
             m_Translation = MakeText("Translation", font, TranslationSize, new Color(0.82f, 0.9f, 0.94f));
             m_Status = MakeText("Feedback", font, 25, new Color(0.68f, 0.84f, 0.83f));
@@ -314,8 +337,12 @@ namespace ImmerseTheBay.Learning
             m_Japanese.text = targetTurn ? Highlight(m_Overlay?.jp ?? (m_Done ? "お疲れさまでした" : "")) : "";
             m_Romaji.text = clerkTurn ? m_ClerkRomaji : targetTurn && showRomaji ? m_Overlay?.romaji ?? "" : "";
             m_Kana.text = targetTurn && showKana ? m_Overlay?.kana ?? "" : "";
-            m_Translation.text = clerkTurn ? m_ClerkEnglish : targetTurn && showTranslation && m_Overlay != null
-                ? (useChineseTranslation ? m_Overlay.zh : m_Overlay.en) ?? "" : "";
+            m_Translation.text = clerkTurn ? m_ClerkEnglish : targetTurn && m_Done ? m_CompletionSummary
+                : targetTurn && showTranslation && m_Overlay != null
+                    ? (useChineseTranslation ? m_Overlay.zh : m_Overlay.en) ?? "" : "";
+            m_ReadingHeight = targetTurn && showRomaji ? LayoutReadingGroups(m_Overlay?.readingGroups) : 0f;
+            if (m_ReadingHeight > 0f)
+                m_Japanese.text = m_Romaji.text = "";
             bool controls = m_Overlay != null && !m_Done;
             string status = PracticeInstruction();
             bool showCorner = controls || m_ConversationActive || m_Done;
@@ -401,6 +428,85 @@ namespace ImmerseTheBay.Learning
             return result.ToString();
         }
 
+        float LayoutReadingGroups(LearningReadingGroup[] groups)
+        {
+            if (groups == null || groups.Length == 0 || groups.Length > MaximumReadingGroups || string.IsNullOrEmpty(m_Overlay?.jp))
+                return 0f;
+            var sentence = new System.Text.StringBuilder(m_Overlay.jp.Length);
+            foreach (var group in groups)
+            {
+                if (group == null || string.IsNullOrWhiteSpace(group.jp) || string.IsNullOrWhiteSpace(group.romaji))
+                    return 0f;
+                sentence.Append(group.jp);
+            }
+            if (!string.Equals(sentence.ToString(), m_Overlay.jp, StringComparison.Ordinal)) return 0f;
+
+            const float gap = 16;
+            const float width = Width - 2 * CaptionSidePadding;
+            float japaneseHeight = JapaneseSize * 1.5f, romajiHeight = GroupReadingSize * 1.5f;
+            var widths = new float[groups.Length];
+            var rowWidths = new float[2];
+            int row = 0, secondRowAt = groups.Length;
+            for (int i = 0; i < groups.Length; i++)
+            {
+                if (i >= m_ReadingCells.Count) m_ReadingCells.Add(CreateReadingCell());
+                var cell = m_ReadingCells[i];
+                cell.japanese.text = Highlight(groups[i].jp);
+                cell.romaji.text = groups[i].romaji;
+                widths[i] = Mathf.Ceil(Mathf.Max(cell.japanese.preferredWidth, cell.romaji.preferredWidth)) + 2;
+                if (widths[i] > width) return 0f;
+                japaneseHeight = Mathf.Max(japaneseHeight, cell.japanese.preferredHeight + 6);
+                romajiHeight = Mathf.Max(romajiHeight, cell.romaji.preferredHeight + 6);
+                if (rowWidths[row] + gap + widths[i] > width && rowWidths[row] > 0)
+                {
+                    if (row == 1) return 0f;
+                    row = 1;
+                    secondRowAt = i;
+                }
+                rowWidths[row] += (rowWidths[row] == 0 ? 0 : gap) + widths[i];
+            }
+            float rowHeight = japaneseHeight + romajiHeight;
+            float height = (row + 1) * rowHeight;
+            if (height + MinimumLineHeight(m_Translation) + 24 > m_AvailableHeight) return 0f;
+            for (int i = 0; i < m_ReadingCells.Count; i++)
+            {
+                var cell = m_ReadingCells[i];
+                cell.japanese.gameObject.SetActive(i < groups.Length);
+                cell.romaji.gameObject.SetActive(i < groups.Length);
+            }
+            float x = -rowWidths[0] * 0.5f;
+            for (int i = 0; i < groups.Length; i++)
+            {
+                if (i == secondRowAt) x = -rowWidths[1] * 0.5f;
+                float y = i < secondRowAt ? 0 : -rowHeight;
+                var cell = m_ReadingCells[i];
+                PositionReadingCell(cell.japanese, x, y, widths[i], japaneseHeight);
+                PositionReadingCell(cell.romaji, x, y - japaneseHeight, widths[i], romajiHeight);
+                x += widths[i] + gap;
+            }
+            return height;
+        }
+
+        (Text japanese, Text romaji) CreateReadingCell()
+        {
+            var japanese = MakeText("Word", m_Japanese.font, JapaneseSize, m_Japanese.color);
+            japanese.supportRichText = true;
+            var romaji = MakeText("Word romaji", m_Romaji.font, GroupReadingSize, m_Romaji.color);
+            japanese.transform.SetParent(m_ReadingPanel, false);
+            romaji.transform.SetParent(m_ReadingPanel, false);
+            japanese.horizontalOverflow = romaji.horizontalOverflow = HorizontalWrapMode.Overflow;
+            return (japanese, romaji);
+        }
+
+        static void PositionReadingCell(Text text, float x, float y, float width, float height)
+        {
+            var rect = (RectTransform)text.transform;
+            rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 1);
+            rect.pivot = new Vector2(0, 1);
+            rect.sizeDelta = new Vector2(width, height);
+            rect.anchoredPosition = new Vector2(x, y);
+        }
+
         static string EscapeRichText(string text) => text.Replace('<', '＜').Replace('>', '＞');
 
         static string Shorten(string text, int length) => text.Length <= length ? text : text.Substring(0, length - 1) + "…";
@@ -427,7 +533,7 @@ namespace ImmerseTheBay.Learning
         void FitLayout()
         {
             const float padding = 12;
-            float budget = Mathf.Max(1, m_AvailableHeight - padding * 2);
+            float budget = Mathf.Max(1, m_AvailableHeight - padding * 2 - m_ReadingHeight);
             float japanese = MeasureLine(m_Japanese);
             float romaji = MeasureLine(m_Romaji);
             float translation = MeasureLine(m_Translation);
@@ -439,7 +545,7 @@ namespace ImmerseTheBay.Learning
             // The current utterance retains its Japanese, romaji and translation at
             // fixed type sizes. Optional readings and the previous reply yield first.
             if (japanese + romaji + translation + clerk + learner + kana + status > budget) kana = 0;
-            if (japanese + romaji + translation + clerk + learner + status > budget && japanese > 0) learner = 0;
+            if (japanese + romaji + translation + clerk + learner + status > budget && (japanese > 0 || m_ReadingHeight > 0)) learner = 0;
             if (japanese + romaji + translation + clerk + learner + status > budget)
                 status = 0;
             float textBudget = budget - status;
@@ -467,6 +573,13 @@ namespace ImmerseTheBay.Learning
             LayoutCaption(m_Learner, ref y, learner);
             LayoutCaption(m_Japanese, ref y, japanese);
             LayoutCaption(m_Romaji, ref y, romaji);
+            m_ReadingPanel.gameObject.SetActive(m_ReadingHeight > 0);
+            if (m_ReadingHeight > 0)
+            {
+                m_ReadingPanel.offsetMin = new Vector2(CaptionSidePadding, -y - m_ReadingHeight);
+                m_ReadingPanel.offsetMax = new Vector2(-CaptionSidePadding, -y);
+                y += m_ReadingHeight;
+            }
             LayoutCaption(m_Translation, ref y, translation);
             LayoutCaption(m_Kana, ref y, kana);
             LayoutCaption(m_Status, ref y, status);
@@ -527,8 +640,8 @@ namespace ImmerseTheBay.Learning
             var rt = (RectTransform)text.transform;
             rt.anchorMin = new Vector2(0, 1); rt.anchorMax = Vector2.one;
             rt.pivot = new Vector2(0.5f, 1);
-            rt.offsetMin = new Vector2(36, -100);
-            rt.offsetMax = new Vector2(-36, 0);
+            rt.offsetMin = new Vector2(CaptionSidePadding, -100);
+            rt.offsetMax = new Vector2(-CaptionSidePadding, 0);
             // Noto's line metrics are taller than the built-in Latin font.
             return Mathf.Max(text.preferredHeight + 6, text.fontSize * 1.5f);
         }
@@ -538,8 +651,8 @@ namespace ImmerseTheBay.Learning
             text.gameObject.SetActive(height > 0);
             if (height <= 0) return;
             var rt = (RectTransform)text.transform;
-            rt.offsetMin = new Vector2(36, -y - height);
-            rt.offsetMax = new Vector2(-36, -y);
+            rt.offsetMin = new Vector2(CaptionSidePadding, -y - height);
+            rt.offsetMax = new Vector2(-CaptionSidePadding, -y);
             y += height;
         }
 
@@ -595,6 +708,9 @@ namespace ImmerseTheBay.Learning
             float canvasHeight = screenHeight / pixelScale;
             m_Hud.anchoredPosition = new Vector2(0, -CaptionBottom * canvasHeight);
             m_Hud.sizeDelta = new Vector2(Width, canvasHeight);
+            if (m_ResultBadge.gameObject.activeInHierarchy)
+                m_ResultBadge.transform.parent.localScale = Vector3.one
+                    * (1f + 0.09f * Mathf.Clamp01((m_ResultEmphasisUntil - Time.unscaledTime) / 0.24f));
             UpdateWaveform();
             if (headCamera)
             {
