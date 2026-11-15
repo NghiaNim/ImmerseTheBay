@@ -196,8 +196,21 @@ class TeninScreens(private val context: Context, private val bindPreview: (Strin
         screen(listOf(
             header(onBack, connected = connected),
             title("Live Lesson").margins(top = 18f),
-            body("Add a photo of your learning environment, or tell Tenin what you want to do.").margins(top = 12f),
-            text("Partner voice", 16f, Tenin.MUTED, 600).margins(top = 16f, bottom = 6f),
+            card(row(tile(TeninIcon.CAMERA, 72f, Tenin.PRIMARY, Tenin.WHITE, 18f).margins(right = 16f),
+                column(text("Take a photo", 28f, Tenin.PRIMARY_DARK, 600),
+                    text("Use the scene in front of you.", 16f, Tenin.MUTED).margins(top = 3f)).weighted(),
+                icon(TeninIcon.CHEVRON, 20f, Tenin.PRIMARY)).fillWidth(),
+                selected = true, fill = Tenin.TINT, padding = 18f).margins(top = 20f).onTap(onPhoto),
+            text("Or choose from library", 15f, Tenin.PRIMARY_DARK, 600).apply {
+                minimumHeight = dp(48f)
+                gravity = Gravity.CENTER
+            }.fillWidth().onTap(onLibrary),
+            divider().margins(top = 6f, bottom = 16f),
+            secondaryButton("Say my goal", TeninIcon.MIC, onVoice),
+            text("Describe what you want to practice.", 15f, Tenin.MUTED).apply {
+                gravity = Gravity.CENTER
+            }.fillWidth().margins(top = 8f),
+            text("Partner voice", 16f, Tenin.MUTED, 600).margins(top = 24f, bottom = 6f),
             row(*listOf("Auto" to "auto", "Female" to "female", "Male" to "male").map { (label, value) ->
                 val selected = value == partnerVoice
                 text(label, 16f, if (selected) Tenin.WHITE else Tenin.PRIMARY_DARK, 600).apply {
@@ -207,11 +220,8 @@ class TeninScreens(private val context: Context, private val bindPreview: (Strin
                     background = rounded(if (selected) Tenin.PRIMARY else Tenin.LAVENDER, dp(16f).toFloat())
                 }.weighted().margins(right = 5f).onTap { onPartnerVoice(value) }
             }.toTypedArray()).fillWidth(),
-            entryCard(TeninIcon.CAMERA, "Take a photo", "Use the scene in front of you.", selected = true, action = onPhoto).margins(top = 16f),
-            entryCard(TeninIcon.IMAGE, "Choose from library", "Use a photo you already have.", action = onLibrary).margins(top = 10f),
-            entryCard(TeninIcon.MIC, "Say my goal", "Describe what you want to practice.", action = onVoice).margins(top = 10f),
             text("Your photo is sent to create the lesson. The app’s lesson service keeps its copy for up to 30 minutes.",
-                15f, Tenin.MUTED).margins(top = 16f),
+                13f, Tenin.MUTED).margins(top = 16f),
         ), nav = nav)
     }
 
@@ -306,7 +316,7 @@ class TeninScreens(private val context: Context, private val bindPreview: (Strin
         }
         screen(listOfNotNull(
             header(onClose, close = true, connected = connected),
-            title("What do you need to do?").margins(top = 18f),
+            title("Say my goal").margins(top = 18f),
             photo?.let { scenePhoto(it).margins(top = 14f) },
             eyebrow("Speech language").margins(top = 16f, bottom = 4f),
             row(*languages.toTypedArray()).fillWidth(),

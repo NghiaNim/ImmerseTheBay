@@ -799,7 +799,7 @@ namespace ImmerseTheBay.Learning
                 request.downloadHandler = new DownloadHandlerAudioClip(url, AudioType.WAV);
                 request.uploadHandler = new UploadHandlerRaw(Encoding.UTF8.GetBytes(
                     "{\"text\":" + LearningContract.Quote(japanese) +
-                    (timed ? ",\"slow\":" + (slow ? "true}" : "false}") : ",\"language\":\"ja\"}")));
+                    (timed ? ",\"slow\":" + (slow ? "true}" : "false}") : ",\"language\":\"ja\",\"role\":\"tutor\"}")));
                 request.SetRequestHeader("Content-Type", "application/json");
                 if (!string.IsNullOrEmpty(visko.config.portalToken))
                     request.SetRequestHeader("portal_token", visko.config.portalToken);

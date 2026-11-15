@@ -45,6 +45,22 @@ test('pinned logical voices select distinct server IDs while unpinned speech use
   await assert.rejects(partialConfig({ ...sample, partnerVoice: 'male' }), { status: 503 });
   assert.deepEqual(voices, ['female-fixture', 'male-fixture', 'voice-fixture', 'female-fixture']);
 });
+test('teaching uses a separate voice and a conflicting override cannot change the scene cast', async () => {
+  const voices = [];
+  const configuration = { ...options, femaleVoiceId: 'female-fixture', maleVoiceId: 'male-fixture' };
+  const fetchImpl = async (_url, init) => {
+    voices.push(JSON.parse(init.body).voice);
+    return audioResponse();
+  };
+  const speak = createCartesiaSpeech({ ...configuration, tutorVoiceId: 'tutor-fixture', fetchImpl });
+  await speak({ ...sample, role: 'tutor' });
+  await speak({ ...sample, partnerVoice: 'female' });
+  await speak({ ...sample, partnerVoice: 'male' });
+  const conflict = createCartesiaSpeech({ ...configuration, tutorVoiceId: ' male-fixture ', fetchImpl });
+  await assert.rejects(conflict({ ...sample, role: 'tutor' }), { status: 503 });
+  await conflict({ ...sample, partnerVoice: 'male' });
+  assert.deepEqual(voices, ['tutor-fixture', 'female-fixture', 'male-fixture', 'male-fixture']);
+});
 test('provider failures are redacted and configurable model, version and language are passed', async () => {
   for (const [status, expected] of [[401, 502], [403, 502], [429, 429], [503, 503], [500, 502]]) {
     const speak = createCartesiaSpeech({ ...options, fetchImpl: async () => new Response('secret-fixture and provider internals', { status }) });

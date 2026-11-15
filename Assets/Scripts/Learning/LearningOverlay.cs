@@ -649,7 +649,7 @@ namespace ImmerseTheBay.Learning
                 bool exampleActive = ExampleOverlaps(m_Overlay.jp, sentenceOffset, sentenceOffset + groups[i].jp.Length);
                 cell.japanese.text = HighlightExample(groups[i].jp, m_Overlay.jp, sentenceOffset, wholeGroup: true)
                     ?? Highlight(groups[i].jp, sentenceOffset);
-                var readingColor = exampleActive ? new Color32(121, 244, 255, 255) : m_Romaji.color;
+                Color readingColor = exampleActive ? (Color)new Color32(121, 244, 255, 255) : m_Romaji.color;
                 cell.kana.color = cell.romaji.color = readingColor;
                 cell.kana.text = groups[i].jp == groups[i].kana ? "" : groups[i].kana ?? "";
                 sentenceOffset += groups[i].jp.Length;

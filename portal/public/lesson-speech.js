@@ -27,7 +27,8 @@ export function createLessonSpeech({ video, headers = () => ({}), isMicrophoneAc
     try {
       const response = await fetch('/api/agent/speak', {
         method: 'POST', headers: { ...headers(), 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: text.trim(), language }), signal: operation.controller.signal,
+        body: JSON.stringify({ text: text.trim(), language, ...(role === 'learner' ? { role: 'tutor' } : {}) }),
+        signal: operation.controller.signal,
       });
       if (!response.ok) {
         const messages = { 401: 'Portal authorization is required.', 429: 'Speech is busy. Try again shortly.', 503: 'Server speech is unavailable.', 504: 'Speech timed out.' };

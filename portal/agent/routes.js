@@ -51,8 +51,12 @@ export function registerAgentRoutes(app, { authorized = () => true, store = crea
     } finally { res.off('close', abort); }
   }
   app.post('/api/agent/speak', protect, route(async (req, res) => {
-    if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body) || Object.keys(req.body).some((key) => !['text', 'language'].includes(key))) return res.status(400).json({ error: 'Invalid speech request' });
-    await sendSpeech(req, res, req.body);
+    const input = req.body;
+    if (!input || typeof input !== 'object' || Array.isArray(input)
+        || Object.keys(input).some(key => !['text', 'language', 'role'].includes(key))
+        || (input.role !== undefined && input.role !== 'tutor'))
+      return res.status(400).json({ error: 'Invalid speech request' });
+    await sendSpeech(req, res, input);
   }));
   app.post('/api/agent/pronunciation', protect, route(async (req, res) => {
     const input = req.body;

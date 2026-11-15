@@ -146,16 +146,19 @@ export function createCartesiaSpeech({ apiKey = process.env.CARTESIA_API_KEY,
   voiceId = process.env.CARTESIA_VOICE_ID,
   femaleVoiceId = process.env.CARTESIA_VOICE_ID_FEMALE,
   maleVoiceId = process.env.CARTESIA_VOICE_ID_MALE,
+  tutorVoiceId = process.env.CARTESIA_VOICE_ID_TUTOR || 'cb21b4af-0e46-44f7-9128-51be7f898311', // Yuzuki
   model = process.env.CARTESIA_MODEL || DEFAULT_CARTESIA_MODEL,
   apiVersion = process.env.CARTESIA_API_VERSION || DEFAULT_CARTESIA_VERSION,
   fetchImpl = fetch, timeoutMs = 15_000 } = {}) {
   const female = femaleVoiceId?.trim();
   const male = maleVoiceId?.trim();
   const fallback = voiceId?.trim() || female || male;
+  const tutor = tutorVoiceId?.trim();
+  const hasDistinctTutor = tutor && ![fallback, female, male].includes(tutor);
   let active = 0;
   // partnerVoice is a logical style supplied by trusted lesson state. The
   // public speech route only forwards text and language.
-  return async function synthesize({ text, language = 'ja', signal, partnerVoice, timed = false, slow = false } = {}) {
+  return async function synthesize({ text, language = 'ja', signal, partnerVoice, role, timed = false, slow = false } = {}) {
     if (typeof text !== 'string' || !text.trim() || text.length > 1000) throw new AgentError(400, 'Speech text must be 1 to 1000 characters');
     if (timed && (language !== 'ja' || text.length > 120 || typeof slow !== 'boolean'))
       throw new AgentError(400, 'Invalid pronunciation request');
@@ -163,7 +166,9 @@ export function createCartesiaSpeech({ apiKey = process.env.CARTESIA_API_KEY,
     if (signal !== undefined && !(signal instanceof AbortSignal)) throw new AgentError(400, 'Invalid speech cancellation signal');
     if (partnerVoice != null && partnerVoice !== 'female' && partnerVoice !== 'male')
       throw new AgentError(400, 'Invalid partner voice');
-    const selectedVoiceId = partnerVoice === 'female' ? female : partnerVoice === 'male' ? male : fallback;
+    const teaching = timed || role === 'tutor';
+    if (teaching && !hasDistinctTutor) throw new AgentError(503, 'The teaching voice must differ from the scene voices');
+    const selectedVoiceId = teaching ? tutor : partnerVoice === 'female' ? female : partnerVoice === 'male' ? male : fallback;
     if (!apiKey?.trim() || !selectedVoiceId) {
       throw new AgentError(503, partnerVoice == null
         ? 'Server speech requires CARTESIA_API_KEY and CARTESIA_VOICE_ID'
