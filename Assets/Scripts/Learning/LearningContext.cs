@@ -39,6 +39,7 @@ namespace ImmerseTheBay.Learning
         public MicrophoneCapture microphone;
         public ARMeshManager meshManager;
         public ARPlaneManager planeManager;
+        public bool enableScreenPinchShortcuts = true;
         [Min(0.6f)] public float longPinchSeconds = 0.6f;
         [Min(0.2f)] public float classificationInterval = 2f;
         [Min(0.1f)] public float pointingDistance = 3f;
@@ -99,7 +100,7 @@ namespace ImmerseTheBay.Learning
             UpdateVoice();
             var hands = HandInput.Instance;
             // Overlay buttons own their UI pinches; selecting Hint/Speak must not also emit Next.
-            bool focused = Gaze() == "visko";
+            bool focused = enableScreenPinchShortcuts && Gaze() == "visko";
             var left = ReadPinch(hands ? hands.Left : default, ref m_Left, focused);
             var right = ReadPinch(hands ? hands.Right : default, ref m_Right, focused);
             // Coalesce simultaneous hands: a hint must never also advance the line.

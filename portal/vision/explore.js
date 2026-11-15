@@ -38,8 +38,8 @@ function bindingFrom(body) {
       (sceneId !== null && !id(sceneId, 80, /^[a-z0-9][a-z0-9_-]*$/)) ||
       !id(frameId, 80, /^[a-zA-Z0-9_.:-]+$/))
     throw new VisionError(400, 'Invalid run, scene or frame binding');
-  const request = validateRequest(perception);
-  if (request.gesture !== 'pinch') throw new VisionError(400, 'Exploration requires a selection pinch');
+  const request = validateRequest(perception.gesture === 'hold' ? { ...perception, gesture: 'pinch' } : perception);
+  if (request.gesture !== 'pinch') throw new VisionError(400, 'Exploration requires a selection gesture');
   return { sessionId, lessonId, runId, revision, sceneId, frameId, request };
 }
 

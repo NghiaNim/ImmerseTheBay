@@ -646,6 +646,7 @@ namespace ImmerseTheBay.Learning
             video.PrepareScenePreview(pendingImage);
             video.UseSceneOpening(pendingLessonId, ViskoSession.CourseOpeningSceneId(pendingStartImage));
             SetPracticeVisible(true);
+            lesson.overlay.SetOpeningTitle(string.IsNullOrWhiteSpace(currentTitle) ? "Live Lesson" : currentTitle);
             starting = true;
             openingRequested = false;
             connectDeadline = Time.unscaledTime + 45f;
@@ -730,7 +731,11 @@ namespace ImmerseTheBay.Learning
                     BeginSelectedLesson();
                 else if (openingRequested && !lesson.IsBusy)
                 {
-                    if (lesson.HasActiveLesson && video.HasLiveFrame) starting = false;
+                    if (lesson.HasActiveLesson && video.HasLiveFrame)
+                    {
+                        starting = false;
+                        lesson.overlay.SetOpeningTitle(null);
+                    }
                     else if (!lesson.HasActiveLesson) FailStartup("The lesson could not start. Check the connection and retry.");
                 }
                 else if (video.Status.StartsWith("error", System.StringComparison.OrdinalIgnoreCase) || video.Status == "FAILED")
@@ -818,6 +823,7 @@ namespace ImmerseTheBay.Learning
             practiceVisible = visible;
             placementStatus = "";
             video.screen.enabled = visible;
+            if (!visible) lesson.overlay.SetOpeningTitle(null);
         }
 
         static Text Label(Transform parent, int size, Color? color = null, string text = "", TextAnchor align = TextAnchor.MiddleLeft,

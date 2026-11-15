@@ -23,9 +23,10 @@ namespace ImmerseTheBay.Visko
             if (distance <= 0f || distance > 5f) return false;
             var localHit = origin + distance * direction;
             var uv = new Vector2((localHit.x - bounds.min.x) / bounds.size.x, (localHit.y - bounds.min.y) / bounds.size.y);
-            // Aim in the live center of the feathered surface; the periphery is the start photograph.
+            // Accept the inner part of the feathered video, including the menu beside the barista.
+            // At this contour the live image still contributes materially to what the wearer sees.
             var ellipse = new Vector2((uv.x - 0.5f) / 0.43f, (uv.y - 0.53f) / 0.49f);
-            if (ellipse.sqrMagnitude >= 0.45f) return false;
+            if (ellipse.sqrMagnitude >= 0.67f) return false;
 
             var material = screen.material;
             // The BGRA texture stores the first decoded row at v=0. Shader UV after the material

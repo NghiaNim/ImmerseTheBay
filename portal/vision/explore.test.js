@@ -76,6 +76,19 @@ test('ambiguous, unsupported and off-point results return no start image or inte
   }
 });
 
+test('a deliberate point hold selects the physical menu board and keeps the sampled frame binding', async () => {
+  const service = createExplorationService({
+    snapshot,
+    vision: { point: async () => ({ ...pitcher, object: 'menu_board' }) },
+    editImage: null,
+  });
+  const result = await service.explore({ ...input, gesture: 'hold' });
+  assert.equal(result.frameId, expected.frameId);
+  assert.equal(result.object, 'menu_board');
+  assert.equal(result.intent, 'I would like to ask about the menu board I pointed at before continuing this lesson.');
+  assert.equal(result.startImage, input.frame);
+});
+
 test('view-only gestures and stale bindings cannot reach vision', async () => {
   const service = createExplorationService({
     snapshot, vision: { point: async () => assert.fail('No vision request expected') }, editImage: null,

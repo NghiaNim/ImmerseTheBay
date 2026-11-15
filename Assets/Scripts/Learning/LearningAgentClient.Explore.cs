@@ -12,9 +12,12 @@ namespace ImmerseTheBay.Learning
     {
         const int ExploreJpegLimit = 2 * 1024 * 1024;
         const string ExploreJpegPrefix = "data:image/jpeg;base64,";
-        bool m_ExploreArmed, m_LocalExplore;
-        float m_ExploreUntil, m_ExploreMessageUntil;
-        int m_ExploreEpoch;
+        const float PointHoldSeconds = 0.8f;
+        const float PointDrift = 0.05f;
+        bool m_LocalExplore, m_PointNeedsRelease;
+        float m_PointStarted, m_ExploreMessageUntil;
+        int m_PointHand, m_ExploreEpoch;
+        Vector2 m_PointAnchor;
         string m_ExploreMessage;
         UnityWebRequest m_ExploreRequest;
         byte[] m_ExploreReturnFrame;
@@ -36,59 +39,59 @@ namespace ImmerseTheBay.Learning
             m_LastResponse?.route?.kind != "detour" && !string.IsNullOrEmpty(m_RunId) && m_Revision > 0 &&
             visko && visko.IsConnected && visko.SessionId == m_Session && visko.CanExploreLiveFrame;
 
-        void ToggleExplore()
-        {
-            if (m_ExploreArmed || m_ExploreRequest != null) { CancelExploreInput(); return; }
-            if (!CanExplore) return;
-            m_ExploreArmed = true;
-            m_ExploreUntil = Time.unscaledTime + 12f;
-            m_ExploreMessage = null;
-            overlay?.SetExploreState(true, true, null, "Aim at an object, then pinch");
-        }
-
         void UpdateExplore()
         {
             bool available = CanExplore;
-            if ((m_ExploreArmed || m_ExploreRequest != null) && !available)
-                CancelExploreInput();
-            if (m_ExploreArmed && Time.unscaledTime >= m_ExploreUntil)
-                CancelExploreInput();
-            if (Time.unscaledTime >= m_ExploreMessageUntil && m_ExploreRequest == null && !m_ExploreArmed)
-                m_ExploreMessage = null;
-
+            if (!available && m_ExploreRequest != null) CancelExploreInput();
+            if (Time.unscaledTime >= m_ExploreMessageUntil) m_ExploreMessage = null;
             Vector3? aim = null;
-            if (m_ExploreArmed && overlay && !overlay.HoveringLessonAction && overlay.headCamera && HandInput.Instance)
+            var hands = HandInput.Instance;
+            var left = hands ? hands.Left : default;
+            var right = hands ? hands.Right : default;
+            if (!left.pointing && !right.pointing) m_PointNeedsRelease = false;
+
+            if (available && m_ExploreRequest == null && !m_PointNeedsRelease && !IsClerkSpeaking &&
+                !IsExamplePending && !IsFeedbackPlaying && overlay && !overlay.HoveringLessonAction && overlay.headCamera)
             {
-                var origin = overlay.headCamera.transform.position;
-                var left = HandInput.Instance.Left;
-                var right = HandInput.Instance.Right;
-                bool aimedLeft = TryAim(origin, left, out var pointLeft, out var hitLeft);
-                bool aimedRight = TryAim(origin, right, out var pointRight, out var hitRight);
-                if (aimedRight && right.pinchDown) ObserveSelection(pointRight);
-                else if (aimedLeft && left.pinchDown) ObserveSelection(pointLeft);
-                else if (aimedRight) aim = hitRight;
-                else if (aimedLeft) aim = hitLeft;
+                var view = overlay.headCamera.transform;
+                if (TryAim(view, right, out var point, out var hit)) aim = TrackPoint(1, point, hit);
+                else if (TryAim(view, left, out point, out hit)) aim = TrackPoint(-1, point, hit);
             }
-            if (overlay)
-            {
-                string hint = m_ExploreArmed ? (aim.HasValue ? "Pinch to explore this object" : "Aim at an object, then pinch")
-                    : m_ExploreRequest != null ? "Looking at the selected object…" : m_ExploreMessage;
-                overlay.SetExploreState(available, m_ExploreArmed || m_ExploreRequest != null, aim, hint);
-            }
+            if (!aim.HasValue) m_PointHand = 0;
+            overlay?.SetExploreState(aim, aim.HasValue ? "Hold your point" :
+                m_ExploreRequest != null ? "Looking at the selected object…" : m_ExploreMessage);
         }
 
-        bool TryAim(Vector3 origin, HandState hand, out Vector2 point, out Vector3 hit)
+        Vector3? TrackPoint(int hand, Vector2 point, Vector3 hit)
+        {
+            float now = Time.unscaledTime;
+            if (m_PointHand != hand || (m_PointAnchor - point).sqrMagnitude > PointDrift * PointDrift)
+            {
+                m_PointHand = hand;
+                m_PointAnchor = point;
+                m_PointStarted = now;
+            }
+            if (now - m_PointStarted < PointHoldSeconds) return hit;
+            m_PointNeedsRelease = true;
+            Debug.Log("[Learning] Held scene point selected");
+            ObserveSelection(point);
+            return null;
+        }
+
+        bool TryAim(Transform view, HandState hand, out Vector2 point, out Vector3 hit)
         {
             point = default;
             hit = default;
+            var origin = view.position;
             var direction = hand.indexTip - origin;
-            return hand.tracked && direction.sqrMagnitude >= 0.0225f &&
+            return hand.pointing && direction.sqrMagnitude >= 0.0225f &&
+                Vector3.Dot(view.forward, direction.normalized) >= 0.93f &&
                 visko.TryAimAtLiveFrame(new Ray(origin, direction), out point, out hit);
         }
 
         void CancelExploreInput()
         {
-            m_ExploreArmed = false;
+            m_PointHand = 0;
             m_ExploreMessage = null;
             m_ExploreEpoch++;
             var request = m_ExploreRequest;
@@ -104,7 +107,6 @@ namespace ImmerseTheBay.Learning
 
         async void ObserveSelection(Vector2 point)
         {
-            m_ExploreArmed = false;
             int epoch = ++m_ExploreEpoch;
             int generation = m_Generation, revision = m_Revision;
             string run = m_RunId, scene = m_ActiveSceneId;
@@ -127,7 +129,7 @@ namespace ImmerseTheBay.Learning
                     + ",\"frameId\":" + LearningContract.Quote(frameId)
                     + ",\"frame\":\"" + ExploreJpegPrefix + Convert.ToBase64String(entryFrame) + "\""
                     + ",\"point\":{\"x\":" + point.x.ToString("R", CultureInfo.InvariantCulture)
-                    + ",\"y\":" + point.y.ToString("R", CultureInfo.InvariantCulture) + "},\"gesture\":\"pinch\"}";
+                    + ",\"y\":" + point.y.ToString("R", CultureInfo.InvariantCulture) + "},\"gesture\":\"hold\"}";
 
                 using var request = new UnityWebRequest(visko.config.portalUrl.TrimEnd('/') + "/api/vision/explore", "POST");
                 request.uploadHandler = new UploadHandlerRaw(Encoding.UTF8.GetBytes(body));

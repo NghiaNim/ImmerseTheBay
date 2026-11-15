@@ -130,7 +130,6 @@ namespace ImmerseTheBay.Learning
                 overlay.SpeakRequested += Speak;
                 overlay.HintRequested += Hint;
                 overlay.NextRequested += Next;
-                overlay.ExploreRequested += ToggleExplore;
                 overlay.ReviewRecordingRequested += PlayReviewRecording;
                 overlay.ReviewExampleRequested += PlayReviewExample;
                 if (visko) overlay.screen = visko.screen;
@@ -154,7 +153,6 @@ namespace ImmerseTheBay.Learning
                 overlay.SpeakRequested -= Speak;
                 overlay.HintRequested -= Hint;
                 overlay.NextRequested -= Next;
-                overlay.ExploreRequested -= ToggleExplore;
                 overlay.ReviewRecordingRequested -= PlayReviewRecording;
                 overlay.ReviewExampleRequested -= PlayReviewExample;
             }

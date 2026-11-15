@@ -69,6 +69,7 @@ public static class DevReferenceBuild {
   video.screen = renderer;
   var context = session.AddComponent<ImmerseTheBay.Learning.LearningContext>();
   context.headCamera = xrOrigin.Camera;
+  context.enableScreenPinchShortcuts = false;
   var overlay = session.AddComponent<ImmerseTheBay.Learning.LearningOverlay>();
   overlay.screen = renderer;
   overlay.headCamera = xrOrigin.Camera;

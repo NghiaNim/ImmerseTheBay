@@ -70,7 +70,7 @@ Accuracy limit: a repeated live-model request at the same tiny bottle also retur
 
 ## Native exploration contract
 
-`POST /api/vision/explore` uses the same Portal token, 3 MiB transport limit and 2 MiB JPEG limit as point vision. Send the original decoded frame without overlays, and use normalized coordinates in that image. Supply a deliberate selection pinch, not a hover. The request fields are `sessionId`, `lessonId`, `runId`, integer `revision`, `sceneId`, `frameId`, `frame`, `point` and `gesture: "pinch"`. Set `sceneId` to the current decision's scene ID, or JSON null when the lesson has no authored scene. `frameId` is the caller's opaque identifier for the specific sampled frame.
+`POST /api/vision/explore` uses the same Portal token, 3 MiB transport limit and 2 MiB JPEG limit as point vision. Send the original decoded frame without overlays, and use normalized coordinates in that image. The development app sends `gesture: "hold"` after a sustained pointing pose, and callers can also send `"pinch"` for an explicit selection. The remaining fields are `sessionId`, `lessonId`, `runId`, integer `revision`, `sceneId`, `frameId`, `frame` and `point`. Set `sceneId` to the current decision's scene ID, or JSON null when the lesson has no authored scene. `frameId` identifies the specific sampled frame.
 
 The service checks the current lesson snapshot before detecting, after detection and after image editing. It returns HTTP 409 if the lesson changes or is already processing another turn. At most one exploration can run for each lesson run, and at most two can run across the server; busy requests return HTTP 429.
 
