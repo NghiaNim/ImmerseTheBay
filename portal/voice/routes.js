@@ -27,7 +27,7 @@ export function registerVoiceRoutes(app, { authorized = () => true, snapshot, en
       if (!state || !state.response || state.response.advance === 'scene_done') return res.status(409).json({ error: 'Start an active lesson before connecting voice' });
       const scene = String(state.lessonContext?.scene || '').slice(0, 1000);
       const binding = { ...input, runId: state.runId, revision: String(state.revision), beat: String(state.beat), language: 'ja',
-        practiceContext: JSON.stringify({ scene, goal: String(state.lessonContext?.goal || '').slice(0,500), learnerLine: state.response.overlay?.jp || '' }),
+        practiceContext: JSON.stringify({ scene, goal: String(state.lessonContext?.goal || '').slice(0,500), learnerLine: state.response.overlay?.jp || '', visiblePartner: state.lessonContext?.visiblePartner, partnerLocation: state.lessonContext?.partnerLocation }),
         opening: /konbini|convenience.store/i.test(input.lessonId + scene) ? 'いらっしゃいませ。何をお探しですか？' : 'こんにちは。一緒に練習しましょう。' };
       const upstream = await fetchImpl(`${API}${encodeURIComponent(agentId)}/sessions`, {
         method: 'POST', headers: { 'X-API-Key': apiKey, 'Cartesia-Version': CARTESIA_AGENT_VERSION, 'Content-Type': 'application/json' },

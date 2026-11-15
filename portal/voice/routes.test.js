@@ -42,3 +42,11 @@ test('reset during mint rejects stale session; provider errors are redacted',asy
  const r=await bad('token',input);assert.equal(r.status,502);assert.equal((await r.text()).includes(env.CARTESIA_API_KEY),false);
  const rate=await fixture(t,{fetchImpl:async()=>({ok:false,status:429})});assert.equal((await rate('token',input)).status,429);
 });
+test('off-camera preset scene is trusted voice context',async t=>{
+ let context;
+ const call=await fixture(t,{snapshot:()=>({...state,lessonContext:{scene:'Drinks shelf',goal:'Buy water',visiblePartner:false,partnerLocation:'off-camera; voice only'}}),fetchImpl:async(_url,options)=>{
+  context=JSON.parse(JSON.parse(options.body).dynamic_variables.practiceContext);return{ok:true,json:async()=>session};
+ }});
+ assert.equal((await call('token',input)).status,200);
+ assert.equal(context.visiblePartner,false);assert.equal(context.partnerLocation,'off-camera; voice only');assert.equal(context.scene,'Drinks shelf');
+});

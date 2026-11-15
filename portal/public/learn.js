@@ -1,3 +1,4 @@
+import { createSceneFrameGate, transitionDelay, presetScenePath } from './scene-transition.js';
 import { createGoalRecorder, renderPracticeReview } from './practice-ui.js';
 import { connectWithCapacityRetry } from './dynamic-retry.js';
 import { installScenePoint } from './scene-point.js';
@@ -28,6 +29,7 @@ let mediaStream = new MediaStream();
 let recording = null, micStarting = false, transcribing = false, speechAttempt = 0;
 let practiceMode = 'home', realPhoto = null, goalState = 'idle', ending = false, generated = false;
 let generationAbort = null, generatedExpiresAt = 0;
+let originalPresetPhoto = false, presetSceneSet = null, currentSceneId = null, mainScenePhoto = null, sceneFrameGate = null, transitionUrl = null;
 let clerkSpeech = null, ttsBusy = false, voiceActive = false, voiceReconciling = false, voiceUnsafe = false, voiceCheckRunning = false;
 let lastMediaTime = 0, lastMediaProgressAt = -Infinity;
 const agentMachine = createAgentMachine({ onChange: (state) => { document.body.dataset.agentState = state; $('runtimeTrace').dataset.agentState = state; idleInvitation.sync(latestDecision?.route?.nodeId || null); } });
@@ -97,7 +99,7 @@ const lineVoice = createLineVoice({
     else throw new Error('Unsupported lesson tool or invalid arguments.');
     const accepted = await turn({ ...input, fromVoice: true });
     if (!accepted) throw new Error('Lesson change was not confirmed. Do not claim it succeeded.');
-    return { accepted: true, route: latestDecision?.route, feedback: latestDecision?.feedback, overlay: latestDecision?.overlay };
+    return { accepted: true, route: latestDecision?.route, feedback: latestDecision?.feedback, overlay: latestDecision?.overlay, scene: latestDecision?.scene };
   },
 });
 
@@ -161,6 +163,7 @@ function refresh() {
   $('speak').textContent = $('speechMode').value === 'intent' ? 'Tell guide' : 'Speak Japanese';
   $('listen').disabled = !active || busy || finished || speechInUse || !latestDecision?.overlay?.jp;
   $('clerkReplay').disabled = !active || busy || speechInUse || !clerkSpeech;
+  for (const id of ['presetSandwiches', 'presetDrinks']) { $(id).hidden = !active || !presetSceneSet; $(id).disabled = !active || busy || finished || speechInUse; }
   $('returnMain').hidden = !active || latestDecision?.route?.kind !== 'detour';
   $('returnMain').disabled = !active || busy || finished || speechInUse;
   idleInvitation.sync(latestDecision?.route?.nodeId || null);
@@ -246,12 +249,12 @@ async function chooseLesson() {
   finally { if (current()) { busy = false; refresh(); } }
 }
 function clearPhoto() {
-  photoFile = null; photoCaption = '';
+  photoFile = null; photoCaption = ''; originalPresetPhoto = false;
   if (previewUrl) URL.revokeObjectURL(previewUrl); previewUrl = null;
   $('photoPreview').hidden = true; $('sceneFocus').hidden = true; $('scenePlaceholder').hidden = false; $('photo').value = '';
 }
-function setPhoto(file, caption) {
-  photoFile = file; photoCaption = caption;
+function setPhoto(file, caption, presetOriginal = false) {
+  photoFile = file; photoCaption = caption; originalPresetPhoto = presetOriginal;
   if (previewUrl) URL.revokeObjectURL(previewUrl);
   previewUrl = URL.createObjectURL(file); $('photoPreview').src = previewUrl; $('sceneFocus').src = previewUrl; $('sceneFocus').hidden = false;
   $('photoPreview').hidden = false; $('scenePlaceholder').hidden = true;
@@ -266,7 +269,7 @@ async function chooseSample() {
   if (!response.ok) throw new Error('This sample is unavailable. Upload your own photo to continue.');
   const blob = await response.blob();
   if (!current()) return;
-  setPhoto(new File([blob], sample.file, { type: blob.type || 'image/jpeg' }), sample.caption);
+  setPhoto(new File([blob], sample.file, { type: blob.type || 'image/jpeg' }), sample.caption, sample.file === 'konbini-checkout-original.png');
   $('photo').value = '';
 }
 // Center crop rather than allowing Reactor to squash a 4:3 phone photo.
@@ -309,11 +312,13 @@ async function connectReactor(targetModel, joinId, run) {
     if (client !== reactor || run !== epoch) { track.stop(); return; }
     for (const previous of mediaStream.getTracks().filter((t) => t.kind === track.kind)) { mediaStream.removeTrack(previous); previous.stop(); }
     mediaStream.addTrack(track); $('video').srcObject = mediaStream;
-    if (track.kind === 'video') { $('photoPreview').hidden = !photoFile; $('sceneFocus').hidden = true; $('scenePlaceholder').hidden = true; }
+    if (track.kind === 'video') { $('photoPreview').hidden = !photoFile; if (!sceneFrameGate) $('sceneFocus').hidden = true; $('scenePlaceholder').hidden = true; }
     void $('video').play().catch(() => notify('Press Unmute scene to enable playback.'));
   });
   client.on('message', (msg) => {
     if (client !== reactor || run !== epoch) return;
+    sceneFrameGate?.message(msg);
+    if (msg.type === 'generation_started') recordRuntime('generation_started');
     if (msg.type === 'prompt_accepted') { captureAcceptedPrompt(msg); recordRuntime('prompt_accepted', { acceptedPrompt: runtimeState.acceptedPrompt }); }
     if (msg.type === 'chunk_complete') {
       $('sceneStatus').textContent = `Live · ${webResolution} · chunk ${msg.data?.chunk_index ?? ''}`;
@@ -354,6 +359,8 @@ async function begin() {
   if (busy || active || !lesson || ending || ['permission', 'recording', 'transcribing'].includes(goalState)) return;
   if (practiceMode === 'real' && generatedExpiresAt && Date.now() >= generatedExpiresAt) { invalidateGenerated(); $('goalStatus').textContent = 'This practice expired. Create it again from your photo and goal.'; setSetupOpen(true); return; }
   goalRecorder.cancel(); $('practiceReview').hidden = true; $('practiceStage').hidden = false;
+  presetSceneSet = practiceMode === 'home' && lesson.id === 'ja-konbini-001' && originalPresetPhoto ? 'konbini-original' : null;
+  mainScenePhoto = presetSceneSet ? { file: photoFile, caption: photoCaption } : null; currentSceneId = presetSceneSet ? 'checkout' : null;
   voiceReconciling = voiceUnsafe = voiceCheckRunning = false;
   lessonOperations.reset(); idleInvitation.reset(); agentMachine.send('begin');
   lastMediaTime = 0; lastMediaProgressAt = -Infinity;
@@ -420,23 +427,88 @@ async function setWebResolution() {
   return { name: 'set_resolution', data: { resolution } };
 }
 async function executeDecision(decision, run) {
-  if (preview) return [];
+  const changedScene = presetSceneSet && decision.scene && decision.scene.id !== currentSceneId;
   const executed = [];
-  const allowed = new Set(['set_prompt', 'set_audio_prompt', 'set_resolution', 'start', 'pause', 'resume', 'reset']);
-  for (const item of decision.visko) {
-    assertCurrent(run);
-    if (!allowed.has(item.name)) continue; // Image refs are bound locally through uploadFile, never agent strings.
-    if (item.name === 'set_prompt') {
-      const delay = Math.max(0, 2000 - (Date.now() - lastPromptAt));
-      if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
-      assertCurrent(run); lastPromptAt = Date.now();
+  let gate;
+  try {
+    if (changedScene) {
+      const path = presetScenePath(decision.scene);
+      runtimeState.sceneTransition = { sceneId: decision.scene.id, lifecycle: [] };
+      recordRuntime('scene_transition_begin', { from: currentSceneId, to: decision.scene.id, mode: preview ? 'practice' : 'live' });
+      const response = await fetch(path, { headers: authHeaders(), signal: AbortSignal.any([apiAbort.signal, AbortSignal.timeout(12000)]) });
+      if (!response.ok) throw new Error('The new scene photograph could not be loaded.');
+      const blob = await response.blob(); assertCurrent(run);
+      const file = new File([blob], `${decision.scene.id}.png`, { type: blob.type || 'image/png' });
+      const decoded = await createImageBitmap(file); decoded.close(); assertCurrent(run);
+      transitionUrl = URL.createObjectURL(file);
+      $('transitionPhoto').src = transitionUrl;
+      $('sceneTransition').style.setProperty('--scene-photo', `url("${transitionUrl}")`);
+      await $('transitionPhoto').decode(); assertCurrent(run);
+      $('sceneTransition').classList.add('visible');
+      await transitionDelay(340, apiAbort.signal); assertCurrent(run);
+      document.querySelector('.screen').classList.add('scene-changing');
+      setPhoto(file, decision.scene.prompt);
+      if (!preview) {
+        await command('reset'); executed.push({ name: 'reset', data: {} }); assertCurrent(run);
+        const prepared = await preparePhoto(file); assertCurrent(run);
+        const ref = await reactor.uploadFile(prepared); assertCurrent(run);
+        await command('set_image', { image: ref }); executed.push({ name: 'set_image', data: { image: ref } }); assertCurrent(run);
+        // Retain the original imageRef in lesson requests: it binds the persistent identity anchor.
+        const expectedPrompt = decision.visko.find(item => item.name === 'set_prompt')?.data?.prompt;
+        if (!expectedPrompt) throw new Error('New scene lacks its video prompt.');
+        gate = createSceneFrameGate({ video: $('video'), expectedPrompt, signal: apiAbort.signal, onTrace: event => {
+          if (run !== epoch) return;
+          runtimeState.sceneTransition.lifecycle.push({ at: new Date().toISOString(), ...event });
+          runtimeState.sceneTransition.lifecycle = runtimeState.sceneTransition.lifecycle.slice(-16);
+          recordRuntime('scene_transition_gate', { sceneId: decision.scene.id, ...event });
+        } }); sceneFrameGate = gate;
+      }
     }
-    if (item.name === 'set_resolution') { executed.push(await setWebResolution()); continue; }
-    if (item.name === 'start') executed.push(await setWebResolution());
-    await command(item.name, item.data || {}); executed.push({ name: item.name, data: item.data || {} });
+    if (!preview) {
+      const allowed = new Set(['set_prompt', 'set_audio_prompt', 'set_resolution', 'start', 'pause', 'resume', 'reset']);
+      for (const item of decision.visko) {
+        assertCurrent(run);
+        if (!allowed.has(item.name) || (changedScene && ['reset', 'start', 'pause', 'resume'].includes(item.name))) continue;
+        if (item.name === 'set_prompt') {
+          const delay = Math.max(0, 2000 - (Date.now() - lastPromptAt));
+          if (delay) await transitionDelay(delay, apiAbort.signal);
+          assertCurrent(run); lastPromptAt = Date.now();
+        }
+        if (item.name === 'set_resolution') { executed.push(await setWebResolution()); continue; }
+        if (item.name === 'start') executed.push(await setWebResolution());
+        await command(item.name, item.data || {}); executed.push({ name: item.name, data: item.data || {} });
+      }
+      if (changedScene) {
+        executed.push(await setWebResolution());
+        const startReply = await command('start'); assertCurrent(run);
+        gate.message(startReply, 'start_ack');
+        executed.push({ name: 'start', data: {} });
+        const evidence = await gate.ready; assertCurrent(run);
+        recordRuntime('scene_transition_video_ready', { sceneId: decision.scene.id, evidence });
+        $('sceneFocus').hidden = true;
+      }
+    }
+    if (changedScene) {
+      assertCurrent(run); currentSceneId = decision.scene.id;
+      document.querySelector('.screen').classList.remove('scene-changing');
+      $('sceneTransition').classList.remove('visible');
+      await transitionDelay(340, apiAbort.signal); assertCurrent(run);
+      recordRuntime('scene_transition_complete', { sceneId: currentSceneId, mode: preview ? 'practice' : 'live' });
+      $('sceneStatus').textContent = `${preview ? 'Practice' : 'Live'} · ${decision.scene.label}`;
+    }
+    return executed;
+  } finally {
+    gate?.cancel();
+    if (run === epoch) clearSceneTransition();
   }
-  return executed;
 }
+function clearSceneTransition() {
+  sceneFrameGate?.cancel(); sceneFrameGate = null;
+  $('sceneTransition').classList.remove('visible'); document.querySelector('.screen').classList.remove('scene-changing');
+  $('transitionPhoto').removeAttribute('src'); $('sceneTransition').style.removeProperty('--scene-photo');
+  if (transitionUrl) URL.revokeObjectURL(transitionUrl); transitionUrl = null;
+}
+
 function renderDecision(decision, hasSpeech = false) {
   clerkSpeech = decision.speech?.role === 'clerk' && decision.speech.language === 'ja' && typeof decision.speech.text === 'string' && decision.speech.text.trim()
     ? { text: decision.speech.text, language: 'ja', role: 'clerk' } : null;
@@ -462,7 +534,7 @@ async function turn({ gesture = null, transcript, intent, action, fromVoice = fa
   idleInvitation.suspend(); lessonSpeech.cancel();
   busy = true; refresh();
   const context = contextSnapshot(gesture);
-  let request = { sessionId, lessonId: lesson.id, beat, imageRef, context, ...(transcript ? { transcript } : {}), ...(intent ? { intent } : {}), ...(action ? { action } : {}) };
+  let request = { sessionId, lessonId: lesson.id, beat, imageRef, context, ...(presetSceneSet ? { presetSceneSet } : {}), ...(transcript ? { transcript } : {}), ...(intent ? { intent } : {}), ...(action ? { action } : {}) };
   agentMachine.send('plan');
   try {
     const operation = await lessonOperations.turn(request, { signal: apiAbort.signal, isCurrent: () => run === epoch }); assertCurrent(run);
@@ -616,7 +688,9 @@ function startSpeech() {
 }
 async function leave(message = 'You have left the lesson.') {
   goalRecorder.cancel(); generationAbort?.abort(); generationAbort = null;
-  active = false; lineVoice.disconnect();
+  active = false; lineVoice.disconnect(); clearSceneTransition();
+  if (mainScenePhoto) setPhoto(mainScenePhoto.file, mainScenePhoto.caption, true);
+  presetSceneSet = currentSceneId = mainScenePhoto = null;
   voiceReconciling = voiceUnsafe = voiceCheckRunning = false;
   idleInvitation.reset(); agentMachine.send('stop');
   scenePoint.clear(); lessonSpeech.cancel(); lessonOperations.reset(); clerkSpeech = null;
@@ -750,6 +824,8 @@ $('conversation').onclick = () => {
 };
 $('speak').onclick = startSpeech; $('stopSpeech').onclick = stopSpeech;
 $('pinch').onclick = () => void turn({ gesture: 'pinch' });
+$('presetSandwiches').onclick = () => void turn({ intent: 'I want to choose a sandwich from the sandwich shelf.' });
+$('presetDrinks').onclick = () => void turn({ intent: 'I want to choose a bottle of water from the drinks shelf.' });
 $('returnMain').onclick = () => void turn({ action: 'return_to_main' });
 $('longPinch').onclick = () => void turn({ gesture: 'long_pinch' });
 $('point').onclick = () => void turn({ gesture: 'point' });

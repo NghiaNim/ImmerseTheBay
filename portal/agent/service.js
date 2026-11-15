@@ -5,6 +5,7 @@ import { AgentError, createLessonStore, flattenLesson } from './lessons.js';
 import { hasBannedTerm, safePrompt, scoreTranscript } from './guardrails.js';
 import { validateSchema } from './schema.js';
 import { validateOperation, createOperationCache, replayOperation, checkOperationState, rememberOperation, invalidateOperations } from './operations.js';
+import { PRESET_SET, presetDrinkPlan, updatePreset, presetEnvironmentPrompt } from './scene-presets.js';
 import { recordSummary, summarize, targetId } from './summary.js';
 import { clerkSpeech } from './clerk-speech.js';
 import { composeVisualPrompt, composeAmbientPrompt, CHARACTER_ANCHOR, SCENE_ANCHOR } from './continuity.js';
@@ -16,7 +17,7 @@ const bounded = (v, n) => typeof v === 'string' && v.length <= n;
 function invalid(message) { throw new AgentError(400, message); }
 export function validateRequest(body) {
   if (!plain(body)) invalid('JSON object required');
-  if (Object.keys(body).some((k) => !['sessionId', 'lessonId', 'beat', 'transcript', 'intent', 'imageRef', 'context', 'operation', 'action'].includes(k))) invalid('Unknown request field');
+  if (Object.keys(body).some((k) => !['sessionId', 'lessonId', 'beat', 'transcript', 'intent', 'imageRef', 'context', 'operation', 'action', 'presetSceneSet'].includes(k))) invalid('Unknown request field');
   if (!bounded(body.sessionId, 160) || !/^[a-zA-Z0-9_.:-]+$/.test(body.sessionId)) invalid('Invalid sessionId');
   if (!bounded(body.lessonId, 80) || !/^[a-z0-9][a-z0-9-]*$/.test(body.lessonId)) invalid('Invalid lessonId');
   if (!Number.isInteger(body.beat) || body.beat < 0 || body.beat > 5000) invalid('beat must be a nonnegative flattened line index');
@@ -26,6 +27,7 @@ export function validateRequest(body) {
     const ref = body.imageRef;
     if (!(bounded(ref, 1000) || (plain(ref) && Object.keys(ref).every((k) => ['id', 'caption'].includes(k)) && bounded(ref.id, 1000) && (ref.caption === undefined || bounded(ref.caption, 1000))))) invalid('imageRef must be an opaque string or {id,caption}');
   }
+  if (body.presetSceneSet !== undefined && (body.presetSceneSet !== PRESET_SET || body.lessonId !== 'ja-konbini-001')) invalid('Invalid preset scene selection');
   if (body.action !== undefined && !['return_to_main', 'idle_hint'].includes(body.action)) invalid('Invalid agent action');
   if (body.operation !== undefined) validateOperation(body.operation);
   const c = body.context;
@@ -122,6 +124,8 @@ export function createAgentService({ store = createLessonStore(), llm = createLe
       checkOperationState(request, existing);
       const lesson = await store.load(request.lessonId);
       const state = structuredClone(existing || { started: false, hintLevel: 0, attempts: 0, revision: 0 });
+      if (existing && request.presetSceneSet !== state.presetSceneSet) throw new AgentError(409, 'Preset scene selection changed; restart the lesson');
+      if (!existing && request.presetSceneSet) state.presetSceneSet = request.presetSceneSet;
       if (!request.action) state.attempts++;
       const lines = flattenLesson(lesson);
       if (request.beat >= lines.length) throw new AgentError(400, 'beat is outside this lesson');
@@ -131,7 +135,7 @@ export function createAgentService({ store = createLessonStore(), llm = createLe
       if (request.action && !state.started) throw new AgentError(409, 'Start the lesson before requesting an agent action');
       const mainTarget = lines[state.flow.mainBeat];
       const suppliedReference = typeof request.imageRef === 'string' ? request.imageRef : request.imageRef?.id;
-      if (state.sceneContext && suppliedReference && suppliedReference !== state.sceneContext.referenceId) {
+      if (state.sceneContext && suppliedReference && suppliedReference !== (state.originalReferenceId || state.sceneContext.referenceId)) {
         throw new AgentError(409, 'Starting image changed; reset the lesson before using a new reference');
       }
       if (!state.sceneContext) {
@@ -142,6 +146,7 @@ export function createAgentService({ store = createLessonStore(), llm = createLe
           sceneAnchor: safePrompt(lesson.scenePrompt, NEUTRAL_PROMPT),
           mainCheckpoint: { beat: state.flow.mainBeat, goal: mainTarget.beat.goal }, recentActions: [],
         };
+        state.originalReferenceId = state.sceneContext.referenceId;
         state.referenceCaption = plain(request.imageRef) ? request.imageRef.caption || '' : '';
       }
       state.sceneContext.mainCheckpoint = { beat: state.flow.mainBeat, goal: mainTarget.beat.goal };
@@ -161,7 +166,7 @@ export function createAgentService({ store = createLessonStore(), llm = createLe
         if (state.flow.detoursUsed >= 6) intentNote = 'Six side interactions have been used in this run. Continue the main lesson or begin a new run.';
         else if (hasBannedTerm(intent)) intentNote = 'Please describe an ordinary original shopping goal without a character or brand.';
         else {
-          let plan = scriptedPlan(intent, lesson, state.flow.mainBeat);
+          let plan = (state.presetSceneSet && presetDrinkPlan(intent, state.flow.mainBeat)) || scriptedPlan(intent, lesson, state.flow.mainBeat);
           // Known shopping branches work without a key; other explicit goals may be
           // planned by Claude. The LLM never controls the saved return checkpoint.
           if (!plan && planner) {
@@ -214,6 +219,8 @@ export function createAgentService({ store = createLessonStore(), llm = createLe
         if (intentNote) fallback.feedback = { score: 0, notes: [...(fallback.feedback?.notes || []), intentNote] };
       }
       fallback.route = { ...state.flow.current };
+      const previousScene = state.scene?.id;
+      updatePreset(state, { entered, intent, route: fallback.route });
       const savedTarget = lines[state.flow.mainBeat];
       state.sceneContext.mainCheckpoint = { beat: state.flow.mainBeat, goal: savedTarget?.beat.goal || 'Lesson complete' };
       // Completed branch actions must not act as goals on the resumed main line.
@@ -233,7 +240,13 @@ export function createAgentService({ store = createLessonStore(), llm = createLe
         if (command.name === 'set_audio_prompt') command.data.prompt = composeAmbientPrompt(command.data.prompt);
         if (command.name !== 'set_prompt') continue;
         const authored = fallback.visko.find((item) => item.name === 'set_prompt')?.data.prompt;
-        command.data.prompt = composeVisualPrompt(state.started ? command.data.prompt : state.sceneContext.sceneAnchor, authored, { initial: !state.started, speaking: Boolean(response.speech) && lesson.visiblePartner !== false, visiblePartner: lesson.visiblePartner !== false });
+        command.data.prompt = composeVisualPrompt(state.started ? command.data.prompt : state.sceneContext.sceneAnchor, authored, { initial: !state.started || previousScene !== state.scene?.id, speaking: Boolean(response.speech) && (state.scene?.visiblePartner ?? lesson.visiblePartner) !== false, visiblePartner: (state.scene?.visiblePartner ?? lesson.visiblePartner) !== false });
+      }
+      if (state.scene) {
+        for (const command of response.visko) if (command.name === 'set_prompt') {
+          if (!state.scene.visiblePartner) command.data.prompt = presetEnvironmentPrompt(state.scene);
+          else if (previousScene !== state.scene.id) command.data.prompt = composeVisualPrompt(state.scene.prompt, state.scene.prompt, { initial: true, speaking: Boolean(response.speech) });
+        }
       }
       if (!validateSchema(response)) throw new Error('Internal response validation failed');
       if (response.visko.some((v) => v.name === 'set_prompt')) {
@@ -243,6 +256,7 @@ export function createAgentService({ store = createLessonStore(), llm = createLe
       }
       state.revision = (state.revision || 0) + 1;
       if (request.operation) response.operation = { requestId: request.operation.requestId, runId: state.flow.runId, revision: state.revision, replayed: false };
+      if (state.scene) response.scene = structuredClone(state.scene);
       recordSummary(state, { request, lesson, before: summaryBefore, intent, response });
       await log({ at: new Date(now()).toISOString(), sessionId: request.sessionId, lessonId: request.lessonId, beat: request.beat, transcript: request.transcript || '', intent: intent || null, context: request.context, photoCaption: plain(request.imageRef) ? request.imageRef.caption || '' : '', source, failure, route: response.route, graph: { nodes: state.flow.nodes, edges: state.flow.edges }, response });
       const visual = response.visko.find((command) => command.name === 'set_prompt');
@@ -281,7 +295,7 @@ export function createAgentService({ store = createLessonStore(), llm = createLe
     const state = session?.lessons.get(request.lessonId);
     if (!state) return null;
     session.touched = now();
-    return structuredClone({ runId: state.flow.runId, revision: state.revision, beat: state.flow.mainBeat, response: state.lastResponse, lessonContext: { scene: state.sceneContext.sceneAnchor.slice(0, 1000), goal: state.sceneContext.mainCheckpoint.goal.slice(0, 1000) } });
+    return structuredClone({ runId: state.flow.runId, revision: state.revision, beat: state.flow.mainBeat, response: state.lastResponse, lessonContext: { scene: state.sceneContext.sceneAnchor.slice(0, 1000), goal: state.sceneContext.mainCheckpoint.goal.slice(0, 1000), ...(state.scene ? { visiblePartner: state.scene.visiblePartner, partnerLocation: state.sceneContext.partnerLocation } : {}) } });
   }
   function summary(input) {
     // Reuse the exact identity validation and pending-operation barrier.

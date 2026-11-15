@@ -15,7 +15,7 @@ export const RESPONSE_SCHEMA = object({
   route: object({ kind: { type: 'string', enum: ['main', 'detour', 'rejoin'] }, nodeId: text, label: text, returnBeat: { type: 'number' }, step: { type: 'number' }, total: { type: 'number' } }),
 }, ['visko', 'overlay', 'feedback', 'advance']);
 // Transport metadata is server-owned and deliberately excluded from model schemas.
-export const WIRE_RESPONSE_SCHEMA = { ...RESPONSE_SCHEMA, properties: { ...RESPONSE_SCHEMA.properties, operation: object({ requestId: text, runId: text, revision: { type: 'number' }, replayed: { type: 'boolean' } }) } };
+export const WIRE_RESPONSE_SCHEMA = { ...RESPONSE_SCHEMA, properties: { ...RESPONSE_SCHEMA.properties, scene: object({ id: { type: 'string', enum: ['checkout', 'sandwiches', 'drinks'] }, label: text, startImage: text, prompt: text, visiblePartner: { type: 'boolean' } }), operation: object({ requestId: text, runId: text, revision: { type: 'number' }, replayed: { type: 'boolean' } }) } };
 export function validateSchema(value, schema = RESPONSE_SCHEMA) {
   if (schema.anyOf) return schema.anyOf.some((s) => validateSchema(value, s));
   if (schema.enum) return schema.enum.includes(value);

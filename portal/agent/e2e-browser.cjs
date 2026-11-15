@@ -96,7 +96,8 @@ fs.mkdirSync(artifacts, { recursive: true });
     assert.deepEqual(turns.map((turn) => turn.operation.revision), [1, 2, 3, 4, 5]);
     if (dropResponse) { assert.equal(droppedOperations.length, 1); assert.equal(turns[2].operation.replayed, true); assert.equal(turns[2].operation.requestId, droppedOperations[0]); }
     for (const turn of turns) for (const command of turn.visko.filter((c) => c.name === 'set_prompt')) {
-      assert.match(command.data.prompt, /established face, hair and clothing remain unchanged/);
+      if (turn.scene?.visiblePartner === false) assert.doesNotMatch(command.data.prompt, /face|hair|clerk|host|lips/);
+      else assert.match(command.data.prompt, /established face, hair and clothing remain unchanged/);
       assert.ok(command.data.prompt.length <= 600);
       assert.ok(command.data.prompt.split(/\s+/u).length <= 95);
     }

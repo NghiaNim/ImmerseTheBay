@@ -46,6 +46,7 @@ export function buildModelContext(input, { planMode = false, maxBytes = DEFAULT_
     baseScene: {
       prompt: text(scene.sceneAnchor) ?? text(v.lesson?.scenePrompt),
       referenceId: text(scene.referenceId), characterId: text(scene.characterId),
+      ...(typeof scene.visiblePartner === 'boolean' ? { visiblePartner: scene.visiblePartner, partnerLocation: text(scene.partnerLocation) } : {}),
       identityConstraint: text(scene.identityAnchor), cameraConstraint: text(scene.cameraConstraint),
     },
     turn: {
