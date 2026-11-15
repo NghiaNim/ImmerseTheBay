@@ -16,6 +16,9 @@ export function castPartnerVoice(recommendation, override) {
   return override ?? (recommendation === 'male' ? 'male' : 'female');
 }
 export function flattenLesson(lesson) { return lesson.beats.flatMap((beat, beatIndex) => beat.lines.map((line) => ({ line, beat, beatIndex }))); }
+export function authoredLessonScenes(lesson) {
+  return lesson.beats.flatMap(beat => [beat.scene, beat.milkScene].filter(Boolean));
+}
 export function validateLesson(lesson) {
   if (!plain(lesson) || !/^[a-z0-9][a-z0-9-]{0,79}$/.test(lesson.id) || !['title', 'level', 'scenePrompt', 'audioPrompt'].every((k) => text(lesson[k]))
       || typeof lesson.startImage !== 'string' || !Array.isArray(lesson.beats) || !lesson.beats.length || lesson.beats.length > 100) throw new AgentError(422, 'Invalid lesson metadata');
@@ -28,12 +31,17 @@ export function validateLesson(lesson) {
         Object.keys(reaction).length !== 3 || !['jp', 'romaji', 'en'].every(key => text(reaction[key])))))
       throw new AgentError(422, 'Invalid lesson reaction');
     if (beat.vocab.some((v) => !plain(v) || !['jp', 'kana', 'en', 'objectHint'].every((k) => text(v[k])))) throw new AgentError(422, 'Invalid lesson vocabulary');
-    if (beat.scene !== undefined && (!plain(beat.scene) || !authoredSceneId.test(beat.scene.id) ||
-        !['label', 'prompt', 'identity'].every((k) => text(beat.scene[k])))) throw new AgentError(422, 'Invalid authored lesson scene');
+    for (const scene of [beat.scene, beat.milkScene]) {
+      if (scene !== undefined && (!plain(scene) || !authoredSceneId.test(scene.id) ||
+          !['label', 'prompt', 'identity'].every((k) => text(scene[k])))) throw new AgentError(422, 'Invalid authored lesson scene');
+    }
+    if (beat.milkScene !== undefined && (lesson.id !== 'ja-cafe-demo-001' || beat.scene?.id !== 'cafe-serve'))
+      throw new AgentError(422, 'Invalid milk scene');
   }
   if (lesson.beats.some((beat) => beat.scene)) {
     const ids = lesson.beats.map((beat) => beat.scene?.id);
-    if (ids.some((id) => !id) || new Set(ids).size !== ids.length ||
+    const mediaIds = authoredLessonScenes(lesson).map(scene => scene.id);
+    if (ids.some((id) => !id) || new Set(mediaIds).size !== mediaIds.length ||
         lesson.startImage !== `lessons/images/${ids[0]}.jpg`) throw new AgentError(422, 'Invalid authored scene sequence');
   }
   if (hasBannedTerm(JSON.stringify(lesson))) throw new AgentError(422, 'Lesson contains a blocked character or brand');

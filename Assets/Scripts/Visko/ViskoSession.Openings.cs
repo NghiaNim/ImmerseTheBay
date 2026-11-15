@@ -80,7 +80,7 @@ namespace ImmerseTheBay.Visko
             }
         }
 
-        OpeningClip m_SceneOpening, m_NextOpening;
+        OpeningClip m_SceneOpening, m_NextOpening, m_AlternateOpening;
         VideoPlayer m_OpeningPlayer;
         float m_OpeningFade, m_OpeningDecodeDeadline, m_OpeningSelectedAt;
         bool m_OpenFrameShown, m_OpeningPlayRequested;
@@ -113,6 +113,11 @@ namespace ImmerseTheBay.Visko
                 m_SceneOpening = m_NextOpening;
                 m_NextOpening = null;
             }
+            else if (m_AlternateOpening?.Matches(lesson, scene) == true)
+            {
+                m_SceneOpening = m_AlternateOpening;
+                m_AlternateOpening = null;
+            }
             else
             {
                 PrefetchSceneOpening(null, null);
@@ -132,13 +137,20 @@ namespace ImmerseTheBay.Visko
                 ClearSceneOpening();
         }
 
-        /// <summary>Download at most one likely next opening. Decoding begins after a scene commits.</summary>
-        public void PrefetchSceneOpening(string lesson, string scene)
+        /// <summary>Download the next authored opening and, at a menu, its one alternate.</summary>
+        public void PrefetchSceneOpening(string lesson, string scene, string alternate = null)
         {
-            if (m_NextOpening?.Matches(lesson, scene) == true) return;
-            m_NextOpening?.Release();
-            m_NextOpening = CanPlayOpening(lesson, scene) && m_SceneOpening?.Matches(lesson, scene) != true
-                ? new OpeningClip(lesson, scene) : null;
+            var oldNext = m_NextOpening;
+            var oldAlternate = m_AlternateOpening;
+            OpeningClip Find(string id) =>
+                !CanPlayOpening(lesson, id) || m_SceneOpening?.Matches(lesson, id) == true ? null
+                : oldNext?.Matches(lesson, id) == true ? oldNext
+                : oldAlternate?.Matches(lesson, id) == true ? oldAlternate
+                : new OpeningClip(lesson, id);
+            m_NextOpening = Find(scene);
+            m_AlternateOpening = alternate == scene ? null : Find(alternate);
+            if (oldNext != m_NextOpening && oldNext != m_AlternateOpening) oldNext?.Release();
+            if (oldAlternate != m_NextOpening && oldAlternate != m_AlternateOpening) oldAlternate?.Release();
         }
 
         public void ClearSceneOpening()
@@ -170,7 +182,12 @@ namespace ImmerseTheBay.Visko
             {
                 Debug.LogWarning($"[Visko] Opening clip unavailable ({error.GetType().Name})");
                 if (ReferenceEquals(clip, m_SceneOpening)) ClearSceneOpening();
-                else PrefetchSceneOpening(null, null);
+                else
+                {
+                    clip.Release();
+                    if (ReferenceEquals(clip, m_NextOpening)) m_NextOpening = null;
+                    if (ReferenceEquals(clip, m_AlternateOpening)) m_AlternateOpening = null;
+                }
             }
         }
 
@@ -179,6 +196,7 @@ namespace ImmerseTheBay.Visko
             if (!IsConfigLoaded) return;
             PollOpeningDownload(m_SceneOpening);
             PollOpeningDownload(m_NextOpening);
+            PollOpeningDownload(m_AlternateOpening);
             if (m_SceneOpening == null) return;
 
             if (HasLiveFrame && (!m_OpenFrameShown || m_LiveBlend >= 1f))

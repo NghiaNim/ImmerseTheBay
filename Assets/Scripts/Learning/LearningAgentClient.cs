@@ -45,6 +45,9 @@ namespace ImmerseTheBay.Learning
         float m_AttemptExpires;
         string m_CompletionRunId;
         public LearningAttempt VisibleAttempt => m_LastAttempt;
+        public float VisibleAttemptOpacity => IsPositiveAttempt
+            ? Mathf.Clamp01((m_AttemptExpires - Time.unscaledTime) / 0.35f) : 1f;
+        bool IsPositiveAttempt => m_LastAttempt?.outcome is "pass" or "assisted";
         public LearningProgress Progress => m_LastResponse?.progress;
         public string CurrentTargetJapanese => m_LastResponse?.overlay?.jp ?? "";
         public LearningRoute CurrentRoute => m_LastResponse?.route;
@@ -196,7 +199,8 @@ namespace ImmerseTheBay.Learning
                 if (m_ListeningVisible != capturing) overlay.SetListening(m_ListeningVisible = capturing);
                 if (capturing && portal) overlay.SetListeningLevel(portal.InputLevel);
             }
-            if (m_LastAttempt != null && (IsBusy || IsClerkSpeaking || IsExamplePending))
+            if (overlay) overlay.SetResultOpacity(VisibleAttemptOpacity);
+            if (m_LastAttempt != null && !IsPositiveAttempt && (IsBusy || IsClerkSpeaking || IsExamplePending))
                 m_AttemptExpires = Mathf.Max(m_AttemptExpires, Time.unscaledTime + 3f);
             else if (m_LastAttempt != null && Time.unscaledTime >= m_AttemptExpires)
             {
@@ -294,6 +298,7 @@ namespace ImmerseTheBay.Learning
 
         public void SubmitIntent(string intent) => Submit("", context ? context.Capture() : null, intent);
         public void ReturnToMain() => Submit("", context ? context.Capture() : null, null, "return_to_main");
+        public void PromptWhenIdle() => Submit("", new LearningContextSnapshot(), null, "idle_hint");
         public void Next() => Submit("", context ? context.Capture("pinch") : new LearningContextSnapshot { gesture = "pinch" });
         public void Hint() => Submit("", context ? context.Capture("long_pinch") : new LearningContextSnapshot { gesture = "long_pinch" });
         void OnIntent(LearningContextSnapshot snapshot) => Submit("", snapshot);
@@ -482,7 +487,8 @@ namespace ImmerseTheBay.Learning
                 await visko.SetImage(image);
                 EnsureCurrent(generation);
             }
-            visko.PrefetchSceneOpening(m_RunLesson, exploring ? null : response.nextSceneId);
+            visko.PrefetchSceneOpening(m_RunLesson, exploring ? null : response.nextSceneId,
+                exploring ? null : response.alternateNextSceneId);
             foreach (var command in response.visko)
             {
                 EnsureCurrent(generation);
@@ -986,7 +992,8 @@ namespace ImmerseTheBay.Learning
             if (attempt == null || string.IsNullOrEmpty(attempt.id) || m_LastPublishedAttemptId == attempt.id) return;
             m_LastPublishedAttemptId = attempt.id;
             m_LastAttempt = attempt;
-            m_AttemptExpires = Time.unscaledTime + 6f;
+            m_AttemptExpires = Time.unscaledTime + (IsPositiveAttempt ? 1.4f : 6f);
+            if (overlay) overlay.SetResultOpacity(1f);
             UpdatePracticeLabel();
             if (!playCue || attempt.outcome == "skip") return;
             try { PlayAttemptCue(attempt.outcome is "pass" or "assisted"); }

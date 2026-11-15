@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { readFile, realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { DATA_ROOT } from '../records/store.js';
-import { authoredSceneId } from './lessons.js';
+import { authoredLessonScenes, authoredSceneId } from './lessons.js';
 
 export const OPENING_CLIP_ROOT = path.resolve(DATA_ROOT, 'scene-openings');
 export const MAX_OPENING_BYTES = 8 * 1024 * 1024;
@@ -11,7 +11,7 @@ export async function openingClipKey(store, lessonId, sceneId) {
   if (!/^[a-z0-9][a-z0-9-]{0,79}$/.test(lessonId) ||
       /^(?:practice|replay)-/.test(lessonId) || !authoredSceneId.test(sceneId)) return null;
   const lesson = await store.load(lessonId);
-  const scene = lesson.beats.find(beat => beat.scene?.id === sceneId)?.scene;
+  const scene = authoredLessonScenes(lesson).find(scene => scene.id === sceneId);
   if (!scene) return null;
   const source = await readFile(await store.image(`${scene.id}.jpg`));
   return createHash('sha256')

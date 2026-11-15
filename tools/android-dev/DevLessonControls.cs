@@ -51,6 +51,9 @@ namespace ImmerseTheBay.Learning
         float autoListenAt;
         bool wasListening;
         int silentRetries;
+        string idlePromptNode;
+        Button restartAction;
+        CanvasGroup phoneResultGroup;
         // Android's recognizer gives up after a few seconds of silence; the Portal recorder already waits up to 20 s.
         int MaxSilentRetries => lesson.speechProvider is ImmerseTheBay.Visko.AndroidSpeechToText ? 3 : 1;
 
@@ -58,6 +61,7 @@ namespace ImmerseTheBay.Learning
         {
             presetLessonId = lesson.lessonId;
             presetStartImage = lesson.startImage;
+            lesson.overlay.RestartRequested += RestartLesson;
             lesson.SetPlayExamples(ReadFollowAlong());
             XREALVirtualController controller;
             while (!(controller = FindFirstObjectByType<XREALVirtualController>()))
@@ -126,6 +130,7 @@ namespace ImmerseTheBay.Learning
             status = Place(Label(t, 38, new Color(1f, 1f, 1f, 0.92f), "", TextAnchor.MiddleCenter, font: serif), 0.08f, 0.345f, 0.92f, 0.41f);
             var result = Box(t, Color.white, 0.08f, 0.346f, 0.92f, 0.41f, rounded: true);
             resultBadge = result.GetComponent<Image>();
+            phoneResultGroup = result.AddComponent<CanvasGroup>();
             resultBadge.raycastTarget = false;
             resultLabel = Place(Label(result.transform, 38, TeninInk, "", TextAnchor.MiddleCenter, FontStyle.Bold, serif), 0.03f, 0f, 0.97f, 1f);
             result.SetActive(false);
@@ -160,12 +165,17 @@ namespace ImmerseTheBay.Learning
             returnAction = ActionButton(detour.transform, "Return to lesson", PhoneReturn, 0f, 1f);
             returnAction.gameObject.SetActive(false);
 
-            var end = Box(t, Color.white, 0.06f, 0.04f, 0.94f, 0.105f, rounded: true);
+            var end = Box(t, Color.white, 0.06f, 0.04f, 0.64f, 0.105f, rounded: true);
             var endButton = end.AddComponent<Button>();
             endButton.targetGraphic = end.GetComponent<Image>();
             endButton.onClick.AddListener(EndLessonAndReturn);
             endLabel = Place(Label(end.transform, 44, TeninPrimaryDark, "■  End lesson", TextAnchor.MiddleCenter, FontStyle.Bold, serif), 0f, 0f, 1f, 1f);
             BuildCompletionReview(panel.transform);
+            var restart = new GameObject("Restart corner", typeof(RectTransform));
+            restart.transform.SetParent(panel.transform, false);
+            Place(restart.GetComponent<RectTransform>(), 0.67f, 0.04f, 0.94f, 0.105f);
+            restartAction = ActionButton(restart.transform, "Restart", RestartLesson, 0f, 1f);
+            restartAction.interactable = false;
         }
 
         Font serif;
@@ -259,7 +269,7 @@ namespace ImmerseTheBay.Learning
 
             var doneRow = new GameObject("Done row", typeof(RectTransform));
             doneRow.transform.SetParent(panel, false);
-            Place(doneRow.GetComponent<RectTransform>(), 0.06f, 0.048f, 0.94f, 0.121f);
+            Place(doneRow.GetComponent<RectTransform>(), 0.06f, 0.04f, 0.64f, 0.105f);
             ActionButton(doneRow.transform, "Done", EndLessonAndReturn, 0f, 1f, primary: true);
             reviewPanel.SetActive(false);
         }
@@ -478,6 +488,18 @@ namespace ImmerseTheBay.Learning
         void PhoneNext() { if (ManualActionReady) lesson.Next(); }
         void PhoneReturn() { if (ManualActionReady && OnDetour) lesson.ReturnToMain(); }
 
+        void RestartLesson()
+        {
+            if (starting || !(practiceVisible || retryAvailable)) return;
+            EndPractice();
+            autoStartPending = true;
+        }
+
+        void OnDestroy()
+        {
+            if (lesson && lesson.overlay) lesson.overlay.RestartRequested -= RestartLesson;
+        }
+
         void RefreshPhoneActions()
         {
             actionRow.SetActive(LessonActionsVisible);
@@ -498,6 +520,8 @@ namespace ImmerseTheBay.Learning
             retryAvailable = false;
             startupError = "";
             autoListenArmed = false;
+            idlePromptNode = null;
+            wasBusy = wasListening = false;
             ClearPendingSession();
             lesson.LeaveLesson();
             SetPracticeVisible(false);
@@ -542,7 +566,21 @@ namespace ImmerseTheBay.Learning
             // Recognition that ended without starting a turn was silence: listen again a few times.
             if (wasListening && !lesson.IsListening && !lesson.IsBusy && practiceVisible && !lesson.IsDone
                 && !lesson.IsConversationActive && silentRetries < MaxSilentRetries)
-            { silentRetries++; autoListenArmed = true; autoListenAt = Time.unscaledTime + 1f; Debug.Log("[Flow] no speech; listening again " + silentRetries); }
+            {
+                var node = lesson.CurrentRoute?.nodeId;
+                if (lesson.lessonId == "ja-cafe-demo-001" && node != null && node != idlePromptNode &&
+                    (lesson.Status == "Speech input: No speech heard" || lesson.Status == "Speech input: No speech was recognized"))
+                {
+                    idlePromptNode = node;
+                    lesson.PromptWhenIdle();
+                }
+                else
+                {
+                    silentRetries++;
+                    autoListenArmed = true;
+                    autoListenAt = Time.unscaledTime + 1f;
+                }
+            }
             wasBusy = lesson.IsBusy;
             wasListening = lesson.IsListening;
             if (!autoListenArmed) return;
@@ -678,6 +716,8 @@ namespace ImmerseTheBay.Learning
             // Separate the connection deadline from the image upload and opening turn.
             connectDeadline = Time.unscaledTime + 60f;
             lesson.lessonId = pendingLessonId;
+            if (lesson.speechProvider is PortalSpeechToText portalSpeech)
+                portalSpeech.waitForSpeechSeconds = pendingLessonId == "ja-cafe-demo-001" ? 8f : 20f;
             // Only bundled images can be loaded here; Portal-side images (replays of photo sessions) start from the prompt.
             lesson.startImage = pendingStartImage != null && pendingStartImage.StartsWith("lessons/") ? pendingStartImage : "";
             if (pendingImage != null) lesson.BeginLessonWithImage(pendingImage);
@@ -747,6 +787,7 @@ namespace ImmerseTheBay.Learning
             if (status)
             {
                 UpdateSceneGain();
+                restartAction.interactable = !starting && (practiceVisible || retryAvailable);
                 RefreshCompletionReview();
                 if (reviewPanel.activeSelf) return;
                 sceneAudioButton.gameObject.SetActive(practiceVisible);
@@ -809,6 +850,8 @@ namespace ImmerseTheBay.Learning
                     string icon = skipped ? "–" : retry ? "↻" : "✓";
                     resultLabel.text = icon + " " + LearningContract.AttemptLabel(attempt);
                     resultBadge.color = skipped ? Color.white : retry ? TeninYellow : new Color32(0xD6, 0xF2, 0xE3, 0xFF);
+                    if (!retry && !skipped) resultBadge.color = new Color(0.84f, 0.95f, 0.89f, 0.70f);
+                    phoneResultGroup.alpha = lesson.VisibleAttemptOpacity;
                 }
                 step.text = progress == null ? "" : $"Main {progress.mainStep}/{progress.mainTotal}";
                 float completed = progress == null ? 0f : (float)progress.mainCompleted / progress.mainTotal;

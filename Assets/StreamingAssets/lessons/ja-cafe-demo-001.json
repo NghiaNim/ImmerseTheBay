@@ -47,41 +47,41 @@
       ]
     },
     {
-      "goal": "Say how you want it",
+      "goal": "Choose from the menu",
       "scene": {
-        "id": "cafe-menupour",
-        "label": "Say how you want it",
-        "prompt": "The barista tips the pitcher, gently pours milk into the cup and steadies the saucer. Steam rises. The original wood-framed menu remains in place on the brass machine next to her shoulder.",
+        "id": "cafe-menu",
+        "label": "Choose from the menu",
+        "prompt": "The barista holds the large upright menu near the center, gestures gently to the coffee and latte choices with her open palm, then nods at the customer while the entire printed board stays still and readable.",
         "identity": "A dark-haired adult Japanese barista in an olive apron at a warm espresso bar."
       },
       "lines": [
         {
-          "jp": "ミルクをお願いします。",
-          "kana": "みるくをおねがいします。",
-          "romaji": "Miruku o onegaishimasu.",
-          "en": "Milk, please.",
-          "zh": "请加牛奶。",
-          "cue": "The barista tips the pitcher, gently pours milk into the cup and steadies the saucer. Steam rises.",
+          "jp": "これにします。",
+          "kana": "これにします。",
+          "romaji": "Kore ni shimasu.",
+          "en": "I’ll have this one.",
+          "zh": "我要这个。",
+          "cue": "The barista holds the large menu steady near the center and gently indicates the two choices with her open palm. Both her face and the board remain visible.",
           "partner": {
-            "jp": "ミルクは入れますか。",
-            "kana": "みるくはいれますか。",
-            "romaji": "Miruku wa iremasu ka?",
-            "en": "Would you like milk?",
-            "zh": "要加牛奶吗？"
+            "jp": "メニューです。どちらにしますか？",
+            "kana": "めにゅーです。どちらにしますか？",
+            "romaji": "Menyū desu. Dochira ni shimasu ka?",
+            "en": "Here’s the menu. Which one would you like?",
+            "zh": "这是菜单。您选哪一款？"
           },
           "reaction": {
-            "jp": "はい、ミルクですね。",
-            "romaji": "Hai, miruku desu ne.",
-            "en": "Milk, of course."
+            "jp": "はい。すぐにお持ちします。",
+            "romaji": "Hai. Sugu ni omochi shimasu.",
+            "en": "Of course. I’ll bring it right over."
           }
         }
       ],
       "vocab": [
         {
-          "jp": "ミルク",
-          "kana": "みるく",
-          "en": "milk",
-          "objectHint": "milk"
+          "jp": "これ",
+          "kana": "これ",
+          "en": "this one",
+          "objectHint": "menu"
         }
       ]
     },
@@ -102,11 +102,11 @@
           "zh": "谢谢。",
           "cue": "The barista steps forward, slides the cup and saucer across the counter, and smiles.",
           "partner": {
-            "jp": "お待たせしました。どうぞ。",
-            "kana": "おまたせしました。どうぞ。",
-            "romaji": "Omatase shimashita. Dōzo.",
-            "en": "Thanks for waiting. Here you go.",
-            "zh": "让您久等了。请慢用。"
+            "jp": "お待たせしました。こちらでよろしいですか？",
+            "kana": "おまたせしました。こちらでよろしいですか？",
+            "romaji": "Omatase shimashita. Kochira de yoroshii desu ka?",
+            "en": "Thanks for waiting. Does this look right?",
+            "zh": "让您久等了。这杯可以吗？"
           },
           "reaction": {
             "jp": "ありがとうございます。またどうぞ。",
@@ -122,7 +122,13 @@
           "en": "thanks",
           "objectHint": "thanks"
         }
-      ]
+      ],
+      "milkScene": {
+        "id": "cafe-menupour",
+        "label": "Say how you want it",
+        "prompt": "The barista tips the pitcher, gently pours milk into the cup and steadies the saucer. Steam rises. The original wood-framed menu remains in place on the brass machine next to her shoulder.",
+        "identity": "A dark-haired adult Japanese barista in an olive apron at a warm espresso bar."
+      }
     }
   ]
 }

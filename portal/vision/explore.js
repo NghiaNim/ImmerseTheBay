@@ -71,8 +71,11 @@ export function createExplorationService({
         throw new VisionError(429, 'Wait before exploring another object');
       pendingRuns.add(key);
       try {
-        const sceneHint = lessonId === 'ja-cafe-demo-001' && sceneId === 'cafe-menupour'
-          ? 'A small upright dark rectangle in a wood frame next to the barista’s right shoulder can be a menu board even when its lettering is unreadable. Include the entire board in the bounding box only if the point is visibly on that board.'
+        const isCafeMenu = lessonId === 'ja-cafe-demo-001' && sceneId === 'cafe-menu';
+        const sceneHint = isCafeMenu
+          ? 'The large upright wood-framed dark board beside the barista is the menu. Bound its entire frame when the point is on the board, even if the lettering is blurry.'
+          : lessonId === 'ja-cafe-demo-001' && sceneId === 'cafe-menupour'
+          ? 'A small upright dark rectangle beside the barista can be a menu board. Bound its entire frame when the point is on the board.'
           : undefined;
         const result = await vision.point(request, { caller, sceneHint });
         signal?.throwIfAborted();
@@ -80,6 +83,15 @@ export function createExplorationService({
         const hit = gateDetection({ object: result?.object, confidence: result?.confidence, bounds: result?.bounds }, request);
         const reply = { runId, revision, sceneId, frameId };
         if (!hit.object) return { ...reply, ...noHit(), intent: null, visualPrompt: null, startImage: null, seedSource: null };
+
+        if (isCafeMenu && hit.object === 'menu_board') {
+          const row = (request.point.y - hit.bounds.y) / hit.bounds.height;
+          const across = (request.point.x - hit.bounds.x) / hit.bounds.width;
+          if (across >= 0.06 && across <= 0.94 && row >= 0.29 && row <= 0.65) {
+            return { ...reply, ...hit, menuChoice: row < 0.48 ? 'coffee' : 'milk',
+              intent: null, visualPrompt: null, startImage: null, seedSource: null };
+          }
+        }
 
         const noun = OBJECTS[hit.object].noun;
         const hasPartner = state.lessonContext?.visiblePartner === true;

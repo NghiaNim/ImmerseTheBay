@@ -348,7 +348,7 @@ namespace ImmerseTheBay.Visko
                 "sandwiches" => "lessons/images/konbini-sandwiches.png",
                 "drinks" => "lessons/images/konbini-drinks.png",
                 "checkout" => "lessons/images/konbini-checkout-original.png",
-                "cafe-order" or "cafe-pour" or "cafe-menupour" or "cafe-serve" or
+                "cafe-order" or "cafe-pour" or "cafe-menupour" or "cafe-menu" or "cafe-serve" or
                 "dog-greet" or "dog-pet" or "dog-goodbye" or
                 "date-meet" or "date-walk" or "date-cafe" or
                 "store-sandwich" or "store-drink" or "store-checkout" => $"lessons/images/{sceneId}.jpg",

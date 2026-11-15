@@ -89,6 +89,24 @@ test('a deliberate point hold selects the physical menu board and keeps the samp
   assert.equal(result.startImage, input.frame);
 });
 
+test('each café menu row resolves to its cached choice for both selection gestures', async () => {
+  const sceneId = 'cafe-menu';
+  const service = createExplorationService({
+    snapshot: () => ({ ...snapshot(), response: { advance: 'stay', scene: { id: sceneId } } }),
+    vision: { point: async () => ({
+      object: 'menu_board', confidence: 0.94, bounds: { x: 0.45, y: 0.11, width: 0.33, height: 0.79 },
+    }) },
+    editImage: () => assert.fail('A cached menu choice does not regenerate an image'),
+  });
+  for (const gesture of ['hold', 'pinch']) {
+    for (const [y, choice] of [[0.42, 'coffee'], [0.53, 'milk']]) {
+      const result = await service.explore({ ...input, sceneId, gesture, point: { x: 0.61, y } });
+      assert.equal(result.menuChoice, choice);
+      assert.equal(result.startImage, null);
+    }
+  }
+});
+
 test('view-only gestures and stale bindings cannot reach vision', async () => {
   const service = createExplorationService({
     snapshot, vision: { point: async () => assert.fail('No vision request expected') }, editImage: null,

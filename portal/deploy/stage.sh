@@ -27,15 +27,14 @@ cd "$stage"
 node --input-type=module - "$cache" <<'NODE'
 import { copyFile } from 'node:fs/promises';
 import path from 'node:path';
-import { createLessonStore } from './portal/agent/lessons.js';
+import { authoredLessonScenes, createLessonStore } from './portal/agent/lessons.js';
 import { resolveOpeningClip } from './portal/agent/opening-clips.js';
 
 const cache = process.argv[2];
 const lessons = createLessonStore();
 for (const { id } of await lessons.list()) {
   const lesson = await lessons.load(id);
-  for (const { scene } of lesson.beats) {
-    if (!scene) continue;
+  for (const scene of authoredLessonScenes(lesson)) {
     const clip = await resolveOpeningClip(lessons, cache, id, scene.id);
     if (clip) {
       await copyFile(clip, path.join('scene-openings', path.basename(clip)));

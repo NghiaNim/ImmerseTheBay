@@ -13,11 +13,15 @@ namespace ImmerseTheBay.Learning
         const int ExploreJpegLimit = 2 * 1024 * 1024;
         const string ExploreJpegPrefix = "data:image/jpeg;base64,";
         const float PointHoldSeconds = 0.8f;
-        const float PointDrift = 0.05f;
+        const float PointDrift = 0.075f;
+        const float PointGraceSeconds = 0.17f;
         bool m_LocalExplore, m_PointNeedsRelease;
-        float m_PointStarted, m_ExploreMessageUntil;
+        float m_PointStarted, m_PointSeen, m_ExploreMessageUntil;
         int m_PointHand, m_ExploreEpoch;
         Vector2 m_PointAnchor;
+        Vector3 m_LastAimHit;
+        bool m_PointMissing;
+        AudioClip m_SelectedCue;
         string m_ExploreMessage;
         UnityWebRequest m_ExploreRequest;
         byte[] m_ExploreReturnFrame;
@@ -25,6 +29,7 @@ namespace ImmerseTheBay.Learning
         [Serializable] sealed class ExploreResult
         {
             public string runId, sceneId, frameId, @object, label, intent, visualPrompt, startImage, seedSource;
+            public string menuChoice;
             public int revision;
             public float confidence;
         }
@@ -48,33 +53,45 @@ namespace ImmerseTheBay.Learning
             var hands = HandInput.Instance;
             var left = hands ? hands.Left : default;
             var right = hands ? hands.Right : default;
-            if (!left.pointing && !right.pointing) m_PointNeedsRelease = false;
+            if (!left.pointing && !right.pointing && !left.pinching && !right.pinching &&
+                Time.unscaledTime - m_PointSeen > PointGraceSeconds)
+                m_PointNeedsRelease = false;
 
-            if (available && m_ExploreRequest == null && !m_PointNeedsRelease && !IsClerkSpeaking &&
-                !IsExamplePending && !IsFeedbackPlaying && overlay && !overlay.HoveringLessonAction && overlay.headCamera)
+            bool canSelect = !IsClerkSpeaking && !IsExamplePending && !IsExamplePlaying && !IsFeedbackPlaying;
+            if (available && m_ExploreRequest == null && !m_PointNeedsRelease &&
+                overlay && !overlay.HoveringLessonAction && overlay.headCamera)
             {
                 var view = overlay.headCamera.transform;
-                if (TryAim(view, right, out var point, out var hit)) aim = TrackPoint(1, point, hit);
-                else if (TryAim(view, left, out point, out hit)) aim = TrackPoint(-1, point, hit);
+                if (TryAim(view, right, out var point, out var hit)) aim = TrackPoint(1, point, hit, right.pinchDown, canSelect);
+                else if (TryAim(view, left, out point, out hit)) aim = TrackPoint(-1, point, hit, left.pinchDown, canSelect);
+                else if (m_PointHand != 0 && Time.unscaledTime - m_PointSeen <= PointGraceSeconds)
+                {
+                    m_PointMissing = true;
+                    aim = m_LastAimHit;
+                }
             }
             if (!aim.HasValue) m_PointHand = 0;
-            overlay?.SetExploreState(aim, aim.HasValue ? "Hold your point" :
+            overlay?.SetExploreState(aim, aim.HasValue ? (canSelect ? "Hold or pinch to select" : "Aim at an object") :
                 m_ExploreRequest != null ? "Looking at the selected object…" : m_ExploreMessage);
         }
 
-        Vector3? TrackPoint(int hand, Vector2 point, Vector3 hit)
+        Vector3? TrackPoint(int hand, Vector2 point, Vector3 hit, bool pinch, bool canSelect)
         {
             float now = Time.unscaledTime;
-            if (m_PointHand != hand || (m_PointAnchor - point).sqrMagnitude > PointDrift * PointDrift)
+            if (!canSelect || m_PointHand != hand || (m_PointAnchor - point).sqrMagnitude > PointDrift * PointDrift)
             {
                 m_PointHand = hand;
                 m_PointAnchor = point;
                 m_PointStarted = now;
             }
-            if (now - m_PointStarted < PointHoldSeconds) return hit;
+            else if (m_PointMissing) m_PointStarted += now - m_PointSeen;
+            m_PointMissing = false;
+            m_PointSeen = now;
+            m_LastAimHit = hit;
+            if (!canSelect || (!pinch && now - m_PointStarted < PointHoldSeconds)) return hit;
             m_PointNeedsRelease = true;
-            Debug.Log("[Learning] Held scene point selected");
-            ObserveSelection(point);
+            Debug.Log(pinch ? "[Learning] Scene point pinched" : "[Learning] Held scene point selected");
+            ObserveSelection(point, pinch);
             return null;
         }
 
@@ -84,14 +101,15 @@ namespace ImmerseTheBay.Learning
             hit = default;
             var origin = view.position;
             var direction = hand.indexTip - origin;
-            return hand.pointing && direction.sqrMagnitude >= 0.0225f &&
-                Vector3.Dot(view.forward, direction.normalized) >= 0.93f &&
+            return (hand.pointing || hand.pinchDown) && direction.sqrMagnitude >= 0.0225f &&
+                Vector3.Dot(view.forward, direction.normalized) >= 0.88f &&
                 visko.TryAimAtLiveFrame(new Ray(origin, direction), out point, out hit);
         }
 
         void CancelExploreInput()
         {
             m_PointHand = 0;
+            m_PointMissing = false;
             m_ExploreMessage = null;
             m_ExploreEpoch++;
             var request = m_ExploreRequest;
@@ -105,7 +123,7 @@ namespace ImmerseTheBay.Learning
             m_ExploreMessageUntil = Time.unscaledTime + 3f;
         }
 
-        async void ObserveSelection(Vector2 point)
+        async void ObserveSelection(Vector2 point, bool pinch)
         {
             int epoch = ++m_ExploreEpoch;
             int generation = m_Generation, revision = m_Revision;
@@ -129,7 +147,8 @@ namespace ImmerseTheBay.Learning
                     + ",\"frameId\":" + LearningContract.Quote(frameId)
                     + ",\"frame\":\"" + ExploreJpegPrefix + Convert.ToBase64String(entryFrame) + "\""
                     + ",\"point\":{\"x\":" + point.x.ToString("R", CultureInfo.InvariantCulture)
-                    + ",\"y\":" + point.y.ToString("R", CultureInfo.InvariantCulture) + "},\"gesture\":\"hold\"}";
+                    + ",\"y\":" + point.y.ToString("R", CultureInfo.InvariantCulture) + "},\"gesture\":\""
+                    + (pinch ? "pinch" : "hold") + "\"}";
 
                 using var request = new UnityWebRequest(visko.config.portalUrl.TrimEnd('/') + "/api/vision/explore", "POST");
                 request.uploadHandler = new UploadHandlerRaw(Encoding.UTF8.GetBytes(body));
@@ -167,23 +186,32 @@ namespace ImmerseTheBay.Learning
                     ShowExploreMessage("No object found. Aim and try again.");
                     return;
                 }
-                var seed = DecodeExploreSeed(result.startImage);
-                if (seed == null || !(result.confidence is >= 0.8f and <= 1f) ||
+                if (!(result.confidence is >= 0.8f and <= 1f)) return;
+                bool menuSelection = scene == "cafe-menu" && result.@object == "menu_board" &&
+                    result.menuChoice is "coffee" or "milk";
+                var seed = menuSelection ? null : DecodeExploreSeed(result.startImage);
+                if (!menuSelection && (seed == null ||
                     string.IsNullOrWhiteSpace(result.intent) || result.intent.Length > 300 ||
-                    string.IsNullOrWhiteSpace(result.visualPrompt) || result.visualPrompt.Length > 1500) return;
+                    string.IsNullOrWhiteSpace(result.visualPrompt) || result.visualPrompt.Length > 1500)) return;
 
                 // A valid selected object can interrupt listening. A miss leaves both mic and score as-is.
                 CancelSpeech();
                 if (!CanSubmit()) return;
                 StopClerkAudio();
                 StopExampleAudio();
+                ConfirmExploreSelection(menuSelection ? (result.menuChoice == "milk" ? "Latte selected" : "Coffee selected") : "Selected");
                 SetBusy(true);
                 try
                 {
-                    var snapshot = context ? context.Capture("point", result.@object)
-                        : new LearningContextSnapshot { gesture = "point", pointedAt = result.@object };
-                    await ExecuteTurn("", snapshot, generation, intent: result.intent,
-                        exploration: new ExplorationSelection { StartFrame = seed, EntryFrame = entryFrame, Prompt = result.visualPrompt });
+                    if (menuSelection)
+                        await ExecuteTurn("", new LearningContextSnapshot(), generation, action: "menu_select_" + result.menuChoice);
+                    else
+                    {
+                        var snapshot = context ? context.Capture("point", result.@object)
+                            : new LearningContextSnapshot { gesture = "point", pointedAt = result.@object };
+                        await ExecuteTurn("", snapshot, generation, intent: result.intent,
+                            exploration: new ExplorationSelection { StartFrame = seed, EntryFrame = entryFrame, Prompt = result.visualPrompt });
+                    }
                 }
                 catch (OperationCanceledException) { }
                 catch (Exception error) { FailTurn(generation, error); }
@@ -193,6 +221,12 @@ namespace ImmerseTheBay.Learning
             {
                 if (Current()) ShowExploreMessage("Could not explore the object. Continue your lesson.");
             }
+        }
+
+        void ConfirmExploreSelection(string message)
+        {
+            ShowExploreMessage("✓  " + message);
+            PlayFeedbackCue(m_SelectedCue ??= BuildCue("Object selected", 600, 750));
         }
 
         static byte[] DecodeExploreSeed(string value)

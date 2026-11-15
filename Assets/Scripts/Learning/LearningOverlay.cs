@@ -29,6 +29,7 @@ namespace ImmerseTheBay.Learning
         public event Action SpeakRequested;
         public event Action HintRequested;
         public event Action NextRequested;
+        public event Action RestartRequested;
         public event Action<int> ReviewRecordingRequested;
         public event Action<int> ReviewExampleRequested;
         public RectTransform Panel => m_Panel;
@@ -63,6 +64,8 @@ namespace ImmerseTheBay.Learning
         readonly RectTransform[] m_Waveform = new RectTransform[5];
         readonly float[] m_ListeningHistory = new float[5];
         Button m_Speak, m_Hint, m_Next, m_Conversation, m_Return;
+        Button m_Restart;
+        CanvasGroup m_ResultGroup;
         Vector3? m_ExploreAim;
         string m_ExploreHint;
         public bool HoveringLessonAction => m_HoveredButton && m_HoveredButton.isActiveAndEnabled && m_HoveredButton.interactable;
@@ -134,6 +137,11 @@ namespace ImmerseTheBay.Learning
             m_PracticeAttemptId = attemptId;
             m_ResultAttempt = currentAttempt;
             Refresh();
+        }
+
+        public void SetResultOpacity(float alpha)
+        {
+            if (m_ResultGroup) m_ResultGroup.alpha = alpha;
         }
 
         public void SetCompletionSummary(string text)
@@ -316,6 +324,7 @@ namespace ImmerseTheBay.Learning
             m_Hud.anchorMin = m_Hud.anchorMax = m_Hud.pivot = new Vector2(0.5f, 0f);
             m_ProgressBadge = MakeHudBadge("Progress", font, 34, new Vector2(1, 1), new Vector2(-30, -22), new Vector2(405, 62));
             m_ResultBadge = MakeHudBadge("Sentence result", font, 44, new Vector2(0.5f, 0.78f), Vector2.zero, new Vector2(880, 112));
+            m_ResultGroup = m_ResultBadge.transform.parent.gameObject.AddComponent<CanvasGroup>();
             m_Instruction = MakeHudBadge("Instruction", font, 27, new Vector2(1, 0), new Vector2(-30, 3), new Vector2(530, 45));
             m_LookDown = MakeHudBadge("Look down", font, 27, new Vector2(0.5f, 0), new Vector2(-48, -8), new Vector2(385, 44));
             m_InstructionText = (RectTransform)m_Instruction.transform;
@@ -352,6 +361,8 @@ namespace ImmerseTheBay.Learning
             m_Speak = MakeButton("Speak", font, out m_SpeakLabel);
             m_Hint = MakeButton("Hint", font, out _);
             m_Next = MakeButton("Next", font, out _);
+            m_Restart = MakeButton("Restart", font, out _);
+            m_Restart.onClick.AddListener(() => RestartRequested?.Invoke());
             // Keep Speak and Finish in the same far-right slot.
             m_Buttons = new[] { m_Conversation, m_Hint, m_Next, m_Speak };
             m_Speak.onClick.AddListener(Speak);
@@ -510,6 +521,7 @@ namespace ImmerseTheBay.Learning
             m_Hint.gameObject.SetActive(manual);
             m_Next.gameObject.SetActive(manual);
             m_Return.gameObject.SetActive(controls && m_Detour);
+            m_Restart.gameObject.SetActive(RestartRequested != null && (controls || reviewing || m_ConversationActive));
             m_ReviewPrevious.gameObject.SetActive(reviewing && m_ReviewLines.Count > 1);
             m_ReviewNext.gameObject.SetActive(m_ReviewPrevious.gameObject.activeSelf);
             m_ReviewRecording.gameObject.SetActive(reviewing && review.HasRecording);
@@ -527,6 +539,7 @@ namespace ImmerseTheBay.Learning
             m_Speak.interactable = manual && !m_Busy && !m_ControlsLocked;
             m_Hint.interactable = m_Next.interactable = manual && !m_Busy && !m_Listening && !m_ControlsLocked;
             m_Return.interactable = controls && !m_Busy && !m_Listening && !m_ControlsLocked && !m_ConversationActive;
+            m_Restart.interactable = !m_SceneTransition;
             bool content = opening || m_SceneTransition || showCorner || m_Status.text.Length > 0 || m_PracticeStatus.Length > 0;
             m_Panel.gameObject.SetActive(isActiveAndEnabled && content);
         }
@@ -579,7 +592,7 @@ namespace ImmerseTheBay.Learning
             bool passed = m_PracticeOutcome == "pass" || m_PracticeOutcome == "assisted";
             bool retry = m_PracticeOutcome == "retry";
             var background = m_ResultBadge.transform.parent.GetComponent<Image>();
-            background.color = passed ? new Color(0.07f, 0.28f, 0.18f, 0.94f)
+            background.color = passed ? new Color(0.07f, 0.28f, 0.18f, 0.58f)
                 : retry ? new Color(0.30f, 0.18f, 0.06f, 0.94f) : new Color(0.015f, 0.025f, 0.04f, 0.83f);
             m_ResultBadge.fontSize = m_ShowCorrection ? 34 : 44;
             if (m_ShowCorrection)
@@ -758,6 +771,9 @@ namespace ImmerseTheBay.Learning
             var returnRect = (RectTransform)m_Return.transform;
             returnRect.anchoredPosition = new Vector2(0, 212);
             returnRect.sizeDelta = new Vector2(310, 126);
+            var restartRect = (RectTransform)m_Restart.transform;
+            restartRect.anchoredPosition = new Vector2(390, 208);
+            restartRect.sizeDelta = new Vector2(180, 82);
             var conversationRect = (RectTransform)m_Conversation.transform;
             conversationRect.sizeDelta = new Vector2(m_ConversationActive ? 340 : 222, 154);
             ((RectTransform)m_ControlHint.transform).anchoredPosition = new Vector2(0, 18);
@@ -771,6 +787,7 @@ namespace ImmerseTheBay.Learning
             foreach (var button in m_Buttons) button.targetGraphic.color = button == m_HoveredButton ? HoverPurple : ActionPurple;
             foreach (var button in m_ReviewButtons) button.targetGraphic.color = button == m_HoveredButton ? HoverPurple : ActionPurple;
             m_Return.targetGraphic.color = m_Return == m_HoveredButton ? HoverPurple : ActionPurple;
+            m_Restart.targetGraphic.color = m_Restart == m_HoveredButton ? HoverPurple : ActionPurple;
             if (!m_HoveredButton)
             {
                 m_ControlHint.text = ShowingReview ? "Point and pinch to review"

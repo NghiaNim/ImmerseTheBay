@@ -39,6 +39,7 @@ export const WIRE_RESPONSE_SCHEMA = { ...RESPONSE_SCHEMA, properties: { ...RESPO
   }, ['id', 'targetId', 'jp', 'text', 'score', 'outcome', 'nextTargetId']),
   progress: object({ mainTotal: { type: 'number' }, mainStep: { type: 'number' }, mainCompleted: { type: 'number' } }),
   nextSceneId: sceneId,
+  alternateNextSceneId: sceneId,
   focusWords: { type: 'array', items: text }, scene: object({ id: sceneId, label: text, startImage: text, prompt: text, visiblePartner: { type: 'boolean' } }), operation: object({ requestId: text, runId: text, revision: { type: 'number' }, replayed: { type: 'boolean' } }) } };
 export function validateSchema(value, schema = RESPONSE_SCHEMA) {
   if (schema.anyOf) return schema.anyOf.some((s) => validateSchema(value, s));

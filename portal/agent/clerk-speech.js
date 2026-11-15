@@ -94,6 +94,13 @@ export function clerkInvitation(isDetour, cafe = false) {
   return { role: 'clerk', language: 'ja', ...line };
 }
 
+export function clerkMenuSelection(choice) {
+  const line = choice === 'milk'
+    ? { text: 'ミルク入りですね？', romaji: 'Miruku iri desu ne?', english: 'With milk, right?' }
+    : { text: 'コーヒーですね？', romaji: 'Kōhī desu ne?', english: 'Coffee, right?' };
+  return { role: 'clerk', language: 'ja', ...line };
+}
+
 export function clerkReaction(attempt, practicedLine, complete) {
   if (!attempt || attempt.outcome === 'skip') return null;
   const authored = practicedLine?.reaction;

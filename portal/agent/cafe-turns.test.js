@@ -42,24 +42,44 @@ test('coffee asks before the learner, reacts to retry and passed lines, and clos
   const passed = await service.turn(passRequest);
   assert.equal(passed.attempt.outcome, 'pass');
   assertClerkLine(passed.reaction, 'かしこまりました。', 'Certainly.');
-  assertClerkLine(passed.speech, 'ミルクは入れますか。', 'Would you like milk?');
-  assert.equal(passed.scene.id, 'cafe-menupour');
+  assertClerkLine(passed.speech, 'メニューです。どちらにしますか？', 'Here’s the menu. Which one would you like?');
+  assert.equal(passed.scene.id, 'cafe-menu');
+  assert.equal(passed.alternateNextSceneId, 'cafe-menupour');
   const replay = await service.turn(passRequest);
   assert.deepEqual(replay, { ...passed, operation: { ...passed.operation, replayed: true } });
-  const milk = await service.turn(request('milk', 1, passed, attempt(passed.overlay.jp)));
-  assertClerkLine(milk.reaction, 'はい、ミルクですね。', 'Milk, of course.');
-  assertClerkLine(milk.speech, 'お待たせしました。どうぞ。', 'Thanks for waiting. Here you go.');
-  assert.equal(milk.scene.id, 'cafe-serve');
-  const done = await service.turn(request('thanks', 2, milk, attempt(milk.overlay.jp)));
+  const served = await service.turn(request('choose', 1, passed, attempt(passed.overlay.jp)));
+  assertClerkLine(served.reaction, 'はい。すぐにお持ちします。', 'Of course. I’ll bring it right over.');
+  assertClerkLine(served.speech, 'お待たせしました。こちらでよろしいですか？', 'Thanks for waiting. Does this look right?');
+  assert.equal(served.scene.id, 'cafe-serve');
+  const done = await service.turn(request('thanks', 2, served, attempt(served.overlay.jp)));
   assert.equal(done.advance, 'scene_done');
   assert.equal(done.speech, null);
   assert.equal(done.overlay, null);
   assertClerkLine(done.reaction, 'ありがとうございます。またどうぞ。', 'Thank you. Come again.');
   assert.deepEqual(service.snapshot({ sessionId, lessonId }).response.reaction, done.reaction);
-  for (const decision of [open, failed, passed, replay, milk, done]) {
+  for (const decision of [open, failed, passed, replay, served, done]) {
     assert.equal(validateSchema(decision, WIRE_RESPONSE_SCHEMA), true);
   }
   assert.equal('reaction' in RESPONSE_SCHEMA.properties, false);
+});
+
+test('menu selection confirms the choice without scoring and reuses the selected serving scene', async () => {
+  const service = makeService();
+  const open = await service.turn(request('open', 0));
+  await assert.rejects(service.turn(request('early', 0, open, { action: 'menu_select_milk' })), { status: 409 });
+  const menu = await service.turn(request('order', 0, open, attempt(open.overlay.jp)));
+  const coffee = await service.turn(request('black', 1, menu, { action: 'menu_select_coffee' }));
+  assert.equal(coffee.nextSceneId, 'cafe-serve');
+  const milk = await service.turn(request('with-milk', 1, coffee, { action: 'menu_select_milk' }));
+  assertClerkLine(milk.speech, 'ミルク入りですね？', 'With milk, right?');
+  assert.equal(milk.scene.id, 'cafe-menu');
+  assert.equal(milk.nextSceneId, 'cafe-menupour');
+  assert.equal(milk.alternateNextSceneId, 'cafe-serve');
+  assert.deepEqual(milk.visko, []);
+  assert.equal(milk.attempt, undefined);
+  const served = await service.turn(request('choose', 1, milk, attempt(milk.overlay.jp)));
+  assert.equal(served.scene.id, 'cafe-menupour');
+  assert.equal(served.progress.mainTotal, 3);
 });
 
 test('unscored coffee actions have no reaction and detours do not inherit the saved order response', async () => {

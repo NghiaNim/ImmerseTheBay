@@ -10,7 +10,7 @@ const key={sessionId:'preset-test',lessonId:lesson.id};
 const req=(id,previous,changes={})=>({...key,beat:previous?.route.returnBeat||0,context:{},presetSceneSet:'konbini-original',imageRef:{id:'original-upload-123'},...changes,operation:{requestId:id,expectedRevision:previous?.operation.revision||0,...(previous?{runId:previous.operation.runId}:{})}});
 const setup=options=>createAgentService({store:{load:async()=>lesson},llm:null,planner:null,log:async()=>{},promptIntervalMs:0,...options});
 for (const [slug, expectedMotion] of [
- ['cafe', [/order pad/i, /pours milk/i, /slides the cup/i]],
+ ['cafe', [/order pad/i, /gestures gently to the coffee and latte choices/i, /slides the cup/i]],
  ['dog', [/waves/i, /sniffs/i, /trots alongside/i]],
  ['date', [/lifts a hand/i, /gestures/i, /pulls out a chair/i]],
 ]) {

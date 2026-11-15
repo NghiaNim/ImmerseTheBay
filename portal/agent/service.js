@@ -7,7 +7,7 @@ import { validateSchema, WIRE_RESPONSE_SCHEMA } from './schema.js';
 import { validateOperation, createOperationCache, replayOperation, checkOperationState, rememberOperation, invalidateOperations } from './operations.js';
 import { PRESET_SET, DEMO_LESSON, DEMO_ORDER, CHECKOUT_IDENTITY, presetDrinkPlan, updatePreset, presetEnvironmentPrompt } from './scene-presets.js';
 import { recordSummary, summarize, targetId } from './summary.js';
-import { clerkSpeech, clerkInvitation, clerkReaction } from './clerk-speech.js';
+import { clerkSpeech, clerkInvitation, clerkReaction, clerkMenuSelection } from './clerk-speech.js';
 import { readingGroupsFor } from './reading-groups.js';
 import { composeVisualPrompt, composeAmbientPrompt, CHARACTER_ANCHOR, SCENE_ANCHOR } from './continuity.js';
 import { createLessonClient, createLessonPlanner } from './llm.js';
@@ -29,7 +29,7 @@ export function validateRequest(body) {
     if (!(bounded(ref, 1000) || (plain(ref) && Object.keys(ref).every((k) => ['id', 'caption'].includes(k)) && bounded(ref.id, 1000) && (ref.caption === undefined || bounded(ref.caption, 1000))))) invalid('imageRef must be an opaque string or {id,caption}');
   }
   if (body.presetSceneSet !== undefined && (body.presetSceneSet !== PRESET_SET || body.lessonId !== 'ja-konbini-001')) invalid('Invalid preset scene selection');
-  if (body.action !== undefined && !['return_to_main', 'idle_hint'].includes(body.action)) invalid('Invalid agent action');
+  if (body.action !== undefined && !['return_to_main', 'idle_hint', 'menu_select_coffee', 'menu_select_milk'].includes(body.action)) invalid('Invalid agent action');
   if (body.operation !== undefined) validateOperation(body.operation);
   const c = body.context;
   if (!plain(c) || Object.keys(c).some((k) => !['gesture', 'pointedAt', 'roomLabels', 'planes', 'gaze', 'rms', 'glassesKey'].includes(k))) invalid('Invalid context');
@@ -133,7 +133,6 @@ export function createAgentService({ store = createLessonStore(), llm = createLe
       state.demoScenes = lesson.id === DEMO_LESSON;
       if (!request.action) state.attempts++;
       const lines = flattenLesson(lesson);
-      const authoredScenes = lesson.beats[0].scene ? lines.map(({ beat }) => beat.scene) : null;
       if (request.beat >= lines.length) throw new AgentError(400, 'beat is outside this lesson');
       initializeFlow(state, request.beat);
       if (request.beat !== state.flow.mainBeat) throw new AgentError(409, 'beat must match the saved main checkpoint');
@@ -141,6 +140,13 @@ export function createAgentService({ store = createLessonStore(), llm = createLe
       if (request.action && !state.started) throw new AgentError(409, 'Start the lesson before requesting an agent action');
       if (request.practiceAttempt && !state.started) throw new AgentError(409, 'Start the lesson before submitting a practice attempt');
       const mainTarget = lines[state.flow.mainBeat];
+      const menuChoice = request.action?.startsWith('menu_select_') ? request.action.slice('menu_select_'.length) : null;
+      if (menuChoice && (lesson.id !== 'ja-cafe-demo-001' || state.scene?.id !== 'cafe-menu' || state.flow.active))
+        throw new AgentError(409, 'Menu selection is only available during the café menu scene');
+      if (menuChoice) state.cafeMenuChoice = menuChoice;
+      const authoredScenes = lesson.beats[0].scene
+        ? lines.map(({ beat }) => state.cafeMenuChoice === 'milk' ? beat.milkScene ?? beat.scene : beat.scene)
+        : null;
       const suppliedReference = typeof request.imageRef === 'string' ? request.imageRef : request.imageRef?.id;
       if (state.sceneContext && suppliedReference && suppliedReference !== (state.originalReferenceId || state.sceneContext.referenceId)) {
         throw new AgentError(409, 'Starting image changed; reset the lesson before using a new reference');
@@ -200,7 +206,11 @@ export function createAgentService({ store = createLessonStore(), llm = createLe
       const returned = request.action === 'return_to_main' && rejoinFlow(state);
       if (returned) state.sceneContext.recentActions = [];
       const branchTurn = Boolean(state.flow.active);
-      if (request.action === 'idle_hint') {
+      if (menuChoice) {
+        current = mainTarget;
+        fallback = { visko: [], overlay: makeOverlay(activeTarget, state.hintLevel), feedback: null, advance: 'stay',
+          speech: clerkMenuSelection(menuChoice) };
+      } else if (request.action === 'idle_hint') {
         const invite = state.idleInvitedNode !== state.flow.current.nodeId;
         state.idleInvitedNode = state.flow.current.nodeId;
         current = { line: activeTarget, beat: mainTarget.beat };
@@ -249,7 +259,7 @@ export function createAgentService({ store = createLessonStore(), llm = createLe
       if (request.practiceAttempt && previousNodeId === response.route.nodeId && !state.complete) response.visko = [];
       // Live voice sessions read the partner's role and current prompt from the snapshot.
       state.partner = lesson.partnerRole ? { role: lesson.partnerRole, line: state.flow.active ? '' : presented?.partner?.jp || '' } : null;
-      if (request.action !== 'idle_hint') {
+      if (request.action !== 'idle_hint' && !menuChoice) {
         const entering = !state.started || previousNodeId !== response.route.nodeId;
         // Generated scenarios script the partner's prompt before each learner answer.
         const partnerLine = entering && response.route.kind !== 'detour' && presented?.partner?.jp ? presented.partner : null;
@@ -296,6 +306,9 @@ export function createAgentService({ store = createLessonStore(), llm = createLe
       if ((authoredScenes || state.demoScenes) && !state.complete && fallback.route.kind !== 'detour') {
         const nextSceneId = authoredScenes ? authoredScenes[state.flow.mainBeat + 1]?.id : DEMO_ORDER[state.flow.mainBeat + 1];
         if (nextSceneId) response.nextSceneId = nextSceneId;
+        const nextBeat = lines[state.flow.mainBeat + 1]?.beat;
+        if (state.scene?.id === 'cafe-menu' && nextBeat?.milkScene)
+          response.alternateNextSceneId = nextSceneId === nextBeat.milkScene.id ? nextBeat.scene.id : nextBeat.milkScene.id;
       }
       recordSummary(state, { request, lesson, before: summaryBefore, intent, response, mainTotal: lines.length });
       const reaction = clerkReaction(response.attempt, summaryBefore.line, state.complete);

@@ -67,10 +67,13 @@ namespace ImmerseTheBay.Tracking
             s.pinchUp = !s.pinching && was;
             s.indexTip = transform.TransformPoint(i.position);
             s.pinchPoint = transform.TransformPoint((t.position + i.position) * 0.5f);
+            // Hysteresis absorbs small changes in the tracked joint angles after acquiring a point.
+            float indexLimit = s.pointing ? 0.73f : 0.80f;
+            float curlLimit = s.pointing ? 0.89f : 0.83f;
             s.pointing = !s.pinching &&
-                TryFingerBend(hand, XRHandJointID.IndexProximal, XRHandJointID.IndexIntermediate, XRHandJointID.IndexTip, out float index) && index > 0.85f &&
-                TryFingerBend(hand, XRHandJointID.MiddleProximal, XRHandJointID.MiddleIntermediate, XRHandJointID.MiddleTip, out float middle) && middle < 0.75f &&
-                TryFingerBend(hand, XRHandJointID.RingProximal, XRHandJointID.RingIntermediate, XRHandJointID.RingTip, out float ring) && ring < 0.75f;
+                TryFingerBend(hand, XRHandJointID.IndexProximal, XRHandJointID.IndexIntermediate, XRHandJointID.IndexTip, out float index) && index > indexLimit &&
+                TryFingerBend(hand, XRHandJointID.MiddleProximal, XRHandJointID.MiddleIntermediate, XRHandJointID.MiddleTip, out float middle) && middle < curlLimit &&
+                TryFingerBend(hand, XRHandJointID.RingProximal, XRHandJointID.RingIntermediate, XRHandJointID.RingTip, out float ring) && ring < curlLimit;
             s.palmRotation = hand.GetJoint(XRHandJointID.Palm).TryGetPose(out var p)
                 ? transform.rotation * p.rotation
                 : transform.rotation * hand.rootPose.rotation;

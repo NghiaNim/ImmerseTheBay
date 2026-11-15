@@ -101,6 +101,7 @@ namespace ImmerseTheBay.Learning
         public LearningCommand[] visko;
         public Scene scene;
         public string nextSceneId;
+        public string alternateNextSceneId;
         public LearningOverlayData overlay;
         public LearningFeedback feedback;
         public LearningAttempt attempt;
@@ -165,7 +166,8 @@ namespace ImmerseTheBay.Learning
             if (transcript != null && transcript.Length > 1000)
                 throw new ArgumentException("Speech result is too long; please use one sentence.");
             if (intent != null && intent.Length > 1000) throw new ArgumentException("Intent is too long.");
-            if (action != null && action != "return_to_main" && action != "idle_hint") throw new ArgumentException("Invalid lesson action.");
+            if (action != null && action is not ("return_to_main" or "idle_hint" or "menu_select_coffee" or "menu_select_milk"))
+                throw new ArgumentException("Invalid lesson action.");
             if (action != null && (!string.IsNullOrEmpty(transcript) || !string.IsNullOrEmpty(intent))) throw new ArgumentException("Action cannot contain speech or intent.");
             string operation = requestId == null ? "" : ",\"operation\":{\"requestId\":" + Quote(requestId) +
                 ",\"expectedRevision\":" + revision.ToString(CultureInfo.InvariantCulture) +
