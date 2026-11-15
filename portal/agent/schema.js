@@ -23,10 +23,13 @@ export const WIRE_RESPONSE_SCHEMA = { ...RESPONSE_SCHEMA, properties: { ...RESPO
     ...overlayFields,
     readingGroups: { type: 'array', items: object({ jp: text, kana: text, romaji: text }, ['jp', 'romaji']) },
   }, Object.keys(overlayFields))] },
-  attempt: object({ id: text, targetId: text, jp: text, text,
+  attempt: object({
+    id: text, targetId: text, jp: text, text,
     score: { anyOf: [{ type: 'null' }, { type: 'number' }] },
     outcome: { type: 'string', enum: ['pass', 'retry', 'assisted', 'skip'] },
-    nextTargetId: { anyOf: [{ type: 'null' }, text] } }),
+    nextTargetId: { anyOf: [{ type: 'null' }, text] },
+    correction: object({ start: { type: 'number' }, end: { type: 'number' }, jp: text }),
+  }, ['id', 'targetId', 'jp', 'text', 'score', 'outcome', 'nextTargetId']),
   progress: object({ mainTotal: { type: 'number' }, mainStep: { type: 'number' }, mainCompleted: { type: 'number' } }),
   nextSceneId: { type: 'string', enum: ['checkout', 'sandwiches', 'drinks'] },
   focusWords: { type: 'array', items: text }, scene: object({ id: { type: 'string', enum: ['checkout', 'sandwiches', 'drinks'] }, label: text, startImage: text, prompt: text, visiblePartner: { type: 'boolean' } }), operation: object({ requestId: text, runId: text, revision: { type: 'number' }, replayed: { type: 'boolean' } }) } };

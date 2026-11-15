@@ -1,4 +1,5 @@
 import { scoreTranscript, PASS_SCORE } from './guardrails.js';
+import { sentenceCorrection } from './sentence-correction.js';
 // Only known vocabulary supported by an encountered target and its authored reading is reported.
 const COMMON_WORDS = [
   ['サンドイッチ', 'さんどいっち', 'sandwich'], ['おにぎり', 'おにぎり', 'rice ball'],
@@ -47,6 +48,10 @@ export function recordSummary(state, { request, lesson, before, intent, response
       const score = scoreTranscript(transcript, before.line);
       const passed = score >= PASS_SCORE && advanced;
       recordAttempt(passed ? (target?.hinted ? 'assisted' : 'pass') : 'retry', score, transcript);
+      if (score < PASS_SCORE) {
+        const correction = sentenceCorrection(transcript, before.line);
+        if (correction) response.attempt.correction = correction;
+      }
       metrics.scoredAttempts++; metrics.scoreSum += score;
       if (target) {
         if (!target.attempts) target.firstScore = score;
