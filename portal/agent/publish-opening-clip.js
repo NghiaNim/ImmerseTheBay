@@ -18,7 +18,7 @@ const temp = path.join(OPENING_CLIP_ROOT, `.${randomUUID()}.mp4`);
 try {
   execFileSync('ffmpeg', [
     '-nostdin', '-v', 'error', '-ss', offset, '-i', path.resolve(source), '-t', '6',
-    '-map', '0:v:0', '-an', '-vf', 'scale=960:540:force_original_aspect_ratio=increase,crop=960:540,setsar=1',
+    '-map', '0:v:0', '-an', '-vf', 'scale=960:540:force_original_aspect_ratio=increase,crop=960:540,setsar=1,fps=24',
     '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '22', '-movflags', '+faststart', temp,
   ], { stdio: 'inherit' });
   const duration = Number(execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration',
