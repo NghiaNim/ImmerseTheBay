@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using ImmerseTheBay.Content;
 using ImmerseTheBay.Net;
@@ -481,14 +482,25 @@ namespace ImmerseTheBay.Visko
             string id = (++m_OperationId).ToString();
             var pending = new PendingOperation { Name = name };
             m_Pending.Add(id, pending);
+            using var deadline = new CancellationTokenSource();
             try
             {
                 send(id);
-                if (await Task.WhenAny(pending.Completion.Task, Task.Delay(95000)) != pending.Completion.Task)
+                // The native bridge owns a 30-second budget. This also covers a lost JNI callback.
+                if (await Task.WhenAny(pending.Completion.Task, Task.Delay(35000, deadline.Token)) != pending.Completion.Task &&
+                    !pending.Completion.Task.IsCompleted)
+                {
+                    m_Pending.Remove(id);
+                    DisconnectBackend(keepOpening: false);
                     throw new TimeoutException(name + " acknowledgement timed out");
+                }
                 await pending.Completion.Task;
             }
-            finally { m_Pending.Remove(id); }
+            finally
+            {
+                deadline.Cancel();
+                m_Pending.Remove(id);
+            }
         }
 
         void FailPending(string error)

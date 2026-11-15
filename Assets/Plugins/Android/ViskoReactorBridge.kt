@@ -13,6 +13,7 @@ import inc.reactor.sdk.android.VideoFrame
 import java.nio.ByteBuffer
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.sync.Mutex
@@ -42,6 +43,10 @@ class ViskoReactorBridge(private val listener: Listener) {
         fun onMessage(json: String)
         fun onOperation(id: String, command: String, json: String, error: String)
         fun onError(message: String)
+    }
+
+    private companion object {
+        const val OPERATION_DEADLINE_MS = 30_000L
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -237,38 +242,65 @@ class ViskoReactorBridge(private val listener: Listener) {
             }
             active.launch {
                 try {
-                    val frameBeforeCommand = frameId
-                    val reply = withTimeout(90000L) { commands.withLock {
-                        check(reactor === r) { "Connection changed" }
-                        action(r)
-                    } }
-                    check(reply.type != "command_error") { reply.data.toString() }
-                    val expected = when (name) {
-                        "set_prompt" -> "prompt_accepted"
-                        "set_audio_prompt" -> "audio_prompt_accepted"
-                        "set_image" -> "image_accepted"
-                        "set_resolution" -> "resolution_accepted"
-                        "set_audio_enabled" -> "audio_enabled_accepted"
-                        "start" -> "generation_started"
-                        "pause" -> "generation_paused"
-                        "resume" -> "generation_resumed"
-                        "reset" -> "generation_reset"
-                        else -> null
+                    val reply = withTimeout(OPERATION_DEADLINE_MS) {
+                        commands.withLock {
+                            check(reactor === r && r.status.value == ConnectionStatus.READY) { "Connection changed" }
+                            val frameBeforeCommand = frameId
+                            try {
+                                val result = action(r)
+                                validateReply(r, name, result, frameBeforeCommand)
+                                result
+                            } catch (e: TimeoutCancellationException) {
+                                // Fence the transport before releasing the mutex so queued work cannot
+                                // follow a command whose outcome may already have changed the provider.
+                                expireOperation(r, id, name)
+                                throw e
+                            }
+                        }
                     }
-                    val startVerifiedByFrame = name == "start" && reply.type == null && withTimeout(30000L) {
-                        while (frameId <= frameBeforeCommand) delay(50L)
-                        check(reactor === r) { "Connection changed" }
-                        android.util.Log.i("ImmerseVideo", "Native start confirmed by a new decoded frame")
-                        true
-                    }
-                    check(startVerifiedByFrame || expected == null || reply.type == expected) { "$name did not return $expected: ${reply.type}" }
                     if (reactor === r) listener.onOperation(id, name,
                         JSONObject().put("type", reply.type ?: "").put("data", wrap(reply.data)).toString(), "")
+                } catch (_: TimeoutCancellationException) {
+                    // The timeout may have elapsed while this operation was still waiting for the lock.
+                    expireOperation(r, id, name)
+                } catch (e: CancellationException) {
+                    throw e
                 } catch (e: Exception) {
-                    if (reactor === r) listener.onOperation(id, name, "", e.message ?: "Operation cancelled")
+                    if (reactor === r) listener.onOperation(id, name, "", e.message ?: "Operation failed")
                 }
             }
         }
+    }
+
+    private suspend fun validateReply(r: Reactor, name: String,
+        reply: inc.reactor.sdk.android.CommandReply, frameBeforeCommand: Long) {
+        check(reply.type != "command_error") { reply.data.toString() }
+        val expected = when (name) {
+            "set_prompt" -> "prompt_accepted"
+            "set_audio_prompt" -> "audio_prompt_accepted"
+            "set_image" -> "image_accepted"
+            "set_resolution" -> "resolution_accepted"
+            "set_audio_enabled" -> "audio_enabled_accepted"
+            "start" -> "generation_started"
+            "pause" -> "generation_paused"
+            "resume" -> "generation_resumed"
+            "reset" -> "generation_reset"
+            else -> null
+        }
+        if (name == "start" && reply.type == null) {
+            while (frameId <= frameBeforeCommand) delay(50L)
+            check(reactor === r) { "Connection changed" }
+            android.util.Log.i("ImmerseVideo", "Native start confirmed by a new decoded frame")
+            return
+        }
+        check(expected == null || reply.type == expected) { "$name did not return $expected: ${reply.type}" }
+    }
+
+    private fun expireOperation(r: Reactor, id: String, name: String) {
+        if (reactor !== r) return
+        listener.onOperation(id, name, "", "$name timed out; reconnect before retrying")
+        disconnectInternal()
+        listener.onStatus(ConnectionStatus.DISCONNECTED.name)
     }
 
     fun getSessionId(): String = reactor?.sessionId?.value ?: ""
