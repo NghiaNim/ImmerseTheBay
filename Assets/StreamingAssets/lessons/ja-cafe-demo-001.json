@@ -1,0 +1,113 @@
+{
+  "id": "ja-cafe-demo-001",
+  "title": "カフェで注文 — Order Coffee",
+  "level": "N5",
+  "scenePrompt": "A dark-haired adult Japanese barista in an olive apron at a warm espresso bar. The barista looks up, walks to the counter, and raises her order pad.",
+  "audioPrompt": "Quiet espresso-machine steam, a cup touching its saucer, and soft room tone.",
+  "startImage": "lessons/images/cafe-order.jpg",
+  "partnerVoice": "female",
+  "beats": [
+    {
+      "goal": "Order a coffee",
+      "scene": {
+        "id": "cafe-order",
+        "label": "Order a coffee",
+        "prompt": "The barista looks up, walks to the counter, and raises her order pad.",
+        "identity": "A dark-haired adult Japanese barista in an olive apron at a warm espresso bar."
+      },
+      "lines": [
+        {
+          "jp": "コーヒーをください。",
+          "kana": "こーひーをください。",
+          "romaji": "Kōhī o kudasai.",
+          "en": "A coffee, please.",
+          "zh": "请给我一杯咖啡。",
+          "cue": "The barista looks up, walks to the counter, and raises her order pad.",
+          "partner": {
+            "jp": "ご注文は？",
+            "kana": "ごちゅうもんは？",
+            "romaji": "Gochūmon wa?",
+            "en": "What would you like?",
+            "zh": "您要点什么？"
+          }
+        }
+      ],
+      "vocab": [
+        {
+          "jp": "コーヒー",
+          "kana": "こーひー",
+          "en": "coffee",
+          "objectHint": "coffee"
+        }
+      ]
+    },
+    {
+      "goal": "Say how you want it",
+      "scene": {
+        "id": "cafe-pour",
+        "label": "Say how you want it",
+        "prompt": "The barista tips the pitcher, gently pours milk into the cup and steadies the saucer. Steam rises.",
+        "identity": "A dark-haired adult Japanese barista in an olive apron at a warm espresso bar."
+      },
+      "lines": [
+        {
+          "jp": "ミルクをお願いします。",
+          "kana": "みるくをおねがいします。",
+          "romaji": "Miruku o onegaishimasu.",
+          "en": "Milk, please.",
+          "zh": "请加牛奶。",
+          "cue": "The barista tips the pitcher, gently pours milk into the cup and steadies the saucer. Steam rises.",
+          "partner": {
+            "jp": "ミルクは入れますか。",
+            "kana": "みるくはいれますか。",
+            "romaji": "Miruku wa iremasu ka?",
+            "en": "Would you like milk?",
+            "zh": "要加牛奶吗？"
+          }
+        }
+      ],
+      "vocab": [
+        {
+          "jp": "ミルク",
+          "kana": "みるく",
+          "en": "milk",
+          "objectHint": "milk"
+        }
+      ]
+    },
+    {
+      "goal": "Thank the barista",
+      "scene": {
+        "id": "cafe-serve",
+        "label": "Thank the barista",
+        "prompt": "The barista steps forward, slides the cup and saucer across the counter, and smiles.",
+        "identity": "A dark-haired adult Japanese barista in an olive apron at a warm espresso bar."
+      },
+      "lines": [
+        {
+          "jp": "ありがとうございます。",
+          "kana": "ありがとうございます。",
+          "romaji": "Arigatō gozaimasu.",
+          "en": "Thank you.",
+          "zh": "谢谢。",
+          "cue": "The barista steps forward, slides the cup and saucer across the counter, and smiles.",
+          "partner": {
+            "jp": "お待たせしました。",
+            "kana": "おまたせしました。",
+            "romaji": "Omatase shimashita.",
+            "en": "Thanks for waiting.",
+            "zh": "让您久等了。"
+          }
+        }
+      ],
+      "vocab": [
+        {
+          "jp": "ありがとう",
+          "kana": "ありがとう",
+          "en": "thanks",
+          "objectHint": "thanks"
+        }
+      ]
+    }
+  ]
+}

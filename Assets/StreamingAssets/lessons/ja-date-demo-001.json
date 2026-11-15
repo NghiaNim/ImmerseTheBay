@@ -1,0 +1,113 @@
+{
+  "id": "ja-date-demo-001",
+  "title": "デート — Go on a Date",
+  "level": "N5",
+  "scenePrompt": "An adult Japanese woman with short wavy dark hair, a sage green cardigan and cream trousers. She walks up at a park entrance, makes eye contact, smiles and lifts a hand in greeting.",
+  "audioPrompt": "Light footsteps, distant birds and leaves rustling in a breeze.",
+  "startImage": "lessons/images/date-meet.jpg",
+  "partnerVoice": "female",
+  "beats": [
+    {
+      "goal": "Greet your date",
+      "scene": {
+        "id": "date-meet",
+        "label": "Greet your date",
+        "prompt": "She walks up at a park entrance, makes eye contact, smiles and lifts a hand in greeting.",
+        "identity": "An adult Japanese woman with short wavy dark hair, a sage green cardigan and cream trousers."
+      },
+      "lines": [
+        {
+          "jp": "待った？",
+          "kana": "まった？",
+          "romaji": "Matta?",
+          "en": "Did you wait long?",
+          "zh": "等很久了吗？",
+          "cue": "She walks up at a park entrance, makes eye contact, smiles and lifts a hand in greeting.",
+          "partner": {
+            "jp": "やっと会えたね。",
+            "kana": "やっとあえたね。",
+            "romaji": "Yatto aeta ne.",
+            "en": "Good to see you.",
+            "zh": "终于见到你了。"
+          }
+        }
+      ],
+      "vocab": [
+        {
+          "jp": "待った",
+          "kana": "まった",
+          "en": "waited",
+          "objectHint": "waited"
+        }
+      ]
+    },
+    {
+      "goal": "Suggest a walk",
+      "scene": {
+        "id": "date-walk",
+        "label": "Suggest a walk",
+        "prompt": "She walks a few steps down the riverside path, turns back, and gestures along it with an open hand.",
+        "identity": "An adult Japanese woman with short wavy dark hair, a sage green cardigan and cream trousers."
+      },
+      "lines": [
+        {
+          "jp": "少し歩こうか。",
+          "kana": "すこしあるこうか。",
+          "romaji": "Sukoshi arukō ka?",
+          "en": "Shall we walk a bit?",
+          "zh": "走一会儿好吗？",
+          "cue": "She walks a few steps down the riverside path, turns back, and gestures along it with an open hand.",
+          "partner": {
+            "jp": "どこに行こうか。",
+            "kana": "どこにいこうか。",
+            "romaji": "Doko ni ikō ka?",
+            "en": "Where shall we go?",
+            "zh": "我们去哪儿？"
+          }
+        }
+      ],
+      "vocab": [
+        {
+          "jp": "少し",
+          "kana": "すこし",
+          "en": "a little",
+          "objectHint": "a little"
+        }
+      ]
+    },
+    {
+      "goal": "Suggest sitting down",
+      "scene": {
+        "id": "date-cafe",
+        "label": "Suggest sitting down",
+        "prompt": "At an outdoor table she pulls out a chair, brushes it off and looks up at the viewer.",
+        "identity": "An adult Japanese woman with short wavy dark hair, a sage green cardigan and cream trousers."
+      },
+      "lines": [
+        {
+          "jp": "ここに座ろうか。",
+          "kana": "ここにすわろうか。",
+          "romaji": "Koko ni suwarō ka?",
+          "en": "Shall we sit here?",
+          "zh": "我们坐这里好吗？",
+          "cue": "At an outdoor table she pulls out a chair, brushes it off and looks up at the viewer.",
+          "partner": {
+            "jp": "この席、空いてるよ。",
+            "kana": "このせき、あいてるよ。",
+            "romaji": "Kono seki, aiteru yo.",
+            "en": "This seat is free.",
+            "zh": "这位子空着。"
+          }
+        }
+      ],
+      "vocab": [
+        {
+          "jp": "ここ",
+          "kana": "ここ",
+          "en": "here",
+          "objectHint": "here"
+        }
+      ]
+    }
+  ]
+}

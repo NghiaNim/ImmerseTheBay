@@ -372,7 +372,7 @@ namespace ImmerseTheBay.Learning
 
         async Task ExecuteTurn(string transcript, LearningContextSnapshot snapshot, int generation, string intent = null, string action = null, bool practiceAttempt = false)
         {
-            SetStatus("Preparing the next scene…");
+            SetStatus(practiceAttempt ? "Checking your answer…" : "Preparing…");
             if (m_Claims.Count >= 256) throw new InvalidOperationException("Lesson operation limit reached; restart safely.");
             string id = Guid.NewGuid().ToString("N");
             string body = LearningContract.TurnJson(m_Session, m_RunLesson, Beat, transcript, snapshot, id, m_RunId, m_Revision, intent, action, practiceAttempt);
@@ -389,14 +389,16 @@ namespace ImmerseTheBay.Learning
                 (response.route?.nodeId != m_LastResponse?.route?.nodeId ||
                  response.overlay.jp != m_LastResponse?.overlay?.jp);
             if (nextTarget || response.overlay == null) StopExampleAudio();
-            if (!IsConversationActive && response.speech?.role == "clerk")
+            string sceneId = response.scene?.id;
+            bool switchScene = !string.IsNullOrEmpty(m_ActiveSceneId) &&
+                !string.IsNullOrEmpty(sceneId) && sceneId != m_ActiveSceneId;
+            bool preparingNext = switchScene || response.advance == "next_line" && response.visko.Any(command => command.name == "set_prompt");
+            if (preparingNext && overlay) overlay.SetSceneTransition(true);
+            if (!preparingNext && !IsConversationActive && response.speech?.role == "clerk")
             {
                 ShowClerkDialogue(response.speech);
                 PlayClerkAudio(response.speech, generation);
             }
-            string sceneId = response.scene?.id;
-            bool switchScene = !string.IsNullOrEmpty(m_ActiveSceneId) &&
-                !string.IsNullOrEmpty(sceneId) && sceneId != m_ActiveSceneId;
             if (switchScene)
             {
                 if (response.visko.All(command => command.name != "set_prompt"))
@@ -458,6 +460,8 @@ namespace ImmerseTheBay.Learning
             Beat = nextBeat;
             IsDone = response.advance == "scene_done";
             Present(response);
+            if (preparingNext && !IsConversationActive && response.speech?.role == "clerk")
+                PlayClerkAudio(response.speech, generation);
             SetStatus(IsDone ? "Lesson complete." : "");
             if (IsDone) PresentCompletion(playCue: true);
             else if (nextTarget && !IsConversationActive && PlayExamples)

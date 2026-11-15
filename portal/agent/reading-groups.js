@@ -29,6 +29,20 @@ const demoReadings = new Map([
   }],
 ]);
 
+for (const [jp, kana, tokens] of [
+  ['コーヒーをください。', 'こーひーをください。', [['コーヒー', 'コーヒー', 'Kōhī'], ['を', 'を', 'o'], ['ください。', 'ください。', 'kudasai.']]],
+  ['ミルクをお願いします。', 'みるくをおねがいします。', [['ミルク', 'ミルク', 'Miruku'], ['を', 'を', 'o'], ['お願いします。', 'おねがいします。', 'onegaishimasu.']]],
+  ['ありがとうございます。', 'ありがとうございます。', [['ありがとう', 'ありがとう', 'Arigatō'], ['ございます。', 'ございます。', 'gozaimasu.']]],
+  ['こんにちは。', 'こんにちは。', [['こんにちは。', 'こんにちは。', 'Konnichiwa.']]],
+  ['なでてもいいですか。', 'なでてもいいですか。', [['なでて', 'なでて', 'Nadete'], ['も', 'も', 'mo'], ['いい', 'いい', 'ii'], ['です', 'です', 'desu'], ['か。', 'か。', 'ka?']]],
+  ['またね。', 'またね。', [['また', 'また', 'Mata'], ['ね。', 'ね。', 'ne.']]],
+  ['待った？', 'まった？', [['待った？', 'まった？', 'Matta?']]],
+  ['少し歩こうか。', 'すこしあるこうか。', [['少し', 'すこし', 'Sukoshi'], ['歩こう', 'あるこう', 'arukō'], ['か。', 'か。', 'ka?']]],
+  ['ここに座ろうか。', 'ここにすわろうか。', [['ここ', 'ここ', 'Koko'], ['に', 'に', 'ni'], ['座ろう', 'すわろう', 'suwarō'], ['か。', 'か。', 'ka?']]],
+]) {
+  demoReadings.set(jp, { kana, groups: tokens.map(([jp, kana, romaji]) => ({ jp, kana, romaji })) });
+}
+
 const foldKana = (kana) => kana.normalize('NFC').replace(/[ァ-ヶ]/gu, (letter) =>
   String.fromCharCode(letter.charCodeAt(0) - 0x60));
 const foldRomaji = (romaji) => romaji.normalize('NFC').trim().toLowerCase().replace(/\s+/gu, ' ');

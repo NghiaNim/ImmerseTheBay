@@ -124,7 +124,7 @@ class TeninScreens(private val context: Context, private val bindPreview: (Strin
             selected = selected, fill = if (selected) Tenin.TINT else Tenin.BG, padding = 16f).onTap(action)
 
     // 1 · Start
-    fun start(connected: Boolean, onLive: () -> Unit, onPremade: () -> Unit, nav: View) = ui.run {
+    fun start(connected: Boolean, onLive: () -> Unit, onPremade: () -> Unit, defaultPremadeTitle: String?, nav: View) = ui.run {
         val headline = text("What would you like to practice?", 26f, weight = 600).apply {
             if (resources.configuration.fontScale <= 1.1f) {
                 maxLines = 1
@@ -136,7 +136,8 @@ class TeninScreens(private val context: Context, private val bindPreview: (Strin
             header(connected = connected),
             headline.fillWidth().margins(top = 18f),
             entryCard(TeninIcon.CAMERA, "Live Lesson", "Add a photo or say what you want to rehearse.", selected = true, action = onLive).margins(top = 18f),
-            entryCard(TeninIcon.PLAY, "Pre-made Lesson", "Choose a scene and practice in your glasses.", action = onPremade).margins(top = 12f),
+            entryCard(TeninIcon.PLAY, "Pre-made Lesson", defaultPremadeTitle?.let { "Start with $it or choose another scene." }
+                ?: "Choose a scene and practice in your glasses.", action = onPremade).margins(top = 12f),
         ), nav = nav)
     }
 

@@ -133,6 +133,7 @@ export function createAgentService({ store = createLessonStore(), llm = createLe
       state.demoScenes = lesson.id === DEMO_LESSON;
       if (!request.action) state.attempts++;
       const lines = flattenLesson(lesson);
+      const authoredScenes = lesson.beats[0].scene ? lines.map(({ beat }) => beat.scene) : null;
       if (request.beat >= lines.length) throw new AgentError(400, 'beat is outside this lesson');
       initializeFlow(state, request.beat);
       if (request.beat !== state.flow.mainBeat) throw new AgentError(409, 'beat must match the saved main checkpoint');
@@ -230,7 +231,7 @@ export function createAgentService({ store = createLessonStore(), llm = createLe
       }
       fallback.route = { ...state.flow.current };
       const previousScene = state.scene?.id;
-      updatePreset(state, { entered, intent, route: fallback.route });
+      updatePreset(state, { entered, intent, route: fallback.route, authoredScenes });
       const savedTarget = lines[state.flow.mainBeat];
       state.sceneContext.mainCheckpoint = { beat: state.flow.mainBeat, goal: savedTarget?.beat.goal || 'Lesson complete' };
       // Completed branch actions must not act as goals on the resumed main line.
@@ -264,7 +265,9 @@ export function createAgentService({ store = createLessonStore(), llm = createLe
         if (command.name === 'set_audio_prompt') command.data.prompt = composeAmbientPrompt(command.data.prompt);
         if (command.name !== 'set_prompt') continue;
         const authored = fallback.visko.find((item) => item.name === 'set_prompt')?.data.prompt;
-        command.data.prompt = composeVisualPrompt(state.started ? command.data.prompt : state.sceneContext.sceneAnchor, authored, { initial: !state.started || previousScene !== state.scene?.id, identityAnchor: state.sceneContext.identityAnchor, speaking: Boolean(response.speech) && (state.scene?.visiblePartner ?? lesson.visiblePartner) !== false, visiblePartner: (state.scene?.visiblePartner ?? lesson.visiblePartner) !== false });
+        const photoStory = lesson.id.startsWith('practice-') && Boolean(lesson.generationProfile);
+        const action = !state.started ? (photoStory ? mainTarget.line.cue : state.sceneContext.sceneAnchor) : command.data.prompt;
+        command.data.prompt = composeVisualPrompt(action, authored, { initial: !state.started || previousScene !== state.scene?.id, subject: photoStory ? lesson.scenePrompt : '', identityAnchor: state.sceneContext.identityAnchor, speaking: Boolean(response.speech) && (state.scene?.visiblePartner ?? lesson.visiblePartner) !== false, visiblePartner: (state.scene?.visiblePartner ?? lesson.visiblePartner) !== false, environmentalMotion: photoStory });
       }
       if (state.scene) {
         for (const command of response.visko) if (command.name === 'set_prompt') {
@@ -291,8 +294,8 @@ export function createAgentService({ store = createLessonStore(), llm = createLe
       state.revision = (state.revision || 0) + 1;
       if (request.operation) response.operation = { requestId: request.operation.requestId, runId: state.flow.runId, revision: state.revision, replayed: false };
       if (state.scene) response.scene = structuredClone(state.scene);
-      if (state.demoScenes && !state.complete && fallback.route.kind !== 'detour') {
-        const nextSceneId = DEMO_ORDER[state.flow.mainBeat + 1];
+      if ((authoredScenes || state.demoScenes) && !state.complete && fallback.route.kind !== 'detour') {
+        const nextSceneId = authoredScenes ? authoredScenes[state.flow.mainBeat + 1]?.id : DEMO_ORDER[state.flow.mainBeat + 1];
         if (nextSceneId) response.nextSceneId = nextSceneId;
       }
       recordSummary(state, { request, lesson, before: summaryBefore, intent, response, mainTotal: lines.length });

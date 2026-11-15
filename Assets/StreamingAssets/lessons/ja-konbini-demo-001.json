@@ -2,9 +2,9 @@
   "id": "ja-konbini-demo-001",
   "title": "コンビニで買い物 — Convenience-store Shopping",
   "level": "N5",
-  "scenePrompt": "First-person eye-level view of a shelf stocked with boxed sandwiches in a convenience store.",
+  "scenePrompt": "An adult Japanese woman clerk with a neat black ponytail and navy apron, consistent across the same neighborhood convenience store. The clerk reaches into a restocking basket, moves a wrapped sandwich onto the shelf, then points out the sandwich section.",
   "audioPrompt": "Quiet refrigeration, soft footsteps and a brief checkout beep.",
-  "startImage": "lessons/images/konbini-sandwiches.png",
+  "startImage": "lessons/images/store-sandwich.jpg",
   "partnerVoice": "female",
   "beats": [
     {
@@ -16,7 +16,7 @@
           "romaji": "Sandoitchi wa doko desu ka?",
           "zh": "三明治在哪里？",
           "en": "Where are the sandwiches?",
-          "cue": "The neatly packaged sandwiches stay in their original positions on the shelf.",
+          "cue": "The clerk reaches into a restocking basket, moves a wrapped sandwich onto the shelf, then points out the sandwich section.",
           "partner": {
             "jp": "いらっしゃいませ。",
             "kana": "いらっしゃいませ。",
@@ -33,7 +33,13 @@
           "en": "sandwich",
           "objectHint": "sandwich"
         }
-      ]
+      ],
+      "scene": {
+        "id": "store-sandwich",
+        "label": "Find sandwiches",
+        "prompt": "The clerk reaches into a restocking basket, moves a wrapped sandwich onto the shelf, then points out the sandwich section.",
+        "identity": "An adult Japanese woman clerk with a neat black ponytail and navy apron, consistent across the same neighborhood convenience store."
+      }
     },
     {
       "goal": "Ask for water",
@@ -44,7 +50,7 @@
           "romaji": "Omizu o kudasai.",
           "zh": "请给我水。",
           "en": "Water, please.",
-          "cue": "The bottled water stays visible inside the refrigerator.",
+          "cue": "The clerk pulls open the cooler door, grasps a clear bottle of water, then turns and reaches toward the viewer with it.",
           "partner": {
             "jp": "飲み物もいかがですか。",
             "kana": "のみものもいかがですか。",
@@ -61,7 +67,13 @@
           "en": "water",
           "objectHint": "water"
         }
-      ]
+      ],
+      "scene": {
+        "id": "store-drink",
+        "label": "Ask for water",
+        "prompt": "The clerk pulls open the cooler door, grasps a clear bottle of water, then turns and reaches toward the viewer with it.",
+        "identity": "An adult Japanese woman clerk with a neat black ponytail and navy apron, consistent across the same neighborhood convenience store."
+      }
     },
     {
       "goal": "Ask to pay by card",
@@ -72,7 +84,7 @@
           "romaji": "Kādo de haraemasu ka?",
           "zh": "我可以刷卡吗？",
           "en": "Can I pay by card?",
-          "cue": "The same clerk gestures toward the card reader on the checkout counter.",
+          "cue": "The clerk lifts the handheld card reader, extends it toward the viewer and makes a small welcoming nod.",
           "partner": {
             "jp": "お支払いはどうしますか。",
             "kana": "おしはらいはどうしますか。",
@@ -89,7 +101,13 @@
           "en": "card",
           "objectHint": "card"
         }
-      ]
+      ],
+      "scene": {
+        "id": "store-checkout",
+        "label": "Pay by card",
+        "prompt": "The clerk lifts the handheld card reader, extends it toward the viewer and makes a small welcoming nod.",
+        "identity": "An adult Japanese woman clerk with a neat black ponytail and navy apron, consistent across the same neighborhood convenience store."
+      }
     }
   ]
 }

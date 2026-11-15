@@ -2,11 +2,44 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { createAgentService, validateRequest } from './service.js';
+import { validateLesson } from './lessons.js';
+import { readingGroupsFor } from './reading-groups.js';
 import { WIRE_RESPONSE_SCHEMA, RESPONSE_SCHEMA, validateSchema } from './schema.js';
 const lesson=JSON.parse(await readFile(new URL('./fixtures/ja-konbini-001.json',import.meta.url)));
 const key={sessionId:'preset-test',lessonId:lesson.id};
 const req=(id,previous,changes={})=>({...key,beat:previous?.route.returnBeat||0,context:{},presetSceneSet:'konbini-original',imageRef:{id:'original-upload-123'},...changes,operation:{requestId:id,expectedRevision:previous?.operation.revision||0,...(previous?{runId:previous.operation.runId}:{})}});
 const setup=options=>createAgentService({store:{load:async()=>lesson},llm:null,planner:null,log:async()=>{},promptIntervalMs:0,...options});
+for (const [slug, expectedMotion] of [
+ ['cafe', [/order pad/i, /pours milk/i, /slides the cup/i]],
+ ['dog', [/waves/i, /sniffs/i, /trots alongside/i]],
+ ['date', [/lifts a hand/i, /gestures/i, /pulls out a chair/i]],
+]) {
+ test(`${slug} demo has three scorable lines, motion prompts and different bundled seeds`, async () => {
+  const root = new URL('../../Assets/StreamingAssets/', import.meta.url);
+  const authored = validateLesson(JSON.parse(await readFile(new URL(`lessons/ja-${slug}-demo-001.json`, root))));
+  const service = setup({ store:{ load:async()=>authored } });
+  let previous;
+  const turns = [];
+  for (const [beat, expected] of authored.beats.entries()) {
+   const answer = previous?.overlay.jp;
+   previous = await service.turn(req(`motion-${beat}`, previous, {
+    lessonId:authored.id, presetSceneSet:undefined, imageRef:undefined,
+    ...(answer ? { transcript:answer,practiceAttempt:true } : {}),
+   }));
+   assert.equal(previous.scene.id, expected.scene.id);
+   assert.equal(previous.progress.mainTotal, 3);
+   assert.ok(validateSchema(previous,WIRE_RESPONSE_SCHEMA));
+   assert.ok(readingGroupsFor(previous.overlay)?.length);
+   assert.match(previous.visko.find(command => command.name === 'set_prompt').data.prompt, expectedMotion[beat]);
+   assert.ok((await readFile(new URL(previous.scene.startImage.slice(1), root))).length > 10_000);
+   turns.push(previous.scene.startImage);
+  }
+  assert.equal(new Set(turns).size, 3);
+  previous = await service.turn(req('motion-done', previous, {lessonId:authored.id,presetSceneSet:undefined,imageRef:undefined,
+   transcript:previous.overlay.jp,practiceAttempt:true}));
+  assert.equal(previous.advance,'scene_done');
+ });
+}
 test('curated three-turn demo uses distinct scene seeds and returns to the saved second scene', async () => {
  const demo = JSON.parse(await readFile(new URL('../../Assets/StreamingAssets/lessons/ja-konbini-demo-001.json', import.meta.url)));
  const service = setup({ store: { load: async () => demo } });
@@ -19,21 +52,21 @@ test('curated three-turn demo uses distinct scene seeds and returns to the saved
   return previous;
  };
  let opened = await turn('open');
- assert.equal(opened.scene.id, 'sandwiches');
- assert.equal(opened.nextSceneId, 'drinks');
+ assert.equal(opened.scene.id, 'store-sandwich');
+ assert.equal(opened.nextSceneId, 'store-drink');
  assert.deepEqual([opened.progress.mainStep, opened.progress.mainTotal], [1, 3]);
  let cooler = await turn('advance', { transcript: opened.overlay.jp });
- assert.equal(cooler.scene.id, 'drinks');
- assert.equal(cooler.nextSceneId, 'checkout');
+ assert.equal(cooler.scene.id, 'store-drink');
+ assert.equal(cooler.nextSceneId, 'store-checkout');
  let detour = await turn('detour', { intent: 'I want a sandwich' });
- assert.equal(detour.scene.id, 'sandwiches');
+ assert.equal(detour.scene.id, 'store-sandwich');
  assert.equal(detour.nextSceneId, undefined);
  assert.equal(detour.progress.mainStep, 2);
  cooler = await turn('return', { action: 'return_to_main' });
- assert.equal(cooler.scene.id, 'drinks');
- assert.equal(cooler.nextSceneId, 'checkout');
+ assert.equal(cooler.scene.id, 'store-drink');
+ assert.equal(cooler.nextSceneId, 'store-checkout');
  const checkout = await turn('pay', { transcript: cooler.overlay.jp });
- assert.equal(checkout.scene.id, 'checkout');
+ assert.equal(checkout.scene.id, 'store-checkout');
  assert.equal(checkout.nextSceneId, undefined);
  assert.deepEqual([checkout.progress.mainStep, checkout.progress.mainTotal], [3, 3]);
  const done = await turn('done', { transcript: checkout.overlay.jp });

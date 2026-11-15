@@ -31,7 +31,24 @@ export function presetDrinkPlan(intent, returnBeat) {
   {jp:'こちらを一本お願いします。',kana:'こちらをいっぽんおねがいします。',romaji:'Kochira o ippon onegaishimasu.',zh:'请给我这款一瓶。',en:'I would like one bottle of this, please.',cue:'The selected bottle remains visible on the shelf.'},
  ]};
 }
-export function updatePreset(state, { entered, intent, route }) {
+const storeMotionIds = { sandwiches: 'store-sandwich', drinks: 'store-drink', checkout: 'store-checkout' };
+
+export function updatePreset(state, { entered, intent, route, authoredScenes }) {
+ if (authoredScenes?.length) {
+  const main = authoredScenes[state.flow.mainBeat];
+  const detour = route.kind === 'detour';
+  const previous = authoredScenes.find((shot) => shot.id === state.scene?.id);
+  const destination = detour && entered && state.demoScenes ? storeMotionIds[classifyPresetIntent(intent)] : null;
+  const target = detour ? authoredScenes.find((shot) => shot.id === destination) || previous || main : main;
+  if (state.scene?.id !== target.id) state.sceneContext.recentActions = [];
+  state.scene = scene(target.id, target.label, `/lessons/images/${target.id}.jpg`, target.prompt, true);
+  state.sceneContext.sceneAnchor = target.prompt;
+  state.sceneContext.visiblePartner = true;
+  state.sceneContext.identityAnchor = target.identity;
+  state.sceneContext.partnerLocation = target.label;
+  state.sceneContext.referenceId = state.scene.startImage;
+  return;
+ }
  const main = state.demoScenes ? DEMO_ORDER[state.flow.mainBeat] : 'checkout';
  if (!state.presetSceneSet && !state.demoScenes) return;
  let id = main;

@@ -6,6 +6,7 @@ export const LESSON_ROOT = fileURLToPath(new URL('../../Assets/StreamingAssets/l
 export class AgentError extends Error { constructor(status, message) { super(message); this.status = status; } }
 const plain = (v) => v && typeof v === 'object' && !Array.isArray(v);
 const text = (s) => typeof s === 'string' && s.trim().length > 0 && s.length <= 2000;
+export const authoredSceneId = /^(?:cafe|dog|date|store)-[a-z]{2,16}$/;
 export function partnerVoiceOverride(value) {
   if (value === undefined || value === 'auto') return undefined;
   if (value === 'female' || value === 'male') return value;
@@ -24,6 +25,13 @@ export function validateLesson(lesson) {
     if (!plain(beat) || !text(beat.goal) || !Array.isArray(beat.lines) || !beat.lines.length || beat.lines.length > 50 || !Array.isArray(beat.vocab)) throw new AgentError(422, 'Invalid lesson beat');
     if (beat.lines.some((line) => !plain(line) || !['jp', 'kana', 'romaji', 'zh', 'en', 'cue'].every((k) => text(line[k])))) throw new AgentError(422, 'Invalid lesson line');
     if (beat.vocab.some((v) => !plain(v) || !['jp', 'kana', 'en', 'objectHint'].every((k) => text(v[k])))) throw new AgentError(422, 'Invalid lesson vocabulary');
+    if (beat.scene !== undefined && (!plain(beat.scene) || !authoredSceneId.test(beat.scene.id) ||
+        !['label', 'prompt', 'identity'].every((k) => text(beat.scene[k])))) throw new AgentError(422, 'Invalid authored lesson scene');
+  }
+  if (lesson.beats.some((beat) => beat.scene)) {
+    const ids = lesson.beats.map((beat) => beat.scene?.id);
+    if (ids.some((id) => !id) || new Set(ids).size !== ids.length ||
+        lesson.startImage !== `lessons/images/${ids[0]}.jpg`) throw new AgentError(422, 'Invalid authored scene sequence');
   }
   if (hasBannedTerm(JSON.stringify(lesson))) throw new AgentError(422, 'Lesson contains a blocked character or brand');
   return lesson;

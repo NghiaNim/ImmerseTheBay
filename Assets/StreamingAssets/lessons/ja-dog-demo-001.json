@@ -1,0 +1,113 @@
+{
+  "id": "ja-dog-demo-001",
+  "title": "犬の散歩 — Greet a Dog Walker",
+  "level": "N5",
+  "scenePrompt": "An adult Japanese man in a light blue jacket and russet knit hat with a tan shiba inu wearing a coral harness. The walker approaches on foot and waves. The small dog trots beside him and looks up.",
+  "audioPrompt": "Leaves rustling, footsteps on the path, and occasional dog tags jingling.",
+  "startImage": "lessons/images/dog-greet.jpg",
+  "partnerVoice": "male",
+  "beats": [
+    {
+      "goal": "Greet the walker",
+      "scene": {
+        "id": "dog-greet",
+        "label": "Greet the walker",
+        "prompt": "The walker approaches on foot and waves. The small dog trots beside him and looks up.",
+        "identity": "An adult Japanese man in a light blue jacket and russet knit hat with a tan shiba inu wearing a coral harness."
+      },
+      "lines": [
+        {
+          "jp": "こんにちは。",
+          "kana": "こんにちは。",
+          "romaji": "Konnichiwa.",
+          "en": "Hello.",
+          "zh": "你好。",
+          "cue": "The walker approaches on foot and waves. The small dog trots beside him and looks up.",
+          "partner": {
+            "jp": "こんにちは。",
+            "kana": "こんにちは。",
+            "romaji": "Konnichiwa.",
+            "en": "Hello.",
+            "zh": "你好。"
+          }
+        }
+      ],
+      "vocab": [
+        {
+          "jp": "こんにちは",
+          "kana": "こんにちは",
+          "en": "hello",
+          "objectHint": "hello"
+        }
+      ]
+    },
+    {
+      "goal": "Ask before petting",
+      "scene": {
+        "id": "dog-pet",
+        "label": "Ask before petting",
+        "prompt": "The dog sniffs the air and steps closer. The owner holds the leash and gestures gently near the dog's back.",
+        "identity": "An adult Japanese man in a light blue jacket and russet knit hat with a tan shiba inu wearing a coral harness."
+      },
+      "lines": [
+        {
+          "jp": "なでてもいいですか。",
+          "kana": "なでてもいいですか。",
+          "romaji": "Nadete mo ii desu ka?",
+          "en": "May I pet your dog?",
+          "zh": "我可以摸摸它吗？",
+          "cue": "The dog sniffs the air and steps closer. The owner holds the leash and gestures gently near the dog's back.",
+          "partner": {
+            "jp": "近づいても大丈夫です。",
+            "kana": "ちかづいてもだいじょうぶです。",
+            "romaji": "Chikazuite mo daijōbu desu.",
+            "en": "It's okay to come closer.",
+            "zh": "可以靠近。"
+          }
+        }
+      ],
+      "vocab": [
+        {
+          "jp": "なでて",
+          "kana": "なでて",
+          "en": "pet",
+          "objectHint": "pet"
+        }
+      ]
+    },
+    {
+      "goal": "Say goodbye",
+      "scene": {
+        "id": "dog-goodbye",
+        "label": "Say goodbye",
+        "prompt": "The walker waves and heads down the path as the dog trots alongside and turns its head briefly.",
+        "identity": "An adult Japanese man in a light blue jacket and russet knit hat with a tan shiba inu wearing a coral harness."
+      },
+      "lines": [
+        {
+          "jp": "またね。",
+          "kana": "またね。",
+          "romaji": "Mata ne.",
+          "en": "See you.",
+          "zh": "回头见。",
+          "cue": "The walker waves and heads down the path as the dog trots alongside and turns its head briefly.",
+          "partner": {
+            "jp": "では、また。",
+            "kana": "では、また。",
+            "romaji": "Dewa, mata.",
+            "en": "See you around.",
+            "zh": "那下次见。"
+          }
+        }
+      ],
+      "vocab": [
+        {
+          "jp": "また",
+          "kana": "また",
+          "en": "again",
+          "objectHint": "again"
+        }
+      ]
+    }
+  ]
+}

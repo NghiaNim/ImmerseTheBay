@@ -53,6 +53,8 @@ object TeninHooks {
 /** Tenin phone UI: Start, Pre-made lessons, Review and Vocabularies. Live Lesson screens are driven through TeninHooks. */
 class TeninActivity : Activity() {
     companion object {
+        private const val DEFAULT_SCENARIO = "ja-cafe-demo-001"
+
         /** For Unity: the lesson chosen on the phone, or an empty array. */
         @JvmStatic fun selectedSession(): Array<String> = TeninHooks.selected
     }
@@ -171,7 +173,13 @@ class TeninActivity : Activity() {
     // --- Start and pre-made lessons ------------------------------------------------------------
 
     private fun startScreen(): View = screens.start(connected,
-        onLive = { go(::liveScreen) }, onPremade = { go(::chooseScreen) }, nav = nav(TeninUi.Tab.START))
+        onLive = { go(::liveScreen) },
+        onPremade = {
+            chosen = 0
+            go(::chooseScreen)
+        },
+        defaultPremadeTitle = scenarios.firstOrNull()?.takeIf { it.id == DEFAULT_SCENARIO }?.title,
+        nav = nav(TeninUi.Tab.START))
 
     private fun chooseScreen(): View = screens.chooseScenario(connected, scenarios, chosen,
         onSelect = { chosen = it; render() }, onOpen = { chosen = it; go(::detailScreen) },
@@ -566,8 +574,9 @@ class TeninActivity : Activity() {
                 partnerVoice = lesson.optString("partnerVoice"))
         }.getOrNull()
     }.let { catalog ->
-        if (catalog.any { it.id == "ja-konbini-demo-001" }) catalog.filterNot { it.id == "ja-konbini-001" }
+        val visible = if (catalog.any { it.id == "ja-konbini-demo-001" }) catalog.filterNot { it.id == "ja-konbini-001" }
         else catalog
+        visible.sortedBy { it.id != DEFAULT_SCENARIO }
     } }.getOrDefault(emptyList())
 
     /** GET, or POST when `body` is given, against the portal named in the bundled visko.json. */
