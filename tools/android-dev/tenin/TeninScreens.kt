@@ -58,6 +58,7 @@ data class TeninScenario(
 data class TeninSession(
     val id: String, val day: String, val live: Boolean, val title: String, val note: String,
     val headline: String = "", val tip: String = "", val phrases: List<TeninPhrase> = emptyList(),
+    val jpTitle: String = "",
 )
 
 /** Progress row on the photo screens: text plus whether that step has finished. */
@@ -616,7 +617,7 @@ class TeninScreens(private val context: Context, private val bindPreview: (Strin
     }
 
     // Vocabularies tab
-    fun vocabularies(items: List<TeninVocabularyRow>, tab: TeninVocabularyTab, lessons: List<String>, filter: String,
+    fun vocabularies(items: List<TeninVocabularyRow>, tab: TeninVocabularyTab, lessons: List<TeninSession>, filter: String,
         query: String, status: String, onTab: (TeninVocabularyTab) -> Unit, onFilter: (String) -> Unit,
         onQuery: (String) -> Unit, nav: View) = ui.run {
         val rows = items.flatMapIndexed { i, item ->
@@ -663,11 +664,22 @@ class TeninScreens(private val context: Context, private val bindPreview: (Strin
                     override fun afterTextChanged(s: Editable?) { if (s.toString() != query) onQuery(s.toString()) }
                 })
             }.weighted()).apply { background = rounded(Tenin.WHITE, dp(18f).toFloat(), Tenin.LINE, dp(1f)); setPadding(dp(16f), 0, dp(16f), 0) }.fillWidth().margins(top = 14f),
-            wrapRow((listOf("") + lessons).map { name ->
-                val on = name == filter
-                pill(if (name.isEmpty()) "All" else name, if (on) Tenin.WHITE else Tenin.PRIMARY_DARK, if (on) Tenin.PRIMARY else Tenin.WHITE, 16f).apply {
-                    if (!on) background = rounded(Tenin.WHITE, dp(40f).toFloat(), Tenin.LINE, dp(1f))
-                    setPadding(dp(15f), dp(8f), dp(15f), dp(9f))
+            wrapRow((listOf(null) + lessons).map { lesson ->
+                val name = lesson?.title.orEmpty()
+                val japanese = lesson?.jpTitle?.ifBlank { if (lesson.live) "ライブレッスン" else "コース" } ?: "すべて"
+                val english = lesson?.title ?: "All"
+                val selected = name == filter
+                val foreground = if (selected) Tenin.WHITE else Tenin.PRIMARY_DARK
+                column(
+                    text(japanese, 16f, foreground, 600).apply { maxLines = 1 },
+                    text(english, 13f, if (selected) Tenin.WHITE else Tenin.MUTED).apply { maxLines = 1 },
+                ).apply {
+                    gravity = Gravity.CENTER
+                    minimumHeight = dp(48f)
+                    isSelected = selected
+                    background = rounded(if (selected) Tenin.PRIMARY else Tenin.WHITE, dp(18f).toFloat(), Tenin.LINE, dp(1f))
+                    setPadding(dp(15f), dp(7f), dp(15f), dp(7f))
+                    contentDescription = "$japanese, $english"
                 }.margins(right = 8f).onTap { onFilter(name) }
             }).margins(top = 16f),
             if (rows.isEmpty()) body(status).margins(top = 18f)

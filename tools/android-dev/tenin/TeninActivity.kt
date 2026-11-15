@@ -426,8 +426,8 @@ class TeninActivity : Activity() {
 
     private fun vocabularyScreen(): View {
         val phrases = savedPhrases()
-        val lessons = phrases.map { it.first.title }.distinct()
-        val selectedLesson = filter.takeIf { it in lessons }.orEmpty()
+        val lessons = phrases.map { it.first }.distinctBy { it.title }
+        val selectedLesson = filter.takeIf { selection -> lessons.any { it.title == selection } }.orEmpty()
         val filtered = phrases.filter { (session, _) -> selectedLesson.isEmpty() || session.title == selectedLesson }
         fun matches(vararg fields: String) = query.isBlank() || fields.any { it.contains(query.trim(), ignoreCase = true) }
         fun meaning(english: String, title: String) = listOf(english, title).filter { it.isNotEmpty() }.joinToString(" · ")
@@ -515,8 +515,10 @@ class TeninActivity : Activity() {
                 partner = line.optJSONObject("partner")?.let { readPhrase(it, mine = false) }?.takeIf { it.jp.isNotBlank() })
         }
         val passed = phrases.count { it.passed }
+        val title = item.optString("lessonTitle")
         return TeninSession(item.getString("id"), dayLabel(item.optString("startedAt")), item.optString("mode") == "live",
-            englishTitle(item.optString("lessonTitle")), if (phrases.isEmpty()) "No phrases attempted." else "$passed of ${phrases.size} phrases understood.", phrases = phrases)
+            englishTitle(title), if (phrases.isEmpty()) "No phrases attempted." else "$passed of ${phrases.size} phrases understood.",
+            phrases = phrases, jpTitle = title.substringBefore(" — ", "").trim())
     }
 
     private fun readReviewWords(entry: JSONObject, sentence: String): List<TeninWord> {

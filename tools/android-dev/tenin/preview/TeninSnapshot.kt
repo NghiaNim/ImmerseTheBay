@@ -33,7 +33,7 @@ class TeninSnapshot : BroadcastReceiver() {
         val phrases = sessions.flatMap { session -> session.phrases.map { it.copy(lesson = session.title) } }.distinctBy { it.jp }
         val phraseRows = phrases.map { TeninVocabularyRow(s.highlightedJapanese(it), it.romaji, "${it.en} · ${it.lesson}", {}, {}) }
         val wordRows = phrases.flatMap { it.words }.distinctBy { it.jp }.map { TeninVocabularyRow(it.jp, it.reading, it.en, {}) }
-        val lessons = phrases.map { it.lesson }.distinct()
+        val lessons = sessions.filter { it.phrases.isNotEmpty() }.distinctBy { it.title }
         fun nav(tab: TeninUi.Tab) = s.ui.bottomNav(tab) {}
         val reading = listOf(TeninStep("Spotted a restaurant", true), TeninStep("Found the menu board", true))
         val screens = linkedMapOf<String, () -> View>(
