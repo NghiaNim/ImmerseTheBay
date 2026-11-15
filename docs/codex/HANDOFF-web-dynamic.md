@@ -1,3 +1,9 @@
+## Unity parity and joint E2E — latest
+
+Unity now includes a runtime-attached Cartesia conversation client, shared revision-protected branching, compact limited-FOV overlay, and interruption-safe PCM playback. Existing scenes need no edits. See [Unity implementation and verification](IMPLEMENTATION-unity-conversation.md). Local ignored device configuration points to the portal on port 8793. Use Conversation on the Unity learning overlay; voice supports Japanese/English. No device was attached for acoustic/gesture testing.
+
+The real Web voice + Dynamic joint E2E passed in 51.469 seconds: sandwich → water replacement → saved mainline, two confirmed interrupted assistant turns, three audio clears, advancing native video and clean Leave. This supersedes the earlier combined-test capacity blocker, not the separate visual-identity or hardware limitations.
+
 # Current conversational demo update — 2026-11-14
 
 Open http://localhost:8793/learn.html on the demo machine. Start a live lesson (or choose practice in Lesson setup), then press **Conversation**, allow microphone access, and speak Japanese. Interrupt directly while the clerk talks. Try asking for a sandwich, changing to bottled water, then asking to return to the lesson. **End conversation** returns to manual controls after state reconciliation; **Leave** ends video billing and releases the microphone.
