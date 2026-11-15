@@ -42,3 +42,18 @@ The development project needs Internet and development LAN HTTP enabled and a re
 3. Compare captions in default pose, while turning and after connection recovery. Read Japanese, romaji and English from the normal wearing position. Confirm the phone still has working controls.
 4. Verify audible clerk speech over quiet ambience and the Scene sound toggle. Start a spoken answer while scene audio is on and confirm recognition still controls the temporary mute. Check the two types of voice playback separately.
 5. Run the remaining end-to-end checklist under #16. Keep provider logs, exported recordings and wearer observations separate from automated results.
+
+## Partner voice checkpoint
+
+| Component | Version or evidence |
+|---|---|
+| Portal and lesson prompt | `f9f140e4e48bf3a5c5067e1db9af987e4e942135` |
+| Android source | `6790651` · Unity/Android build succeeded with zero errors. A subsequent Portal-only prompt change does not affect the APK. |
+| Signed S25 APK | `ImmerseTheBay-s25-6790651.apk` · SHA-256 `0ebf89c341cb69263cab45ab1b8b78fa1435d2b62e3595df48662edd8d2e2b33`. Display patch, signature and ZIP alignment verified. |
+| Automated verification | Portal check and 214 tests passed. Tenin standalone preview compiled. |
+| Real providers | Cartesia returned two distinct Japanese WAVs for the same clerk line using Haruka and Hiroshi. Live scenario generation with a male override and live photo generation from the bundled original checkout still with Auto each returned three N5 exchanges. |
+| Hardware | ADB listed no S25. Playback and casting continuity remain to be heard and seen on the device. |
+
+Use this checkpoint and its APK instead of the earlier build above for voice testing. Set the two voice IDs from `portal/.env.example`, restart the dev Portal with the pinned source, and install the signed APK over the matching debug build. Tenin applies the voice selected on the Live Lesson screen during generation and displays the resolved voice on the glasses setup screen. Open a photo-generated lesson and a voice-generated lesson with different choices. Compare the opening lines, retry and branch return, and replay from Review.
+
+Managed Cartesia conversations require both `CARTESIA_AGENT_ID_FEMALE` and `CARTESIA_AGENT_ID_MALE`. These were absent from the local config, so the verified audio path is scripted clerk speech. Live dictation, FPV capture and the rest of the master acceptance sequence remain tracked in #16.
