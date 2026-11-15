@@ -82,3 +82,11 @@ No Unity process was launched in this workstream, so generated `.meta` files mus
 be committed by integration after import, including `Assets/Scripts/Learning.meta`.
 World-space typography, XRI button interaction, speech permissions, classifications,
 and device rendering still require the S25 + Air 2 Ultra check.
+
+## Managed conversation parity
+
+`LearningAgentClient` now adds `CartesiaConversationClient` at runtime; no scene migration or device API key is needed. Configure the portal URL/token on the existing Visko config. The portal must have its Cartesia managed agent configured. Conversation and Return controls are exposed by the compact overlay. `SubmitIntent(string)` supports spontaneous shopping goals, and `ReturnToMain()` rejoins the saved checkpoint without restarting video.
+
+Lesson requests carry a unique request ID plus authoritative run/revision. Connection failures retry the identical body at most once; commands are claimed before sending and never retried after uncertain execution. Local operations are serialized and capped at 256 per lesson. Mirrored web events only render and update the cursor; they never execute video commands. Legacy events without operation metadata cannot authorize local controls.
+
+Voice startup and return to manual mode compare the read-only server snapshot. A changed run/revision requires restart, without replaying unknown commands. Legacy speech is stopped before voice capture. Client tool calls are deduplicated (256 per call), queued up to eight, and serialized through the same lesson state. Barge-in discards queued old-turn tools while an already-issued lesson operation finishes. Leave/pause/disable cancel requests and voice resources. Device microphone, echo cancellation and glasses presentation still require hardware verification; compilation alone does not verify them.

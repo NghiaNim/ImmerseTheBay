@@ -52,3 +52,7 @@ A repeated voice trial exposed a missed tool invocation: the agent verbally ackn
 After the mandatory-tool prompt update, a fresh real voice run passed in 23.6 seconds with three interruption clears, sandwich → water → rejoin, successful manual-mode snapshot reconciliation, and stopped microphone tracks. A subsequent run reached the same rejoin but its test assertion raced asynchronous response logging; the harness now awaits pending response reads before asserting route history. This test correction changes no product behavior.
 
 Final verification: 144 full-suite tests passed before the added prompt-regression assertion; the affected voice/config subset then passed 11 tests. Syntax and staged whitespace checks passed. No Unity build was required because only portal and documentation files changed.
+
+## Joint live acceptance follow-up
+
+On 2026-11-14 the strengthened joint test passed with real Dynamic and Cartesia in 51.469 seconds. It confirmed two interrupted assistant turns, three clear events, sandwich → water → saved-mainline rejoin, monotonic operation revisions, continuously advancing video across four native frames, manual-mode reconciliation and clean Leave. Earlier capacity/CDN failures remain above as availability evidence. Synthesized Japanese microphone input still does not verify human microphone acoustics. See IMPLEMENTATION-unity-conversation.md for native Unity parity and verification.

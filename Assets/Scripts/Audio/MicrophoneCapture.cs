@@ -25,6 +25,7 @@ namespace ImmerseTheBay.Audio
         /// </summary>
         public event Action<short[], int> OnPcmChunk;
 
+        public bool IsCaptureRequested => m_Starting || IsRecording;
         public bool IsRecording => m_Clip && Microphone.IsRecording(m_Device);
         public float Rms { get; private set; }
         public float Db { get; private set; } = -80f;

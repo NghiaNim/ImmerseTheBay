@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
+using ImmerseTheBay.Learning.Voice;
 using System.Text;
 using System.Threading.Tasks;
 using ImmerseTheBay.Visko;
@@ -23,6 +25,17 @@ namespace ImmerseTheBay.Learning
         [Tooltip("Optional StreamingAssets image. Uploaded and accepted before the first agent turn.")]
         public string startImage = "";
 
+        public CartesiaConversationClient conversation;
+        public bool IsConversationActive => m_VoiceActive || m_VoiceConnecting || m_Reconciling;
+        string m_RunId;
+        LearningResponse m_LastResponse;
+        int m_Revision, m_AudioTurn;
+        double m_LastPromptAt = double.NegativeInfinity;
+        bool m_VoiceActive, m_VoiceConnecting, m_Reconciling, m_ToolRunning, m_Cancelling;
+        readonly HashSet<string> m_Claims = new();
+        readonly HashSet<string> m_VoiceTools = new();
+        readonly Queue<(VoiceToolCall call, int turn)> m_Tools = new();
+
         public int Beat { get; private set; }
         public bool IsBusy { get; private set; }
         public bool IsDone { get; private set; }
@@ -45,6 +58,8 @@ namespace ImmerseTheBay.Learning
             if (!visko) visko = FindAnyObjectByType<ViskoSession>();
             if (!context) context = GetComponent<LearningContext>();
             if (!overlay) overlay = GetComponent<LearningOverlay>();
+            if (!conversation) conversation = GetComponent<CartesiaConversationClient>();
+            if (!conversation) conversation = gameObject.AddComponent<CartesiaConversationClient>();
             m_Debug = () => "<b>== LEARNING ==</b>\n" + Status +
                 $"\nlesson {m_RunLesson} line {Beat + 1} busy={IsBusy} done={IsDone}" +
                 $"\nspeech {(m_RecognitionPending ? "recognizing" : "idle")} restart={m_NeedsRestart}";
@@ -62,12 +77,16 @@ namespace ImmerseTheBay.Learning
                 overlay.NextRequested += Next;
                 if (visko) overlay.screen = visko.screen;
             }
+            if (conversation) { conversation.ToolCall += OnVoiceTool; conversation.StateChanged += OnVoiceState; conversation.Transcript += OnVoiceTranscript; conversation.Interrupted += OnVoiceInterrupted; }
+            if (overlay) { overlay.ConversationRequested += ToggleConversation; overlay.ReturnRequested += ReturnToMain; }
             m_Speech = speechProvider as ISpeechToText;
             SetStatus(Status);
         }
 
         void OnDisable()
         {
+            if (conversation) { conversation.ToolCall -= OnVoiceTool; conversation.StateChanged -= OnVoiceState; conversation.Transcript -= OnVoiceTranscript; conversation.Interrupted -= OnVoiceInterrupted; }
+            if (overlay) { overlay.ConversationRequested -= ToggleConversation; overlay.ReturnRequested -= ReturnToMain; }
             m_MirrorEpoch++;
             DebugRegistry.Unregister(m_Debug);
             if (visko) visko.OnLearnMessage -= OnLearnMessage;
@@ -124,7 +143,7 @@ namespace ImmerseTheBay.Learning
 
         async void BeginLessonInternal(byte[] jpg)
         {
-            if (!isActiveAndEnabled || IsBusy || m_RecognitionPending) return;
+            if (!isActiveAndEnabled || IsBusy || m_RecognitionPending || IsConversationActive) return;
             if (!visko || !visko.IsConnected || string.IsNullOrEmpty(visko.SessionId))
             { SetStatus("Connect the glasses to Visko before beginning a lesson."); return; }
             if (visko.glassesResolution != "native")
@@ -158,6 +177,7 @@ namespace ImmerseTheBay.Learning
                     await visko.SetImageFromStreamingAssets(startImage);
                     EnsureCurrent(generation);
                 }
+                m_RunId = null; m_Revision = 0; m_Claims.Clear();
                 await ExecuteTurn("", context ? context.Capture() : null, generation);
                 m_HasLesson = true;
                 m_NeedsRestart = false;
@@ -180,6 +200,8 @@ namespace ImmerseTheBay.Learning
             SetStatus("Left lesson.");
         }
 
+        public void SubmitIntent(string intent) => Submit("", context ? context.Capture() : null, intent);
+        public void ReturnToMain() => Submit("", context ? context.Capture() : null, null, "return_to_main");
         public void Next() => Submit("", context ? context.Capture("pinch") : new LearningContextSnapshot { gesture = "pinch" });
         public void Hint() => Submit("", context ? context.Capture("long_pinch") : new LearningContextSnapshot { gesture = "long_pinch" });
         void OnIntent(LearningContextSnapshot snapshot) => Submit("", snapshot);
@@ -249,9 +271,9 @@ namespace ImmerseTheBay.Learning
             if (overlay) overlay.SetListening(false);
         }
 
-        bool CanSubmit()
+        bool CanSubmit(bool fromVoice = false)
         {
-            if (!isActiveAndEnabled || IsBusy || m_RecognitionPending) return false;
+            if (!isActiveAndEnabled || IsBusy || m_RecognitionPending || m_Reconciling || (!fromVoice && IsConversationActive)) return false;
             if (IsDone) { SetStatus("Lesson complete."); return false; }
             if (m_NeedsRestart) { SetStatus("Lesson interrupted. Leave or begin again."); return false; }
             if (!m_HasLesson) { SetStatus("Begin a lesson or follow one from the web first."); return false; }
@@ -260,7 +282,7 @@ namespace ImmerseTheBay.Learning
             return true;
         }
 
-        async void Submit(string transcript, LearningContextSnapshot snapshot)
+        async void Submit(string transcript, LearningContextSnapshot snapshot, string intent = null, string action = null)
         {
             if (!CanSubmit()) return;
             int generation = m_Generation;
@@ -269,23 +291,44 @@ namespace ImmerseTheBay.Learning
             {
                 await visko.ConfigReady;
                 EnsureCurrent(generation);
-                await ExecuteTurn(transcript, snapshot, generation);
+                await ExecuteTurn(transcript, snapshot, generation, intent, action);
             }
             catch (OperationCanceledException) { }
             catch (Exception e) { FailTurn(generation, e); }
             finally { if (IsCurrent(generation)) SetBusy(false); }
         }
 
-        async Task ExecuteTurn(string transcript, LearningContextSnapshot snapshot, int generation)
+        async Task ExecuteTurn(string transcript, LearningContextSnapshot snapshot, int generation, string intent = null, string action = null)
         {
             SetStatus("Preparing the next scene…");
-            string json = await Post("/api/agent/turn", LearningContract.TurnJson(m_Session, m_RunLesson, Beat, transcript, snapshot), generation);
+            if (m_Claims.Count >= 256) throw new InvalidOperationException("Lesson operation limit reached; restart safely.");
+            string id = Guid.NewGuid().ToString("N");
+            string body = LearningContract.TurnJson(m_Session, m_RunLesson, Beat, transcript, snapshot, id, m_RunId, m_Revision, intent, action);
+            string json;
+            try { json = await Post("/api/agent/turn", body, generation); }
+            catch (TransportException) { EnsureCurrent(generation); json = await Post("/api/agent/turn", body, generation); }
             var response = LearningContract.ParseResponse(json);
+            LearningContract.ValidateOperation(response, id, m_RunId, m_Revision);
+            m_RunId = response.operation.runId; m_Revision = response.operation.revision;
+            if (!m_Claims.Add(id)) throw new InvalidOperationException("Scene operation already attempted.");
             foreach (var command in response.visko)
             {
                 EnsureCurrent(generation);
                 if (visko.glassesResolution != "native")
                     throw new InvalidOperationException("Glasses learning requires native resolution.");
+                if (command.name == "set_prompt")
+                {
+                    // Same pacing as Web. Every wait slice rechecks Leave/session cancellation.
+                    double remaining = 2.0 - (Time.realtimeSinceStartupAsDouble - m_LastPromptAt);
+                    while (remaining > 0)
+                    {
+                        await Task.Delay(Math.Max(1, Math.Min(100, (int)Math.Ceiling(remaining * 1000))));
+                        EnsureCurrent(generation);
+                        remaining = 2.0 - (Time.realtimeSinceStartupAsDouble - m_LastPromptAt);
+                    }
+                    EnsureCurrent(generation);
+                    m_LastPromptAt = Time.realtimeSinceStartupAsDouble;
+                }
                 await visko.CommandAsync(command.name, command.Arguments());
                 EnsureCurrent(generation);
             }
@@ -295,7 +338,7 @@ namespace ImmerseTheBay.Learning
             EnsureCurrent(generation);
             Beat = nextBeat;
             IsDone = response.advance == "scene_done";
-            if (overlay) overlay.Show(response.overlay, response.feedback, IsDone);
+            Present(response);
             SetStatus(IsDone ? "Lesson complete." : "");
         }
 
@@ -318,13 +361,17 @@ namespace ImmerseTheBay.Learning
                     response.beat < 0 || response.beat > 5000 || string.IsNullOrEmpty(response.lessonId)) return;
                 // Device matches the actual Reactor connection; editor matches the announced portal session.
                 if (response.sessionId != EffectiveSessionId()) return;
+                if (response.operation == null || string.IsNullOrEmpty(response.operation.runId)) { m_NeedsRestart = true; return; }
+                if (response.operation.runId == m_RunId && response.operation.revision <= m_Revision) return;
+                if (IsConversationActive) { m_NeedsRestart = true; conversation.Disconnect(); return; }
                 CancelSpeech();
+                m_RunId = response.operation.runId; m_Revision = response.operation.revision;
                 m_RunLesson = response.lessonId;
                 Beat = response.beat; // Already advanced by the driving client.
                 IsDone = response.advance == "scene_done";
                 m_HasLesson = true;
                 m_NeedsRestart = false;
-                if (overlay) overlay.Show(response.overlay, response.feedback, IsDone);
+                Present(response);
                 SetStatus(IsDone ? "Lesson complete." : "");
             }
             catch (Exception) { SetStatus("Received an invalid lesson update."); }
@@ -345,6 +392,8 @@ namespace ImmerseTheBay.Learning
                 var operation = request.SendWebRequest();
                 while (!operation.isDone) { EnsureCurrent(generation); await Task.Yield(); }
                 EnsureCurrent(generation);
+                if (request.result == UnityWebRequest.Result.ConnectionError && request.responseCode == 0)
+                    throw new TransportException();
                 if (request.result != UnityWebRequest.Result.Success)
                     throw new InvalidOperationException("Lesson service request failed (" + request.responseCode + ").");
                 return request.downloadHandler.text;
@@ -392,13 +441,134 @@ namespace ImmerseTheBay.Learning
 
         void CancelWork()
         {
+            m_Cancelling = true;
+            conversation?.Disconnect();
+            m_VoiceActive = m_VoiceConnecting = m_Reconciling = false;
+            m_Tools.Clear(); m_VoiceTools.Clear();
+            m_RunId = null; m_Revision = 0; m_Claims.Clear();
             m_Generation++;
+            m_Cancelling = false;
             m_Request?.Abort();
             CancelSpeech();
             SetBusy(false);
         }
 
-        void SetBusy(bool busy) { IsBusy = busy; if (overlay) overlay.SetBusy(busy); }
+        sealed class TransportException : Exception { public TransportException() : base("Lesson connection interrupted.") { } }
+
+        void Present(LearningResponse response)
+        {
+            m_LastResponse = response;
+            if (!overlay) return;
+            overlay.Show(response.overlay, response.feedback, IsDone);
+            overlay.SetRoute(response.route?.kind == "detour", response.route?.label);
+            overlay.SetClerkCaption(response.speech?.text);
+        }
+        string BindingJson() => "{\"sessionId\":" + LearningContract.Quote(m_Session) + ",\"lessonId\":" + LearningContract.Quote(m_RunLesson) + "}";
+        async Task VerifySnapshot(int generation)
+        {
+            string json = await Post("/api/agent/snapshot", BindingJson(), generation);
+            var state = json.Trim() == "null" ? null : JsonUtility.FromJson<LearningSnapshot>(json);
+            if (state == null || state.runId != m_RunId || state.revision != m_Revision || state.beat != Beat)
+                throw new InvalidOperationException("Lesson state changed; leave and restart. No video commands were replayed.");
+        }
+        public async void ToggleConversation()
+        {
+            if (m_VoiceActive || m_VoiceConnecting) { conversation.Disconnect(); return; }
+            if (!CanSubmit()) return;
+            CancelSpeech();
+            int generation = m_Generation;
+            m_VoiceConnecting = true; SetBusy(true);
+            try
+            {
+                await visko.ConfigReady; EnsureCurrent(generation);
+                float speechDeadline = Time.realtimeSinceStartup + 5f;
+                while (m_Speech != null && m_Speech.IsListening)
+                {
+                    EnsureCurrent(generation);
+                    if (!m_VoiceConnecting) return;
+                    if (Time.realtimeSinceStartup > speechDeadline) throw new InvalidOperationException("Legacy speech microphone is still releasing. Retry conversation.");
+                    await Task.Yield();
+                }
+                await VerifySnapshot(generation);
+                string json = await Post("/api/voice/token", BindingJson(), generation);
+                var token = JsonUtility.FromJson<LearningVoiceSession>(json);
+                if (token == null || token.runId != m_RunId || token.revision != m_Revision || string.IsNullOrEmpty(token.token)) throw new InvalidOperationException("Voice session does not match this lesson.");
+                if (!m_VoiceConnecting) return;
+                m_VoiceTools.Clear(); m_Tools.Clear();
+                m_Cancelling = true;
+                try { conversation.Connect(token.url, token.token); } finally { m_Cancelling = false; }
+            }
+            catch (OperationCanceledException) { }
+            catch (Exception e) { FailTurn(generation, e); conversation.Disconnect(); }
+            finally { if (IsCurrent(generation)) { m_VoiceConnecting = false; SetBusy(false); } }
+        }
+        void OnVoiceTranscript(string role, string text)
+        {
+            if (!m_VoiceActive) return;
+            if (role == "user") SetStatus(text); else if (overlay) overlay.SetClerkCaption(text);
+        }
+        void OnVoiceInterrupted() { m_AudioTurn++; }
+        void OnVoiceState(string state)
+        {
+            bool wasActive = m_VoiceActive || m_VoiceConnecting;
+            m_VoiceActive = state != "off";
+            if (state == "off") m_VoiceConnecting = false;
+            if (overlay) overlay.SetConversationState(m_VoiceActive, state == "speaking", conversation.Status);
+            if (state == "off" && wasActive && !m_Cancelling && isActiveAndEnabled) ReconcileVoice();
+        }
+        async void ReconcileVoice()
+        {
+            if (m_Reconciling) return;
+            m_Reconciling = true; if (overlay) overlay.SetControlsLocked(true);
+            int generation = m_Generation;
+            try
+            {
+                while (IsBusy) { EnsureCurrent(generation); await Task.Yield(); }
+                await VerifySnapshot(generation);
+            }
+            catch (OperationCanceledException) { }
+            catch (Exception e) { FailTurn(generation, e); }
+            finally { if (IsCurrent(generation)) { m_Reconciling = false; if (overlay) overlay.SetControlsLocked(m_NeedsRestart); } }
+        }
+        void OnVoiceTool(VoiceToolCall call)
+        {
+            if (!m_VoiceActive || string.IsNullOrEmpty(call.tool_call_id) || !m_VoiceTools.Add(call.tool_call_id)) return;
+            if (m_VoiceTools.Count > 256 || m_Tools.Count >= 8) { conversation.Disconnect(); SetStatus("Voice call limit reached. Reconnect."); return; }
+            m_Tools.Enqueue((call, m_AudioTurn));
+            if (!m_ToolRunning) DrainVoiceTools();
+        }
+        async void DrainVoiceTools()
+        {
+            m_ToolRunning = true;
+            int generation = m_Generation;
+            try
+            {
+                while (m_Tools.Count > 0 && m_VoiceActive && IsCurrent(generation))
+                {
+                    var queued = m_Tools.Dequeue(); var call = queued.call;
+                    bool failed = false; string result;
+                    try
+                    {
+                        if (queued.turn != m_AudioTurn || !CanSubmit(true)) throw new InvalidOperationException("Lesson action is unavailable or interrupted.");
+                        string intent = null, transcript = "", action = null;
+                        if (call.tool_name == "branch_scene" && !string.IsNullOrWhiteSpace(call.parameters?.intent)) intent = call.parameters.intent;
+                        else if (call.tool_name == "rehearse_line" && !string.IsNullOrWhiteSpace(call.parameters?.transcript)) transcript = call.parameters.transcript;
+                        else if (call.tool_name == "return_to_main") action = "return_to_main";
+                        else throw new InvalidOperationException("Unsupported lesson tool.");
+                        SetBusy(true);
+                        await ExecuteTurn(transcript, context ? context.Capture() : null, generation, intent, action);
+                        result = "{\"accepted\":true,\"beat\":" + Beat + ",\"overlay\":" + (m_LastResponse?.overlay == null ? "null" : JsonUtility.ToJson(m_LastResponse.overlay)) + ",\"route\":" + (m_LastResponse?.route == null ? "null" : JsonUtility.ToJson(m_LastResponse.route)) + ",\"complete\":" + (IsDone ? "true" : "false") + "}";
+                    }
+                    catch (OperationCanceledException) { return; }
+                    catch (Exception e) { failed = true; result = "{\"accepted\":false,\"error\":" + LearningContract.Quote(e.Message) + "}"; if (IsBusy) FailTurn(generation, e); }
+                    finally { if (IsCurrent(generation)) SetBusy(false); }
+                    if (m_VoiceActive && IsCurrent(generation) && call.expects_response) conversation.SendToolResult(call.tool_call_id, result, failed);
+                }
+            }
+            finally { m_ToolRunning = false; if (m_Tools.Count > 0 && m_VoiceActive) DrainVoiceTools(); }
+        }
+
+        void SetBusy(bool busy) { IsBusy = busy; if (overlay) { overlay.SetBusy(busy); overlay.SetControlsLocked(m_Reconciling || m_NeedsRestart); } }
         void SetStatus(string status) { Status = status ?? ""; if (overlay) overlay.SetStatus(Status); }
     }
 }

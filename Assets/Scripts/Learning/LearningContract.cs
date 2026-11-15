@@ -49,6 +49,17 @@ namespace ImmerseTheBay.Learning
         }
     }
 
+    [Serializable] public sealed class LearningOperation
+    { public string requestId, runId; public int revision; public bool replayed; }
+    [Serializable] public sealed class LearningRoute
+    { public string kind, label, nodeId; public int step, total, returnBeat; }
+    [Serializable] public sealed class LearningSpeech
+    { public string role, language, text; }
+    [Serializable] public sealed class LearningSnapshot
+    { public string runId; public int revision, beat; public LearningResponse response; }
+    [Serializable] public sealed class LearningVoiceSession
+    { public string url, token, version, runId; public int revision; }
+
     [Serializable]
     public sealed class LearningResponse
     {
@@ -56,6 +67,9 @@ namespace ImmerseTheBay.Learning
         public LearningOverlayData overlay;
         public LearningFeedback feedback;
         public string advance;
+        public LearningOperation operation;
+        public LearningRoute route;
+        public LearningSpeech speech;
         // Present only on /sync events. Their cursor is already advanced by the sender.
         public string type, sessionId, lessonId;
         public int beat;
@@ -106,13 +120,19 @@ namespace ImmerseTheBay.Learning
             return sb.Append("]}").ToString();
         }
 
-        public static string TurnJson(string session, string lesson, int beat, string transcript, LearningContextSnapshot context)
+        public static string TurnJson(string session, string lesson, int beat, string transcript, LearningContextSnapshot context, string requestId = null, string runId = null, int revision = 0, string intent = null, string action = null)
         {
             if (transcript != null && transcript.Length > 1000)
                 throw new ArgumentException("Speech result is too long; please use one sentence.");
+            if (intent != null && intent.Length > 1000) throw new ArgumentException("Intent is too long.");
+            if (action != null && action != "return_to_main" && action != "idle_hint") throw new ArgumentException("Invalid lesson action.");
+            if (action != null && (!string.IsNullOrEmpty(transcript) || !string.IsNullOrEmpty(intent))) throw new ArgumentException("Action cannot contain speech or intent.");
+            string operation = requestId == null ? "" : ",\"operation\":{\"requestId\":" + Quote(requestId) +
+                ",\"expectedRevision\":" + revision.ToString(CultureInfo.InvariantCulture) +
+                (string.IsNullOrEmpty(runId) ? "" : ",\"runId\":" + Quote(runId)) + "}";
             return "{\"sessionId\":" + Quote(session) + ",\"lessonId\":" + Quote(lesson) +
                 ",\"beat\":" + beat.ToString(CultureInfo.InvariantCulture) +
-                ",\"transcript\":" + Quote(transcript ?? "") + ",\"context\":" + ContextJson(context) + "}";
+                ",\"transcript\":" + Quote(transcript ?? "") + ",\"context\":" + ContextJson(context) + operation + (intent == null ? "" : ",\"intent\":" + Quote(intent)) + (action == null ? "" : ",\"action\":" + Quote(action)) + "}";
         }
 
         public static LearningResponse ParseResponse(string json, bool commandsRequired = true)
@@ -140,6 +160,14 @@ namespace ImmerseTheBay.Learning
                 }
             }
             return response;
+        }
+
+        public static void ValidateOperation(LearningResponse response, string requestId, string runId, int revision)
+        {
+            var op = response.operation;
+            if (op == null || op.requestId != requestId || string.IsNullOrEmpty(op.runId) ||
+                op.revision != revision + 1 || (!string.IsNullOrEmpty(runId) && op.runId != runId))
+                throw new FormatException("Stale or invalid lesson operation. Restart safely.");
         }
 
         public static string SyncJson(string responseJson, string session, string lesson, int beat)

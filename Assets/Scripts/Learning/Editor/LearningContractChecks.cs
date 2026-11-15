@@ -39,6 +39,16 @@ namespace ImmerseTheBay.Learning.Editor
             Reject(() => LearningContract.ParseResponse(next.Replace("next_line", "skip_scene")), "Unknown advance must fail.");
             Reject(() => LearningContract.ParseResponse(next.Replace("[]", "[{\"name\":\"delete_session\",\"data\":{}}]")), "Unknown commands must fail before execution.");
             Reject(() => LearningContract.TurnJson("session-1", "ja-home-001", 0, new string('a', 1001), null), "Oversized speech must fail locally.");
+            string branch = LearningContract.TurnJson("session-1", "ja-home-001", 0, "", null, "request-1", "run-1", 2, "sandwich");
+            Require(branch.Contains("\"expectedRevision\":2") && branch.Contains("\"intent\":\"sandwich\""), "Branch must carry replay metadata and intent.");
+            string control = LearningContract.TurnJson("session-1", "ja-home-001", 0, "", null, "request-2", "run-1", 3, null, "return_to_main");
+            Require(control.Contains("\"action\":\"return_to_main\""), "Return must be an explicit forward action.");
+            Reject(() => LearningContract.TurnJson("s", "l", 0, "spoken", null, action: "return_to_main"), "Control actions cannot contain speech.");
+            response.operation = new LearningOperation { requestId = "request-1", runId = "run-1", revision = 3, replayed = true };
+            LearningContract.ValidateOperation(response, "request-1", "run-1", 2);
+            Reject(() => LearningContract.ValidateOperation(response, "other", "run-1", 2), "Wrong request must never execute.");
+            Reject(() => LearningContract.ValidateOperation(response, "request-1", "old-run", 2), "Stale run must never execute.");
+            Reject(() => LearningContract.ValidateOperation(response, "request-1", "run-1", 3), "Repeated revision must never execute.");
             Debug.Log("[Learning] Agent contract checks passed.");
         }
 
