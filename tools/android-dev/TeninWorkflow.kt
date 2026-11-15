@@ -2,37 +2,49 @@ package com.immersethebay.phone
 
 import android.Manifest
 import android.app.Activity
+import android.app.Dialog
 import android.content.ActivityNotFoundException
-import android.content.ClipData
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Color
+import android.graphics.Matrix
+import android.graphics.SurfaceTexture
+import android.hardware.camera2.CameraCaptureSession
+import android.hardware.camera2.CameraCharacteristics
+import android.hardware.camera2.CameraDevice
+import android.hardware.camera2.CameraManager
+import android.hardware.camera2.CaptureRequest
+import android.hardware.display.DisplayManager
 import android.media.MediaRecorder
-import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.provider.MediaStore
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
+import android.util.Size
+import android.view.Surface
+import android.view.TextureView
+import android.view.View
+import android.view.ViewGroup.LayoutParams.MATCH_PARENT
+import android.view.Window
 import java.io.File
 import java.net.HttpURLConnection
 import java.util.concurrent.CancellationException
 import java.util.concurrent.Executors
+import kotlin.math.abs
 
 /**
  * Drives the Tenin Live Lesson screens with the phone workflow: camera or library photo → photo practice,
  * spoken goal → written lesson (optionally grounded with a photo afterwards), and the glasses hand-off.
  */
 object TeninWorkflow {
-    private const val CAMERA = 31
     private const val PICK = 32
     private const val CAMERA_PERMISSION = 33
     private const val MIC_PERMISSION = 34
-    private const val GRANTS = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
     private const val LEVEL = "N5"
 
     private val worker = Executors.newSingleThreadExecutor()
@@ -40,6 +52,7 @@ object TeninWorkflow {
     private val main = Handler(Looper.getMainLooper())
     private var owner: TeninActivity? = null
     private var expectedResult: Int? = null
+    private var camera: ScenePhotoCamera? = null
     private var expectedPermission: Int? = null
     private var spokenGoal: String? = null
     private var goalDraft = ""
@@ -74,15 +87,12 @@ object TeninWorkflow {
         spokenGoal = goal
         when (kind) {
             "photo" -> capture(activity)
-            "library" -> launchPhotoIntent(activity, Intent(Intent.ACTION_GET_CONTENT).setType("image/*"), PICK)
+            "library" -> pickPhoto(activity)
             "voice" -> showGoalDraft(activity)
         }
     }
 
     // --- photo ------------------------------------------------------------------------------------
-
-    private fun cameraFile(activity: Activity) = File(activity.cacheDir, "practice-capture.jpg")
-    private fun cameraUri(activity: Activity) = Uri.parse("content://${activity.packageName}.practice-camera/capture.jpg")
 
     private fun capture(activity: TeninActivity) {
         if (activity.checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
@@ -90,57 +100,62 @@ object TeninWorkflow {
             activity.requestPermissions(arrayOf(Manifest.permission.CAMERA), CAMERA_PERMISSION)
             return
         }
-        cameraFile(activity).delete()
-        launchPhotoIntent(activity, Intent(MediaStore.ACTION_IMAGE_CAPTURE).apply {
-            putExtra(MediaStore.EXTRA_OUTPUT, cameraUri(activity))
-            clipData = ClipData.newRawUri("Scene photo", cameraUri(activity))
-            addFlags(GRANTS)
-        }, CAMERA)
+        closeCamera()
+        val run = generation
+        val dialog = ScenePhotoCamera(activity, main, onPhoto = { frame ->
+            if (activity === owner && run == generation) {
+                preparePhoto(activity) {
+                    try { PracticePortal.encodeCroppedPhoto(frame) }
+                    finally { frame.recycle() }
+                }
+            } else frame.recycle()
+        }, onFailure = {
+            if (activity === owner && run == generation)
+                failed(activity, "The camera is unavailable. Try again, or choose a photo from your library.") {
+                    capture(activity)
+                }
+        })
+        camera = dialog
+        dialog.open()
     }
 
-    private fun launchPhotoIntent(activity: TeninActivity, intent: Intent, code: Int) {
-        expectedResult = code
+    private fun closeCamera() {
+        val current = camera
+        camera = null
+        current?.dismiss()
+    }
+
+    private fun pickPhoto(activity: TeninActivity) {
+        expectedResult = PICK
         try {
-            activity.startActivityForResult(intent, code)
+            activity.startActivityForResult(Intent(Intent.ACTION_GET_CONTENT).setType("image/*"), PICK)
         } catch (_: ActivityNotFoundException) {
             expectedResult = null
-            val other = if (code == CAMERA) "library" else "photo"
-            val message = if (code == CAMERA) "No camera app is available." else "No image picker is available."
-            failed(activity, message) { start(activity, other, spokenGoal) }
+            failed(activity, "No image picker is available.") { start(activity, "photo", spokenGoal) }
         }
     }
 
     fun onActivityResult(activity: TeninActivity, code: Int, result: Int, data: Intent?) {
-        if (activity !== owner || code != expectedResult) return
+        if (activity !== owner || code != PICK || code != expectedResult) return
         expectedResult = null
-        if (code == CAMERA) activity.revokeUriPermission(cameraUri(activity), GRANTS)
-        if (result != Activity.RESULT_OK) {
-            if (code == CAMERA) cameraFile(activity).delete()
-            return
-        }
-        val picked = data?.data
-        if (code == PICK && picked == null) return
+        if (result != Activity.RESULT_OK) return
+        val picked = data?.data ?: return
+        preparePhoto(activity) { PracticePortal.encodePhoto(activity, picked) }
+    }
+
+    private fun preparePhoto(activity: TeninActivity, encode: () -> ByteArray) {
+        closeCamera()
         activity.showPhotoProgress(null, listOf(TeninStep("Preparing your photo…", false)), ready = false,
             onContinue = {}, onRetake = {})
         val run = ++generation
-        val source = if (code == CAMERA) runCatching {
-            // Detach this capture from the fixed path used by the next camera intent.
-            File.createTempFile("practice-capture-", ".jpg", activity.cacheDir).also { file ->
-                if (!cameraFile(activity).renameTo(file)) {
-                    file.delete()
-                    throw IllegalStateException("Could not store captured photo")
-                }
-            }
-        }.getOrNull() else null
         worker.execute {
             val prepared = runCatching {
-                val image = if (code == CAMERA) try { PracticePortal.encodePhoto(requireNotNull(source)) } finally { source?.delete() }
-                    else PracticePortal.encodePhoto(activity, picked!!)
+                val image = encode()
                 PreparedPhoto(image, requireNotNull(BitmapFactory.decodeByteArray(image, 0, image.size)))
             }.getOrNull()
             ui(activity, run) {
                 when {
-                    prepared == null -> failed(activity, "Could not read that photo. Try another one.") { start(activity, "photo", spokenGoal) }
+                    prepared == null -> failed(activity, "Could not read that photo. Try another one.") { capture(activity) }
                     // Goal already said (Add a photo from the lesson summary): build right away.
                     spokenGoal != null -> buildFromPhoto(activity, prepared, spokenGoal!!, run)
                     // Otherwise ask what they need to do here, then send the photo with that goal.
@@ -416,9 +431,11 @@ object TeninWorkflow {
         }
     }
 
-    /** Release the microphone in the background, allowing a fresh take when the user returns. */
+    /** Release capture and recording in the background. */
     fun pause(activity: TeninActivity) {
-        if (activity !== owner || (recorder == null && recognizer == null)) return
+        if (activity !== owner) return
+        closeCamera()
+        if (recorder == null && recognizer == null) return
         generation++
         releaseRecognizer()
         discardRecording()
@@ -429,10 +446,7 @@ object TeninWorkflow {
     fun cancel(activity: TeninActivity) {
         if (activity !== owner) return
         owner = null
-        if (expectedResult == CAMERA) {
-            activity.revokeUriPermission(cameraUri(activity), GRANTS)
-            cameraFile(activity).delete()
-        }
+        closeCamera()
         expectedResult = null
         expectedPermission = null
         portalRecordingAfterPermission = false
@@ -485,5 +499,196 @@ object TeninWorkflow {
         Regex("doctor|clinic|hospital|pharmacy|医", RegexOption.IGNORE_CASE).containsMatchIn(text) -> TeninIcon.STETHOSCOPE
         Regex("home|house|家", RegexOption.IGNORE_CASE).containsMatchIn(text) -> TeninIcon.HOME
         else -> TeninIcon.SPARKLE
+    }
+}
+
+/** A portrait viewfinder that saves exactly the rendered rear-camera crop. All callbacks use main. */
+private class ScenePhotoCamera(
+    private val activity: TeninActivity,
+    private val main: Handler,
+    private val onPhoto: (Bitmap) -> Unit,
+    private val onFailure: () -> Unit,
+) : TextureView.SurfaceTextureListener, DisplayManager.DisplayListener {
+    private val dialog = Dialog(activity)
+    private val displays = activity.getSystemService(DisplayManager::class.java)
+    private val preview = object : TextureView(activity) {
+        override fun onMeasure(widthSpec: Int, heightSpec: Int) {
+            val units = MeasureSpec.getSize(widthSpec) / 16
+            super.onMeasure(MeasureSpec.makeMeasureSpec(units * 16, MeasureSpec.EXACTLY),
+                MeasureSpec.makeMeasureSpec(units * 9, MeasureSpec.EXACTLY))
+        }
+    }
+    private lateinit var shutter: View
+    private var device: CameraDevice? = null
+    private var session: CameraCaptureSession? = null
+    private var surface: Surface? = null
+    private var bufferSize: Size? = null
+    private var sensorOrientation = 0
+    private var frameDeadline: Runnable? = null
+    private var generation = 0
+    private var closed = false
+
+    fun open() {
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
+        dialog.setOnDismissListener { dismiss() }
+        preview.surfaceTextureListener = this
+        preview.contentDescription = "16:9 camera preview"
+        TeninUi(activity).run {
+            shutter = primaryButton("Capture photo", TeninIcon.CAMERA, ::snapshot).apply { isEnabled = false }
+            dialog.setContentView(screen(listOf(
+                header(back = ::dismiss, close = true),
+                title("Take a scene photo").margins(top = 18f),
+                body("Frame your scene inside the preview.").margins(top = 8f),
+                preview.fillWidth().margins(top = 16f),
+            ), footer = listOf(shutter)))
+        }
+        displays.registerDisplayListener(this, main)
+        dialog.show()
+        dialog.window?.setLayout(MATCH_PARENT, MATCH_PARENT)
+    }
+
+    override fun onSurfaceTextureAvailable(texture: SurfaceTexture, width: Int, height: Int) {
+        if (closed) return
+        val run = ++generation
+        val manager = activity.getSystemService(CameraManager::class.java)
+        frameDeadline = Runnable { fail(run) }.also { main.postDelayed(it, 6000) }
+        try {
+            val rear = manager.cameraIdList.firstOrNull { id ->
+                manager.getCameraCharacteristics(id).get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_BACK
+            } ?: error("Rear camera unavailable")
+            val settings = manager.getCameraCharacteristics(rear)
+            val sizes = settings.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
+                ?.getOutputSizes(SurfaceTexture::class.java).orEmpty()
+            val ordinary = sizes.filter { maxOf(it.width, it.height) <= 1920 }
+            // A 4:3 stream retains more of the upright image width when the phone is vertical.
+            val size = ordinary.ifEmpty { sizes.toList() }
+                .minWithOrNull(compareBy<Size> { abs(it.width / it.height.toFloat() - 4f / 3f) }
+                    .thenBy { abs(minOf(it.width, it.height) - 1080) }) ?: error("No preview size")
+            bufferSize = size
+            sensorOrientation = settings.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 0
+            texture.setDefaultBufferSize(size.width, size.height)
+            updateTransform(width, height)
+            val target = Surface(texture).also { surface = it }
+            manager.openCamera(rear, object : CameraDevice.StateCallback() {
+                override fun onOpened(camera: CameraDevice) {
+                    if (!active(run)) { camera.close(); return }
+                    device = camera
+                    previewCamera(camera, target, settings, run)
+                }
+                override fun onDisconnected(camera: CameraDevice) { camera.close(); fail(run) }
+                override fun onError(camera: CameraDevice, error: Int) { camera.close(); fail(run) }
+            }, main)
+        } catch (_: Exception) { fail(run) }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun previewCamera(camera: CameraDevice, target: Surface, settings: CameraCharacteristics, run: Int) {
+        try {
+            val request = camera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW).apply {
+                addTarget(target)
+                if (settings.get(CameraCharacteristics.CONTROL_AF_AVAILABLE_MODES)
+                        ?.contains(CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE) == true)
+                    set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
+            }.build()
+            camera.createCaptureSession(listOf(target), object : CameraCaptureSession.StateCallback() {
+                override fun onConfigured(configured: CameraCaptureSession) {
+                    if (!active(run)) { configured.close(); return }
+                    session = configured
+                    try { configured.setRepeatingRequest(request, null, main) }
+                    catch (_: Exception) { fail(run) }
+                }
+                override fun onConfigureFailed(configured: CameraCaptureSession) {
+                    configured.close()
+                    fail(run)
+                }
+            }, main)
+        } catch (_: Exception) { fail(run) }
+    }
+
+    override fun onSurfaceTextureSizeChanged(texture: SurfaceTexture, width: Int, height: Int) =
+        updateTransform(width, height)
+
+    override fun onSurfaceTextureUpdated(texture: SurfaceTexture) {
+        if (closed || session == null || texture.timestamp <= 0L || shutter.isEnabled) return
+        clearFrameDeadline()
+        shutter.isEnabled = true
+    }
+
+    override fun onSurfaceTextureDestroyed(texture: SurfaceTexture): Boolean {
+        releaseCamera()
+        return true
+    }
+
+    override fun onDisplayAdded(displayId: Int) = Unit
+    override fun onDisplayRemoved(displayId: Int) = Unit
+    override fun onDisplayChanged(displayId: Int) {
+        if (displayId == preview.display?.displayId) updateTransform(preview.width, preview.height)
+    }
+
+    private fun updateTransform(width: Int, height: Int) {
+        val size = bufferSize ?: return
+        if (width <= 0 || height <= 0) return
+        val rotation = (preview.display?.rotation ?: Surface.ROTATION_0) * 90
+        // TextureView applies sensor orientation first. Undo its independent X/Y stretch,
+        // then apply a uniform center fill and compensate for display rotation.
+        val swapped = sensorOrientation % 180 != 0
+        val imageWidth = if (swapped) size.height else size.width
+        val imageHeight = if (swapped) size.width else size.height
+        val quarterTurn = rotation % 180 != 0
+        val targetWidth = if (quarterTurn) height else width
+        val targetHeight = if (quarterTurn) width else height
+        val scale = maxOf(targetWidth.toFloat() / imageWidth, targetHeight.toFloat() / imageHeight)
+        val pivotX = width / 2f
+        val pivotY = height / 2f
+        preview.setTransform(Matrix().apply {
+            setScale(scale * imageWidth / width, scale * imageHeight / height, pivotX, pivotY)
+            postRotate(-rotation.toFloat(), pivotX, pivotY)
+        })
+    }
+
+    private fun snapshot() {
+        if (!shutter.isEnabled || preview.surfaceTexture?.timestamp?.let { it > 0L } != true) return
+        val frame = runCatching { preview.bitmap }.getOrNull()
+        if (frame == null || frame.width * 9 != frame.height * 16 ||
+            Color.alpha(frame.getPixel(frame.width / 2, frame.height / 2)) == 0) {
+            frame?.recycle()
+            fail(generation)
+            return
+        }
+        dismiss()
+        onPhoto(frame)
+    }
+
+    private fun active(run: Int) = !closed && run == generation
+
+    private fun fail(run: Int) {
+        if (!active(run)) return
+        dismiss()
+        onFailure()
+    }
+
+    private fun clearFrameDeadline() {
+        frameDeadline?.let(main::removeCallbacks)
+        frameDeadline = null
+    }
+
+    private fun releaseCamera() {
+        generation++
+        clearFrameDeadline()
+        if (::shutter.isInitialized) shutter.isEnabled = false
+        session?.close()
+        session = null
+        device?.close()
+        device = null
+        surface?.release()
+        surface = null
+    }
+
+    fun dismiss() {
+        if (closed) return
+        closed = true
+        displays.unregisterDisplayListener(this)
+        releaseCamera()
+        dialog.dismiss()
     }
 }

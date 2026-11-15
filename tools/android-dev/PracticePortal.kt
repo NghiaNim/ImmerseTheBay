@@ -67,7 +67,6 @@ object PracticePortal {
         }
         var upright: Bitmap = bitmap
         var cropped: Bitmap = bitmap
-        var output: Bitmap = bitmap
         try {
             upright = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, transform, true)
             val units = minOf(upright.width / 16, upright.height / 9)
@@ -75,16 +74,25 @@ object PracticePortal {
             val width = units * 16
             val height = units * 9
             cropped = Bitmap.createBitmap(upright, (upright.width - width) / 2, (upright.height - height) / 2, width, height)
-            output = if (width > 1280) Bitmap.createScaledBitmap(cropped, 1280, 720, true) else cropped
+            return encodeCroppedPhoto(cropped)
+        } finally {
+            if (cropped !== upright && cropped !== bitmap) cropped.recycle()
+            if (upright !== bitmap) upright.recycle()
+            bitmap.recycle()
+        }
+    }
+
+    /** Encodes an upright, already framed photo without changing the visible crop. */
+    fun encodeCroppedPhoto(cropped: Bitmap): ByteArray {
+        require(cropped.width.toLong() * 9 == cropped.height.toLong() * 16) { "Photo must have a 16:9 frame" }
+        val output = if (cropped.width > 1280) Bitmap.createScaledBitmap(cropped, 1280, 720, true) else cropped
+        try {
             return ByteArrayOutputStream().use { out ->
                 check(output.compress(Bitmap.CompressFormat.JPEG, 87, out)) { "Could not prepare photo" }
                 out.toByteArray()
             }
         } finally {
-            if (output !== cropped && output !== bitmap) output.recycle()
-            if (cropped !== upright && cropped !== bitmap) cropped.recycle()
-            if (upright !== bitmap) upright.recycle()
-            bitmap.recycle()
+            if (output !== cropped) output.recycle()
         }
     }
 
