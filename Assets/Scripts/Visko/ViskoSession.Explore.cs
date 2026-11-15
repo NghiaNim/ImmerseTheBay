@@ -25,7 +25,7 @@ namespace ImmerseTheBay.Visko
             var uv = new Vector2((localHit.x - bounds.min.x) / bounds.size.x, (localHit.y - bounds.min.y) / bounds.size.y);
             // Aim in the live center of the feathered surface; the periphery is the start photograph.
             var ellipse = new Vector2((uv.x - 0.5f) / 0.43f, (uv.y - 0.53f) / 0.49f);
-            if (ellipse.sqrMagnitude >= 0.64f) return false;
+            if (ellipse.sqrMagnitude >= 0.45f) return false;
 
             var material = screen.material;
             // The BGRA texture stores the first decoded row at v=0. Shader UV after the material

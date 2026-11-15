@@ -251,6 +251,7 @@ namespace ImmerseTheBay.Learning
                 }
                 m_RunId = null; m_Revision = 0; m_Claims.Clear();
                 await ExecuteTurn("", context ? context.Capture() : null, generation);
+                m_LocalExplore = true;
                 m_HasLesson = true;
                 m_NeedsRestart = false;
             }
@@ -533,6 +534,8 @@ namespace ImmerseTheBay.Learning
                 if (response.operation == null || string.IsNullOrEmpty(response.operation.runId)) { m_NeedsRestart = true; return; }
                 if (response.operation.runId == m_RunId && response.operation.revision <= m_Revision) return;
                 if (IsConversationActive) { m_NeedsRestart = true; conversation.Disconnect(); return; }
+                m_LocalExplore = false;
+                CancelExploreInput();
                 CancelSpeech();
                 if (response.operation.runId != m_RunId)
                 {
@@ -619,6 +622,7 @@ namespace ImmerseTheBay.Learning
 
         void CancelWork()
         {
+            m_LocalExplore = false;
             CancelExploreInput();
             m_ExploreReturnFrame = null;
             m_ActiveSceneId = m_PrefetchedSceneId = null;

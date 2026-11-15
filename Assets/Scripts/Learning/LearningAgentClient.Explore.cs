@@ -12,7 +12,7 @@ namespace ImmerseTheBay.Learning
     {
         const int ExploreJpegLimit = 2 * 1024 * 1024;
         const string ExploreJpegPrefix = "data:image/jpeg;base64,";
-        bool m_ExploreArmed;
+        bool m_ExploreArmed, m_LocalExplore;
         float m_ExploreUntil, m_ExploreMessageUntil;
         int m_ExploreEpoch;
         string m_ExploreMessage;
@@ -32,7 +32,7 @@ namespace ImmerseTheBay.Learning
             public string Prompt;
         }
 
-        bool CanExplore => HasActiveLesson && !IsDone && !IsBusy && !IsConversationActive &&
+        bool CanExplore => m_LocalExplore && HasActiveLesson && !IsDone && !IsBusy && !IsConversationActive &&
             m_LastResponse?.route?.kind != "detour" && !string.IsNullOrEmpty(m_RunId) && m_Revision > 0 &&
             visko && visko.IsConnected && visko.SessionId == m_Session && visko.CanExploreLiveFrame;
 
