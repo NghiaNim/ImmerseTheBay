@@ -30,3 +30,8 @@ cp "$repo/tools/android-dev/DevReferenceBuild.cs" "$dev/Assets/Editor/"
 cp "$repo/tools/android-dev/DevLessonControls.cs" "$integration/"
 cp "$repo/tools/android-dev/PhonePracticeActivity.kt"{,.meta} "$dev/Assets/Plugins/Android/"
 cp -R "$repo/tools/android-dev/PhonePractice.androidlib"{,.meta} "$dev/Assets/Plugins/Android/"
+# Tenin phone UI (home screen) and the workflow behind it; fonts ship as library assets.
+cp "$repo/tools/android-dev/"{PracticePortal,TeninWorkflow,TeninGlassesScreen}.kt "$dev/Assets/Plugins/Android/"
+cp "$repo/tools/android-dev/tenin/"{TeninUi,TeninScreens,TeninActivity}.kt "$dev/Assets/Plugins/Android/"
+mkdir -p "$dev/Assets/Plugins/Android/PhonePractice.androidlib/assets/fonts"
+cp "$repo/tools/android-dev/tenin/assets/fonts/"* "$dev/Assets/Plugins/Android/PhonePractice.androidlib/assets/fonts/"

@@ -1,0 +1,97 @@
+{
+  "id": "practice-30677276-cbea-4b9c-980b-07855f7c431f",
+  "visiblePartner": false,
+  "title": "日本家屋での訪問",
+  "level": "N5",
+  "partnerRole": {
+    "ja": "家の主人",
+    "en": "the homeowner"
+  },
+  "scenePrompt": "At fixed eye-level from the dark wooden entryway, the first-person view looks into an empty traditional Japanese home. A raised tatami room, dark timber beams, sliding paper-panel doors, windows, and a built-in hearth with a hanging kettle are visible in the original wide framing. The homeowner is off camera; keep the learner outside the view. Static composition.",
+  "audioPrompt": "Quiet indoor room tone with faint ambient air and subtle wooden-house creaks; no dialogue or music.",
+  "startImage": "/api/practice/images/practice-30677276-cbea-4b9c-980b-07855f7c431f",
+  "beats": [
+    {
+      "goal": "主人に靴をどこに置くか尋ね、座ってお茶をいただく。",
+      "lines": [
+        {
+          "jp": "こんにちは。靴はどこに置けばいいですか。",
+          "kana": "こんにちは。くつはどこにおけばいいですか。",
+          "romaji": "Konnichiwa. Kutsu wa doko ni okeba ii desu ka?",
+          "zh": "您好。鞋子应该放在哪里？",
+          "en": "Hello. Where should I put my shoes?",
+          "cue": "The raised tatami floor and dark wooden entryway remain still in view.",
+          "partner": null
+        },
+        {
+          "jp": "はい、ありがとうございます。",
+          "kana": "はい、ありがとうございます。",
+          "romaji": "Hai, arigatō gozaimasu.",
+          "zh": "好的，谢谢您。",
+          "en": "Yes, thank you.",
+          "cue": "The empty entryway and raised tatami room stay in the same framing.",
+          "partner": {
+            "jp": "こちらに置いてください。どうぞお上がりください。",
+            "kana": "こちらにおいてください。どうぞおあがりください。",
+            "romaji": "Kochira ni oite kudasai. Dōzo oagari kudasai.",
+            "zh": "请放在这边。请进。",
+            "en": "Please put them here. Please come in."
+          }
+        },
+        {
+          "jp": "ありがとうございます。お茶をいただきます。",
+          "kana": "ありがとうございます。おちゃをいただきます。",
+          "romaji": "Arigatō gozaimasu. Ocha o itadakimasu.",
+          "zh": "谢谢您。我来喝茶了。",
+          "en": "Thank you. I'll have some tea.",
+          "cue": "The tatami room, sliding doors, and hanging kettle remain stationary.",
+          "partner": {
+            "jp": "どうぞ、こちらにお座りください。お茶をどうぞ。",
+            "kana": "どうぞ、こちらにおすわりください。おちゃをどうぞ。",
+            "romaji": "Dōzo, kochira ni osuwari kudasai. Ocha o dōzo.",
+            "zh": "请坐这边。请用茶。",
+            "en": "Please sit here. Please have some tea."
+          }
+        }
+      ],
+      "vocab": [
+        {
+          "jp": "靴",
+          "kana": "くつ",
+          "en": "shoes",
+          "objectHint": "Footwear brought into a home"
+        },
+        {
+          "jp": "どこ",
+          "kana": "どこ",
+          "en": "where",
+          "objectHint": "Asking about a place"
+        },
+        {
+          "jp": "置く",
+          "kana": "おく",
+          "en": "to put; to place",
+          "objectHint": "Setting an item down"
+        },
+        {
+          "jp": "上がる",
+          "kana": "あがる",
+          "en": "to go in; to step up",
+          "objectHint": "Entering a raised room"
+        },
+        {
+          "jp": "座る",
+          "kana": "すわる",
+          "en": "to sit",
+          "objectHint": "Taking a seat"
+        },
+        {
+          "jp": "お茶",
+          "kana": "おちゃ",
+          "en": "tea",
+          "objectHint": "A drink offered to a guest"
+        }
+      ]
+    }
+  ]
+}

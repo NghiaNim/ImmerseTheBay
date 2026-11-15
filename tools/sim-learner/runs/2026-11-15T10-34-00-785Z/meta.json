@@ -1,0 +1,293 @@
+{
+  "base": "http://localhost:8793",
+  "startedAt": "2026-11-15T10:34:00.809Z",
+  "finishedAt": "2026-11-15T10:36:50.096Z",
+  "personas": [
+    "beginner",
+    "nearMiss",
+    "adversarial",
+    "silence",
+    "strong",
+    "detours"
+  ],
+  "lessons": [
+    {
+      "id": "ja-konbini-001",
+      "kind": "bundled"
+    },
+    {
+      "id": "ja-home-001",
+      "kind": "bundled"
+    },
+    {
+      "id": "practice-30677276-cbea-4b9c-980b-07855f7c431f",
+      "kind": "photo"
+    }
+  ],
+  "photo": {
+    "file": "tokyo-house-interior.jpg",
+    "goal": "我想问主人鞋子应该放在哪里，然后坐下喝茶",
+    "status": 200,
+    "latencyMs": 9197,
+    "error": null,
+    "lessonId": "practice-30677276-cbea-4b9c-980b-07855f7c431f",
+    "expiresAt": 1794740650007
+  },
+  "runs": [
+    {
+      "persona": "silence",
+      "lessonId": "ja-konbini-001",
+      "lessonKind": "bundled",
+      "file": "/Users/nickynimmy/Documents/ImmerseTheBay/ImmerseTheBay/tools/sim-learner/runs/2026-11-15T10-34-00-785Z/ja-konbini-001__silence.jsonl",
+      "sessionId": "practice-sim-silence-ja-konbini-001-8a07a273",
+      "runId": "adb6831c-ad96-4bcb-9b02-d05363dc34bb",
+      "crash": null,
+      "turns": 14
+    },
+    {
+      "persona": "beginner",
+      "lessonId": "ja-konbini-001",
+      "lessonKind": "bundled",
+      "file": "/Users/nickynimmy/Documents/ImmerseTheBay/ImmerseTheBay/tools/sim-learner/runs/2026-11-15T10-34-00-785Z/ja-konbini-001__beginner.jsonl",
+      "sessionId": "practice-sim-beginner-ja-konbini-001-87ac8319",
+      "runId": "434c69ba-17f3-4b2a-931f-d2e1a4a55026",
+      "crash": null,
+      "turns": 13
+    },
+    {
+      "persona": "nearMiss",
+      "lessonId": "ja-konbini-001",
+      "lessonKind": "bundled",
+      "file": "/Users/nickynimmy/Documents/ImmerseTheBay/ImmerseTheBay/tools/sim-learner/runs/2026-11-15T10-34-00-785Z/ja-konbini-001__nearMiss.jsonl",
+      "sessionId": "practice-sim-nearMiss-ja-konbini-001-51bd9c4d",
+      "runId": "2bccd7a4-d88b-4d3c-8478-63fb710d7655",
+      "crash": null,
+      "turns": 13
+    },
+    {
+      "persona": "adversarial",
+      "lessonId": "ja-konbini-001",
+      "lessonKind": "bundled",
+      "file": "/Users/nickynimmy/Documents/ImmerseTheBay/ImmerseTheBay/tools/sim-learner/runs/2026-11-15T10-34-00-785Z/ja-konbini-001__adversarial.jsonl",
+      "sessionId": "practice-sim-adversarial-ja-konbini-001-2372d1ee",
+      "runId": "a27f3102-3b5b-4bd3-84b9-61043a535f98",
+      "crash": null,
+      "turns": 19
+    },
+    {
+      "persona": "strong",
+      "lessonId": "ja-konbini-001",
+      "lessonKind": "bundled",
+      "file": "/Users/nickynimmy/Documents/ImmerseTheBay/ImmerseTheBay/tools/sim-learner/runs/2026-11-15T10-34-00-785Z/ja-konbini-001__strong.jsonl",
+      "sessionId": "practice-sim-strong-ja-konbini-001-1577c544",
+      "runId": "8443abbc-0ea6-4eee-bd64-38884c40ff33",
+      "crash": null,
+      "turns": 18
+    },
+    {
+      "persona": "beginner",
+      "lessonId": "ja-home-001",
+      "lessonKind": "bundled",
+      "file": "/Users/nickynimmy/Documents/ImmerseTheBay/ImmerseTheBay/tools/sim-learner/runs/2026-11-15T10-34-00-785Z/ja-home-001__beginner.jsonl",
+      "sessionId": "practice-sim-beginner-ja-home-001-e842a4e8",
+      "runId": "7dfb384e-43e7-4660-b7b0-a7184ed04fba",
+      "crash": null,
+      "turns": 13
+    },
+    {
+      "persona": "nearMiss",
+      "lessonId": "ja-home-001",
+      "lessonKind": "bundled",
+      "file": "/Users/nickynimmy/Documents/ImmerseTheBay/ImmerseTheBay/tools/sim-learner/runs/2026-11-15T10-34-00-785Z/ja-home-001__nearMiss.jsonl",
+      "sessionId": "practice-sim-nearMiss-ja-home-001-96f8830d",
+      "runId": "28146f34-d94d-4e7f-9c81-f819ea564778",
+      "crash": null,
+      "turns": 11
+    },
+    {
+      "persona": "detours",
+      "lessonId": "ja-konbini-001",
+      "lessonKind": "bundled",
+      "file": "/Users/nickynimmy/Documents/ImmerseTheBay/ImmerseTheBay/tools/sim-learner/runs/2026-11-15T10-34-00-785Z/ja-konbini-001__detours.jsonl",
+      "sessionId": "practice-sim-detours-ja-konbini-001-90ec2901",
+      "runId": "6fee03d7-64d4-4edd-a98b-65d639d377f6",
+      "crash": null,
+      "turns": 21
+    },
+    {
+      "persona": "silence",
+      "lessonId": "ja-home-001",
+      "lessonKind": "bundled",
+      "file": "/Users/nickynimmy/Documents/ImmerseTheBay/ImmerseTheBay/tools/sim-learner/runs/2026-11-15T10-34-00-785Z/ja-home-001__silence.jsonl",
+      "sessionId": "practice-sim-silence-ja-home-001-266481d9",
+      "runId": "141e2605-3297-48bc-a641-ca7efa5b35a4",
+      "crash": null,
+      "turns": 14
+    },
+    {
+      "persona": "adversarial",
+      "lessonId": "ja-home-001",
+      "lessonKind": "bundled",
+      "file": "/Users/nickynimmy/Documents/ImmerseTheBay/ImmerseTheBay/tools/sim-learner/runs/2026-11-15T10-34-00-785Z/ja-home-001__adversarial.jsonl",
+      "sessionId": "practice-sim-adversarial-ja-home-001-2c38b1ac",
+      "runId": "783d40ad-f61d-4f6e-a330-d13c821777e2",
+      "crash": null,
+      "turns": 18
+    },
+    {
+      "persona": "strong",
+      "lessonId": "ja-home-001",
+      "lessonKind": "bundled",
+      "file": "/Users/nickynimmy/Documents/ImmerseTheBay/ImmerseTheBay/tools/sim-learner/runs/2026-11-15T10-34-00-785Z/ja-home-001__strong.jsonl",
+      "sessionId": "practice-sim-strong-ja-home-001-2fa89bb9",
+      "runId": "5f00647a-57aa-4e74-a77c-9a5a7c37a84a",
+      "crash": null,
+      "turns": 16
+    },
+    {
+      "persona": "nearMiss",
+      "lessonId": "practice-30677276-cbea-4b9c-980b-07855f7c431f",
+      "lessonKind": "photo",
+      "file": "/Users/nickynimmy/Documents/ImmerseTheBay/ImmerseTheBay/tools/sim-learner/runs/2026-11-15T10-34-00-785Z/photo__nearMiss.jsonl",
+      "sessionId": "practice-sim-nearMiss-practice-30677276-cb-3ee606f4",
+      "runId": "3aa88059-0212-4063-8452-f277d8fcb847",
+      "crash": null,
+      "turns": 4
+    },
+    {
+      "persona": "beginner",
+      "lessonId": "practice-30677276-cbea-4b9c-980b-07855f7c431f",
+      "lessonKind": "photo",
+      "file": "/Users/nickynimmy/Documents/ImmerseTheBay/ImmerseTheBay/tools/sim-learner/runs/2026-11-15T10-34-00-785Z/photo__beginner.jsonl",
+      "sessionId": "practice-sim-beginner-practice-30677276-cb-900bd391",
+      "runId": "2f534f5a-b37d-4916-8ccc-d8e3b4ba00dc",
+      "crash": null,
+      "turns": 13
+    },
+    {
+      "persona": "detours",
+      "lessonId": "ja-home-001",
+      "lessonKind": "bundled",
+      "file": "/Users/nickynimmy/Documents/ImmerseTheBay/ImmerseTheBay/tools/sim-learner/runs/2026-11-15T10-34-00-785Z/ja-home-001__detours.jsonl",
+      "sessionId": "practice-sim-detours-ja-home-001-cc5b8f48",
+      "runId": "466544f8-cfd6-4705-b636-e6ba343e6af6",
+      "crash": null,
+      "turns": 20
+    },
+    {
+      "persona": "strong",
+      "lessonId": "practice-30677276-cbea-4b9c-980b-07855f7c431f",
+      "lessonKind": "photo",
+      "file": "/Users/nickynimmy/Documents/ImmerseTheBay/ImmerseTheBay/tools/sim-learner/runs/2026-11-15T10-34-00-785Z/photo__strong.jsonl",
+      "sessionId": "practice-sim-strong-practice-30677276-cb-f544d5ba",
+      "runId": "9355a848-3731-4fa1-becd-e4127232ba33",
+      "crash": null,
+      "turns": 7
+    },
+    {
+      "persona": "silence",
+      "lessonId": "practice-30677276-cbea-4b9c-980b-07855f7c431f",
+      "lessonKind": "photo",
+      "file": "/Users/nickynimmy/Documents/ImmerseTheBay/ImmerseTheBay/tools/sim-learner/runs/2026-11-15T10-34-00-785Z/photo__silence.jsonl",
+      "sessionId": "practice-sim-silence-practice-30677276-cb-3c2643b2",
+      "runId": "531df1a4-6280-43c4-977a-dd4551f99dd6",
+      "crash": null,
+      "turns": 14
+    },
+    {
+      "persona": "adversarial",
+      "lessonId": "practice-30677276-cbea-4b9c-980b-07855f7c431f",
+      "lessonKind": "photo",
+      "file": "/Users/nickynimmy/Documents/ImmerseTheBay/ImmerseTheBay/tools/sim-learner/runs/2026-11-15T10-34-00-785Z/photo__adversarial.jsonl",
+      "sessionId": "practice-sim-adversarial-practice-30677276-cb-ee962d18",
+      "runId": "e1b2abb5-1da2-4709-83e7-f30524bb24ef",
+      "crash": null,
+      "turns": 18
+    },
+    {
+      "persona": "detours",
+      "lessonId": "practice-30677276-cbea-4b9c-980b-07855f7c431f",
+      "lessonKind": "photo",
+      "file": "/Users/nickynimmy/Documents/ImmerseTheBay/ImmerseTheBay/tools/sim-learner/runs/2026-11-15T10-34-00-785Z/photo__detours.jsonl",
+      "sessionId": "practice-sim-detours-practice-30677276-cb-b3b14a5c",
+      "runId": "0aeffb88-6635-4fe1-a5b5-d6091e4dd448",
+      "crash": null,
+      "turns": 19
+    }
+  ],
+  "recordCleanup": [
+    {
+      "runId": "adb6831c-ad96-4bcb-9b02-d05363dc34bb",
+      "status": 200
+    },
+    {
+      "runId": "434c69ba-17f3-4b2a-931f-d2e1a4a55026",
+      "status": 200
+    },
+    {
+      "runId": "2bccd7a4-d88b-4d3c-8478-63fb710d7655",
+      "status": 200
+    },
+    {
+      "runId": "a27f3102-3b5b-4bd3-84b9-61043a535f98",
+      "status": 200
+    },
+    {
+      "runId": "8443abbc-0ea6-4eee-bd64-38884c40ff33",
+      "status": 200
+    },
+    {
+      "runId": "7dfb384e-43e7-4660-b7b0-a7184ed04fba",
+      "status": 200
+    },
+    {
+      "runId": "28146f34-d94d-4e7f-9c81-f819ea564778",
+      "status": 200
+    },
+    {
+      "runId": "6fee03d7-64d4-4edd-a98b-65d639d377f6",
+      "status": 200
+    },
+    {
+      "runId": "141e2605-3297-48bc-a641-ca7efa5b35a4",
+      "status": 200
+    },
+    {
+      "runId": "783d40ad-f61d-4f6e-a330-d13c821777e2",
+      "status": 200
+    },
+    {
+      "runId": "5f00647a-57aa-4e74-a77c-9a5a7c37a84a",
+      "status": 200
+    },
+    {
+      "runId": "3aa88059-0212-4063-8452-f277d8fcb847",
+      "status": 200
+    },
+    {
+      "runId": "2f534f5a-b37d-4916-8ccc-d8e3b4ba00dc",
+      "status": 200
+    },
+    {
+      "runId": "466544f8-cfd6-4705-b636-e6ba343e6af6",
+      "status": 200
+    },
+    {
+      "runId": "9355a848-3731-4fa1-becd-e4127232ba33",
+      "status": 200
+    },
+    {
+      "runId": "531df1a4-6280-43c4-977a-dd4551f99dd6",
+      "status": 200
+    },
+    {
+      "runId": "e1b2abb5-1da2-4709-83e7-f30524bb24ef",
+      "status": 200
+    },
+    {
+      "runId": "0aeffb88-6635-4fe1-a5b5-d6091e4dd448",
+      "status": 200
+    }
+  ],
+  "visko": "never connected; commands recorded only"
+}

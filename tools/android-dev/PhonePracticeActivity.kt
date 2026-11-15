@@ -9,31 +9,29 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.database.Cursor
 import android.database.MatrixCursor
-import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import android.graphics.Matrix
-import android.media.ExifInterface
+import android.media.MediaRecorder
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.os.ParcelFileDescriptor
+import android.os.SystemClock
 import android.provider.MediaStore
 import android.provider.OpenableColumns
-import android.speech.RecognizerIntent
 import android.text.InputFilter
-import android.util.Base64
+import android.view.MotionEvent
 import android.widget.*
 import org.json.JSONObject
-import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileNotFoundException
 import java.net.HttpURLConnection
-import java.net.URL
 import java.util.concurrent.Executors
 import kotlin.math.roundToInt
 
 private const val CAMERA = 18
 private const val CAMERA_PERMISSION = 19
-private const val VOICE = 20
+private const val MIC_PERMISSION = 21
+private const val HOLD_LABEL = "Hold to say your goal"
 private const val GRANTS = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
 
 /** One private cache file exposed only to the camera activity holding a temporary URI grant. */
@@ -63,14 +61,12 @@ class PracticeCameraOutput : ContentProvider() {
 
 class PhonePracticeActivity : Activity() {
     companion object {
-        private data class Pending(val id: String, val title: String, val image: ByteArray, val expires: Long)
         private data class Session(val id: String, val title: String, val startImage: String = "")
-        @Volatile private var ready: List<Pending> = emptyList()
-        @Volatile private var selected: Session? = null
-        private fun available() = ready.filter { it.expires > System.currentTimeMillis() }
-        @JvmStatic fun selectedSession(): Array<String> =
-            selected?.let { arrayOf(it.id, it.startImage, it.title) } ?: emptyArray()
-        @JvmStatic fun pendingImage(id: String): ByteArray? = available().firstOrNull { it.id == id }?.image
+        // Unity reads the hand-off through these statics; both phone screens share PracticePortal.
+        @JvmStatic fun selectedSession(): Array<String> = PracticePortal.selectedSession()
+        @JvmStatic fun pendingImage(id: String): ByteArray? = PracticePortal.pendingImage(id)
+        @JvmStatic fun consumeLaunchRequest(): Boolean = PracticePortal.consumeLaunchRequest()
+        @JvmStatic fun consumeEndRequest(): Boolean = PracticePortal.consumeEndRequest()
     }
 
     private val worker = Executors.newSingleThreadExecutor()
@@ -78,7 +74,8 @@ class PhonePracticeActivity : Activity() {
     private lateinit var goal: EditText
     private lateinit var state: TextView
     private lateinit var takePhoto: Button
-    private lateinit var dictate: Button
+    private lateinit var holdGoal: Button
+    private lateinit var language: RadioGroup
     private lateinit var generate: Button
     private lateinit var openGlasses: Button
     private lateinit var sessionPicker: RadioGroup
@@ -86,10 +83,14 @@ class PhonePracticeActivity : Activity() {
     private var sessionsByViewId: Map<Int, Session> = emptyMap()
     private var photo: ByteArray? = null
     private var busy = false
+    private var recorder: MediaRecorder? = null
+    private var recordStartedAt = 0L
+    private var latched = false
     @Volatile private var connection: HttpURLConnection? = null
     @Volatile private var closed = false
     private val cameraUri: Uri get() = Uri.parse("content://$packageName.practice-camera/capture.jpg")
     private val cameraFile: File get() = File(cacheDir, "practice-capture.jpg")
+    private val goalAudio: File get() = File(cacheDir, "practice-goal.m4a")
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -105,23 +106,9 @@ class PhonePracticeActivity : Activity() {
             panel.addView(this)
         }
         label("ImmerseTheBay", 24f)
-        label("Choose a practice session", 20f)
-        sessionPicker = RadioGroup(this).apply {
-            orientation = RadioGroup.VERTICAL
-            panel.addView(this)
-        }
-        openGlasses = button("Open selected session in glasses") {
-            val session = sessionsByViewId[sessionPicker.checkedRadioButtonId] ?: return@button
-            if (session.startImage.isBlank() && pendingImage(session.id) == null) {
-                refreshSessions()
-                state.text = "This photo practice expired. Select another session or create one again."
-                return@button
-            }
-            selected = session
-            startActivity(Intent().setClassName(packageName, "ai.nreal.activitylife.NRXRActivity"))
-        }
-        label("Practice from your surroundings", 20f)
-        label("Take a photo, add a goal, then create a short Japanese practice.", 16f)
+        // Same flow as the web app: photo + spoken goal create the practice automatically.
+        label("Practise where you are", 20f)
+        label("Take a photo, then hold the button and say what you want to practise. The practice is created for you.", 16f)
         preview = ImageView(this).apply {
             contentDescription = "Scene photo preview"
             scaleType = ImageView.ScaleType.FIT_CENTER
@@ -129,24 +116,60 @@ class PhonePracticeActivity : Activity() {
             panel.addView(this, LinearLayout.LayoutParams(-1, dp(190f)))
         }
         takePhoto = button("Take scene photo", ::capture)
+        language = RadioGroup(this).apply {
+            orientation = RadioGroup.HORIZONTAL
+            contentDescription = "Language you will speak"
+            listOf("zh" to "中文", "en" to "English", "ja" to "日本語").forEach { (code, name) ->
+                addView(RadioButton(this@PhonePracticeActivity).apply { id = android.view.View.generateViewId(); text = name; tag = code })
+            }
+            check(getChildAt(0).id)
+            panel.addView(this)
+        }
+        holdGoal = button(HOLD_LABEL) {}
+        holdGoal.setOnTouchListener { view, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> { if (recorder != null && latched) stopGoalRecording() else startGoalRecording(); true }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    // Hold and release, or tap to start and tap again to finish.
+                    if (recorder != null && !latched) {
+                        if (SystemClock.elapsedRealtime() - recordStartedAt < 350) {
+                            latched = true
+                            holdGoal.text = "Tap to finish"
+                            state.text = "Listening… tap again when you are done."
+                        } else stopGoalRecording()
+                    }
+                    if (event.actionMasked == MotionEvent.ACTION_UP) view.performClick()
+                    true
+                }
+                else -> false
+            }
+        }
         goal = EditText(this).apply {
-            hint = "What would you like to practice?"
+            hint = "Or type what you want to practise"
             filters = arrayOf(InputFilter.LengthFilter(500))
             inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
             panel.addView(this)
         }
-        dictate = button("Say my goal") {
-            try {
-                startActivityForResult(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
-                    .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM), VOICE)
-            } catch (_: android.content.ActivityNotFoundException) {
-                state.text = "Speech input is unavailable. Type your goal instead."
-            }
-        }
-        generate = button("Upload and create practice", ::upload)
+        generate = button("Create practice", ::upload)
         state = label("", 16f).apply { accessibilityLiveRegion = android.view.View.ACCESSIBILITY_LIVE_REGION_POLITE }
+        openGlasses = button("Start in glasses") {
+            val session = sessionsByViewId[sessionPicker.checkedRadioButtonId] ?: return@button
+            if (session.startImage.isBlank() && PracticePortal.pendingImage(session.id) == null) {
+                refreshSessions()
+                state.text = "This photo practice expired. Select another session or create one again."
+                return@button
+            }
+            PracticePortal.select(session.id, session.startImage, session.title)
+            PracticePortal.requestLaunch()
+            startActivity(Intent().setClassName(packageName, "ai.nreal.activitylife.NRXRActivity"))
+        }
+        label("Or choose a session", 20f)
+        sessionPicker = RadioGroup(this).apply {
+            orientation = RadioGroup.VERTICAL
+            panel.addView(this)
+        }
         presets = loadPresets()
-        refreshSessions(selected?.id)
+        refreshSessions(PracticePortal.selectedSession().getOrNull(0))
         sessionPicker.setOnCheckedChangeListener { _, _ -> updateButtons() }
         setContentView(ScrollView(this).apply { addView(panel); isFillViewport = true })
         updateButtons()
@@ -163,7 +186,7 @@ class PhonePracticeActivity : Activity() {
         }.sortedBy { it.id != "ja-konbini-001" }
 
     private fun refreshSessions(preferredId: String? = sessionsByViewId[sessionPicker.checkedRadioButtonId]?.id) {
-        val photoSessions = available().map { Session(it.id, it.title) }
+        val photoSessions = PracticePortal.available().map { Session(it.id, it.title) }
         val choices = presets + photoSessions
         sessionPicker.clearCheck()
         sessionPicker.removeAllViews()
@@ -183,9 +206,10 @@ class PhonePracticeActivity : Activity() {
 
     private fun updateButtons() {
         takePhoto.isEnabled = !busy
-        dictate.isEnabled = !busy
-        goal.isEnabled = !busy
-        generate.isEnabled = !busy && photo != null
+        holdGoal.isEnabled = !busy || recorder != null
+        for (index in 0 until language.childCount) language.getChildAt(index).isEnabled = !busy && recorder == null
+        goal.isEnabled = !busy && recorder == null
+        generate.isEnabled = !busy && recorder == null && photo != null
         openGlasses.isEnabled = !busy && sessionPicker.checkedRadioButtonId != -1
     }
 
@@ -210,14 +234,13 @@ class PhonePracticeActivity : Activity() {
         super.onRequestPermissionsResult(code, permissions, grants)
         if (code == CAMERA_PERMISSION && grants.firstOrNull() == PackageManager.PERMISSION_GRANTED) capture()
         else if (code == CAMERA_PERMISSION) state.text = "Allow camera access to take a scene photo."
+        if (code == MIC_PERMISSION) state.text = if (grants.firstOrNull() == PackageManager.PERMISSION_GRANTED)
+            "Microphone allowed. Hold the button and say your goal." else "Allow the microphone to say your goal, or type it instead."
     }
 
     @Deprecated("Uses Android's external camera and speech activities.")
     override fun onActivityResult(code: Int, result: Int, data: Intent?) {
         super.onActivityResult(code, result, data)
-        if (code == VOICE && result == RESULT_OK) {
-            data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()?.let { goal.setText(it) }
-        }
         if (code != CAMERA) return
         revokeUriPermission(cameraUri, GRANTS)
         if (result != RESULT_OK) {
@@ -228,14 +251,16 @@ class PhonePracticeActivity : Activity() {
         state.text = "Preparing photo…"
         updateButtons()
         worker.execute {
-            val bytes = try { encodePhoto(cameraFile) } catch (_: Exception) { null }
+            val bytes = try { PracticePortal.encodePhoto(cameraFile) } catch (_: Exception) { null }
             finally { cameraFile.delete() }
             runOnUiThread {
                 if (closed) return@runOnUiThread
                 if (bytes != null) showPhoto(bytes)
-                state.text = if (bytes != null) "Photo ready. Enter your goal and upload." else "Could not read the photo. Try again."
+                state.text = if (bytes != null) "Photo ready. Hold the button and say your goal." else "Could not read the photo. Try again."
                 busy = false
                 updateButtons()
+                // A goal said or typed before the photo creates the practice as soon as the photo is ready.
+                if (bytes != null && goal.text.isNotBlank()) upload()
             }
         }
     }
@@ -247,36 +272,6 @@ class PhonePracticeActivity : Activity() {
         takePhoto.text = "Retake photo"
     }
 
-    private fun encodePhoto(file: File): ByteArray {
-        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        BitmapFactory.decodeFile(file.path, bounds)
-        var sample = 1
-        while (maxOf(bounds.outWidth, bounds.outHeight) / sample > 2000) sample *= 2
-        val bitmap = BitmapFactory.decodeFile(file.path, BitmapFactory.Options().apply { inSampleSize = sample })
-            ?: throw IllegalArgumentException("No photo")
-        val orientation = ExifInterface(file.path).getAttributeInt(
-            ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
-        val transform = Matrix().apply {
-            when (orientation) {
-                ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> postScale(-1f, 1f)
-                ExifInterface.ORIENTATION_ROTATE_180 -> postRotate(180f)
-                ExifInterface.ORIENTATION_FLIP_VERTICAL -> postScale(1f, -1f)
-                ExifInterface.ORIENTATION_TRANSPOSE -> { postScale(-1f, 1f); postRotate(270f) }
-                ExifInterface.ORIENTATION_ROTATE_90 -> postRotate(90f)
-                ExifInterface.ORIENTATION_TRANSVERSE -> { postScale(-1f, 1f); postRotate(90f) }
-                ExifInterface.ORIENTATION_ROTATE_270 -> postRotate(270f)
-            }
-            val scale = minOf(1f, 1280f / maxOf(bitmap.width, bitmap.height))
-            postScale(scale, scale)
-        }
-        val upright = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, transform, true)
-        return try {
-            ByteArrayOutputStream().use { out -> upright.compress(Bitmap.CompressFormat.JPEG, 87, out); out.toByteArray() }
-        } finally {
-            if (upright !== bitmap) upright.recycle()
-            bitmap.recycle()
-        }
-    }
 
     private fun upload() {
         val image = photo ?: return
@@ -286,13 +281,13 @@ class PhonePracticeActivity : Activity() {
         state.text = "Uploading photo and creating practice…"
         updateButtons()
         worker.execute {
-            val result = runCatching { createPractice(image, requestGoal) }
+            val result = runCatching { if (closed) error("Upload cancelled."); PracticePortal.createPractice(this, image, requestGoal) { connection = it } }
             runOnUiThread {
                 if (closed) return@runOnUiThread
                 result.onSuccess {
-                    ready = (listOf(it) + available()).take(5)
+                    PracticePortal.remember(it)
                     refreshSessions(it.id)
-                    state.text = "Ready: ${it.title}. This session is selected above."
+                    state.text = "Ready: ${it.title}. Put on the glasses and tap Start in glasses."
                 }.onFailure { state.text = it.message ?: "Could not upload the photo. Try again." }
                 busy = false
                 updateButtons()
@@ -300,46 +295,77 @@ class PhonePracticeActivity : Activity() {
         }
     }
 
-    private fun createPractice(image: ByteArray, goal: String): Pending {
-        val config = JSONObject(assets.open("visko.json").bufferedReader().use { it.readText() })
-        val url = URL(config.getString("portalUrl").trimEnd('/') + "/api/practice/generate")
-        val request = url.openConnection() as HttpURLConnection
-        connection = request
+    private fun startGoalRecording() {
+        if (busy || recorder != null) return
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), MIC_PERMISSION)
+            return
+        }
+        goalAudio.delete()
+        @Suppress("DEPRECATION")
+        val next = if (Build.VERSION.SDK_INT >= 31) MediaRecorder(this) else MediaRecorder()
         try {
-            if (closed) throw IllegalStateException("Upload cancelled.")
-            request.instanceFollowRedirects = false
-            request.requestMethod = "POST"
-            request.connectTimeout = 7000
-            request.readTimeout = 40000
-            request.doOutput = true
-            request.setRequestProperty("Content-Type", "application/json")
-            config.optString("portalToken").takeIf { it.isNotBlank() }?.let { request.setRequestProperty("portal_token", it) }
-            val body = JSONObject().put("image", "data:image/jpeg;base64," + Base64.encodeToString(image, Base64.NO_WRAP)).put("goal", goal).toString().toByteArray(Charsets.UTF_8)
-            request.setFixedLengthStreamingMode(body.size)
-            request.outputStream.use { it.write(body) }
-            val status = request.responseCode
-            if (status != 200) {
-                val message = when (status) {
-                    401 -> "The Portal rejected this app's access. Check the Portal configuration."
-                    429 -> "The Portal is busy. Wait a moment and try again."
-                    in 500..599 -> "The lesson service couldn't create a practice. Your photo is still here; try again."
-                    else -> "The Portal couldn't use this request. Check your photo and goal."
-                }
-                throw IllegalStateException(message)
+            next.setAudioSource(MediaRecorder.AudioSource.MIC)
+            next.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+            next.setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+            next.setAudioChannels(1)
+            next.setAudioSamplingRate(16000)
+            next.setAudioEncodingBitRate(64000)
+            next.setMaxDuration(30000)
+            next.setOnInfoListener { _, what, _ -> if (what == MediaRecorder.MEDIA_RECORDER_INFO_MAX_DURATION_REACHED) stopGoalRecording() }
+            next.setOutputFile(goalAudio.path)
+            next.prepare()
+            next.start()
+        } catch (_: Exception) {
+            next.release()
+            state.text = "Could not start the microphone. Type your goal instead."
+            return
+        }
+        recorder = next
+        recordStartedAt = SystemClock.elapsedRealtime()
+        latched = false
+        holdGoal.text = "Release to finish"
+        state.text = "Listening… say what you want to practise."
+        updateButtons()
+    }
+
+    private fun stopGoalRecording() {
+        val current = recorder ?: return
+        recorder = null
+        latched = false
+        holdGoal.text = HOLD_LABEL
+        // stop() throws when almost nothing was recorded.
+        val recorded = try { current.stop(); true } catch (_: RuntimeException) { false } finally { current.release() }
+        if (!recorded || goalAudio.length() == 0L) {
+            goalAudio.delete()
+            state.text = "Nothing was recorded. Hold the button while you speak."
+            updateButtons()
+            return
+        }
+        val code = language.findViewById<RadioButton>(language.checkedRadioButtonId)?.tag as? String ?: "zh"
+        busy = true
+        state.text = "Got it · understanding you…"
+        updateButtons()
+        worker.execute {
+            val result = runCatching { try { PracticePortal.transcribe(this, goalAudio.readBytes(), code) { connection = it } } finally { goalAudio.delete() } }
+            runOnUiThread {
+                if (closed) return@runOnUiThread
+                busy = false
+                result.onSuccess { text ->
+                    goal.setText(text)
+                    if (photo != null) upload() else { state.text = "“$text” · now take a photo of where you are."; updateButtons() }
+                }.onFailure { state.text = it.message ?: "Could not understand the recording. Try again or type your goal."; updateButtons() }
             }
-            val result = JSONObject(request.inputStream.bufferedReader().use { it.readText() })
-            val lesson = result.getJSONObject("lesson")
-            return Pending(lesson.getString("id"), lesson.getString("title"), image, result.getLong("expiresAt"))
-        } catch (_: java.io.IOException) {
-            throw IllegalStateException("Could not reach the Portal. Check Wi-Fi and try again.")
-        } finally {
-            connection = null
-            request.disconnect()
         }
     }
 
+
+
     override fun onDestroy() {
         closed = true
+        recorder?.let { runCatching { it.stop() }; it.release() }
+        recorder = null
+        goalAudio.delete()
         connection?.disconnect()
         worker.shutdownNow()
         super.onDestroy()

@@ -17,6 +17,9 @@ def patch(source: str) -> str:
     method = source[begin:end]
     if ':itb_original_hdmi_check' in method:
         raise ValueError('Patch already applied')
+    if '.local ' not in method:
+        updated = _patch_register_reuse(method)
+        return source[:begin] + updated + source[end:]
     anchor = '    const-string v3, "HDMI"\n'
     # Both inspected builds use v3 as scratch, but Unity's D8 assigns the name
     # and true value to different registers than the vendor's standalone APK.
@@ -50,6 +53,36 @@ def patch(source: str) -> str:
 '''.replace('NAME_REGISTER', name)
     updated = method.replace(anchor, addition + anchor, 1)
     return source[:begin] + updated + source[end:]
+
+
+def _patch_register_reuse(method: str) -> str:
+    # Unity 6000.0.85f2 with AGP 9 strips local names and reuses registers: the
+    # Display in p1 is overwritten by its name, v1 holds true and p0 false. Read
+    # the id and name before p1 is reused, using only v0/v2 scratch registers.
+    get_name = '    invoke-virtual {p1}, Landroid/view/Display;->getName()Ljava/lang/String;\n'
+    expected = (
+        '.locals 4\n',
+        '    const/4 p0, 0x0\n',
+        '    const/4 v1, 0x1\n',
+        get_name + '\n    move-result-object p1\n',
+        '    const-string v0, "HDMI"\n\n    invoke-virtual {p1, v0}, Ljava/lang/String;->contains(Ljava/lang/CharSequence;)Z\n\n    move-result p1\n\n    if-nez p1, :cond_3\n',
+        ':cond_3\n    return v1\n',
+    )
+    if method.count(get_name) != 1 or not all(method.count(part) == 1 for part in expected):
+        raise ValueError('Unsupported register layout; inspect before changing it')
+    addition = '''    # Local Air 2 Ultra display-name compatibility check.
+    invoke-virtual {p1}, Landroid/view/Display;->getDisplayId()I
+    move-result v0
+    if-eqz v0, :itb_original_hdmi_check
+    invoke-virtual {p1}, Landroid/view/Display;->getName()Ljava/lang/String;
+    move-result-object v0
+    const-string v2, "Air 2 Ultra"
+    invoke-virtual {v2, v0}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z
+    move-result v0
+    if-nez v0, :cond_3
+    :itb_original_hdmi_check
+'''
+    return method.replace(get_name, addition + get_name, 1)
 
 
 if __name__ == '__main__':
