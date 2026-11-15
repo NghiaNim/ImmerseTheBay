@@ -61,7 +61,27 @@ namespace ImmerseTheBay.Learning
     [Serializable] public sealed class LearningRoute
     { public string kind, label, nodeId; public int step, total, returnBeat; }
     [Serializable] public sealed class LearningAttempt
-    { public string id, targetId, jp, text, outcome, nextTargetId; public int score; }
+    {
+        public string id, targetId, jp, text, outcome, nextTargetId;
+        public int score;
+        public LearningCorrection correction;
+    }
+    [Serializable] public sealed class LearningCorrection
+    {
+        public int start, end;
+        public string jp;
+
+        public bool Matches(string sentence)
+        {
+            if (string.IsNullOrEmpty(sentence) || string.IsNullOrWhiteSpace(jp) ||
+                start < 0 || end <= start || end > sentence.Length || end - start != jp.Length ||
+                string.CompareOrdinal(sentence, start, jp, 0, jp.Length) != 0)
+                return false;
+            var boundaries = StringInfo.ParseCombiningCharacters(sentence);
+            return Array.BinarySearch(boundaries, start) >= 0 &&
+                (end == sentence.Length || Array.BinarySearch(boundaries, end) >= 0);
+        }
+    }
     [Serializable] public sealed class LearningProgress
     { public int mainTotal, mainStep, mainCompleted; }
     [Serializable] public sealed class LearningSpeech
@@ -173,6 +193,8 @@ namespace ImmerseTheBay.Learning
                     string.IsNullOrEmpty(attempt.jp) || attempt.score < 0 || attempt.score > 100 ||
                     (attempt.outcome != "pass" && attempt.outcome != "retry" && attempt.outcome != "assisted" && attempt.outcome != "skip"))
                     throw new FormatException("Invalid lesson attempt");
+                if (attempt.outcome != "retry" || attempt.correction?.Matches(attempt.jp) != true)
+                    attempt.correction = null;
             }
             if (response.progress != null)
             {

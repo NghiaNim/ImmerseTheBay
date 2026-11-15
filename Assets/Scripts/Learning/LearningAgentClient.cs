@@ -859,7 +859,9 @@ namespace ImmerseTheBay.Learning
             var route = CurrentRoute;
             if (route?.kind == "detour") main += $" · Side trip {route.step}/{route.total}";
             string attempt = LearningContract.AttemptLabel(m_LastAttempt);
-            overlay.SetPracticeResult(main, attempt, m_LastAttempt?.outcome, m_LastAttempt?.id);
+            string visibleTargetId = route?.kind == "detour" ? route.nodeId : $"main:{Beat}";
+            overlay.SetPracticeResult(main, attempt, m_LastAttempt?.outcome, m_LastAttempt?.id,
+                m_LastAttempt?.targetId == visibleTargetId ? m_LastAttempt : null);
         }
 
         string BindingJson() => "{\"sessionId\":" + LearningContract.Quote(m_Session) + ",\"lessonId\":" + LearningContract.Quote(m_RunLesson) + "}";

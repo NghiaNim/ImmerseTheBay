@@ -51,7 +51,7 @@ namespace ImmerseTheBay.Learning
         Canvas m_Canvas;
         Text m_Japanese, m_Romaji, m_Kana, m_Translation, m_Status, m_SpeakLabel, m_Clerk, m_Learner, m_ConversationLabel;
         Text m_ProgressBadge, m_ResultBadge, m_Instruction, m_ControlHint;
-        readonly List<(Text japanese, Text kana, Text romaji)> m_ReadingCells = new();
+        readonly List<(Text japanese, Text kana, Text romaji, RectTransform underline)> m_ReadingCells = new();
         GameObject m_Backdrop;
         readonly RectTransform[] m_Waveform = new RectTransform[5];
         readonly float[] m_ListeningHistory = new float[5];
@@ -68,6 +68,8 @@ namespace ImmerseTheBay.Learning
         string m_PracticeProgress = "";
         string m_PracticeOutcome = "";
         string m_PracticeAttemptId, m_CompletionSummary = "";
+        LearningAttempt m_ResultAttempt;
+        bool m_ShowCorrection;
         float m_ListeningLevel, m_NextWaveformSample, m_LastListeningSample;
         float m_ResultEmphasisUntil;
         float m_Height;
@@ -92,7 +94,8 @@ namespace ImmerseTheBay.Learning
             Refresh();
         }
 
-        public void SetPracticeResult(string progress, string result, string outcome, string attemptId = null)
+        public void SetPracticeResult(string progress, string result, string outcome, string attemptId = null,
+            LearningAttempt currentAttempt = null)
         {
             if (!string.IsNullOrEmpty(result) && (result != m_PracticeStatus || attemptId != m_PracticeAttemptId))
                 m_ResultEmphasisUntil = Time.unscaledTime + 1.8f;
@@ -100,6 +103,7 @@ namespace ImmerseTheBay.Learning
             m_PracticeStatus = result ?? "";
             m_PracticeOutcome = outcome ?? "";
             m_PracticeAttemptId = attemptId;
+            m_ResultAttempt = currentAttempt;
             Refresh();
         }
 
@@ -327,10 +331,11 @@ namespace ImmerseTheBay.Learning
         void Refresh()
         {
             if (!m_Panel) return;
+            m_ShowCorrection = ShouldShowCorrection();
             bool clerkTurn = !m_ConversationActive && m_ClerkSpeaking && m_ClerkCaption.Length > 0;
             bool targetTurn = !m_ConversationActive && !clerkTurn;
             bool showLearner = m_ConversationActive || (targetTurn && !m_ExampleSpeaking
-                && m_PracticeStatus.Length > 0 && !RepeatsTarget(m_LearnerCaption, m_Overlay?.jp));
+                && !m_ShowCorrection && m_PracticeStatus.Length > 0 && !RepeatsTarget(m_LearnerCaption, m_Overlay?.jp));
             m_Clerk.text = m_ConversationActive ? Dialogue("店員", m_ClerkCaption, m_ClerkEnglish, m_ClerkRomaji)
                 : clerkTurn ? Dialogue("店員", m_ClerkCaption, "") : "";
             m_Learner.text = showLearner ? Dialogue("あなた", m_LearnerCaption, m_LearnerEnglish) : "";
@@ -405,10 +410,36 @@ namespace ImmerseTheBay.Learning
             var background = m_ResultBadge.transform.parent.GetComponent<Image>();
             background.color = passed ? new Color(0.07f, 0.28f, 0.18f, 0.94f)
                 : retry ? new Color(0.30f, 0.18f, 0.06f, 0.94f) : new Color(0.015f, 0.025f, 0.04f, 0.83f);
+            m_ResultBadge.fontSize = m_ShowCorrection ? 28 : 38;
+            if (m_ShowCorrection)
+            {
+                SetBadge(m_ResultBadge, $"Practice 「{m_ResultAttempt.correction.jp}」\nHeard {Shorten(m_ResultAttempt.text ?? "", 19)}");
+                return;
+            }
             SetBadge(m_ResultBadge, result.Length == 0 ? "" : (passed ? "✓  " : retry ? "↻  " : "") + result);
         }
 
-        string Highlight(string text)
+        bool ShouldShowCorrection() =>
+            m_PracticeOutcome == "retry" && !m_ConversationActive && !m_Done &&
+            !(m_ClerkSpeaking && m_ClerkCaption.Length > 0) && Time.unscaledTime >= m_ResultEmphasisUntil &&
+            m_ResultAttempt?.correction != null &&
+            string.Equals(m_ResultAttempt.jp, m_Overlay?.jp, StringComparison.Ordinal);
+
+        string Highlight(string text, int sentenceOffset = 0)
+        {
+            var correction = m_ShowCorrection ? m_ResultAttempt.correction : null;
+            if (correction != null && correction.start >= sentenceOffset && correction.end <= sentenceOffset + text.Length)
+            {
+                int start = correction.start - sentenceOffset;
+                int end = correction.end - sentenceOffset;
+                return HighlightVocabulary(text.Substring(0, start)) +
+                    "<b><color=#FFAE76>" + EscapeRichText(text.Substring(start, end - start)) + "</color></b>" +
+                    HighlightVocabulary(text.Substring(end));
+            }
+            return HighlightVocabulary(text);
+        }
+
+        string HighlightVocabulary(string text)
         {
             var result = new System.Text.StringBuilder();
             for (int offset = 0; offset < text.Length;)
@@ -446,13 +477,14 @@ namespace ImmerseTheBay.Learning
             float japaneseHeight = JapaneseSize * 1.5f, kanaHeight = 0f, romajiHeight = GroupReadingSize * 1.5f;
             var widths = new float[groups.Length];
             var rowWidths = new float[2];
-            int row = 0, secondRowAt = groups.Length;
+            int row = 0, secondRowAt = groups.Length, sentenceOffset = 0;
             for (int i = 0; i < groups.Length; i++)
             {
                 if (i >= m_ReadingCells.Count) m_ReadingCells.Add(CreateReadingCell());
                 var cell = m_ReadingCells[i];
-                cell.japanese.text = Highlight(groups[i].jp);
+                cell.japanese.text = Highlight(groups[i].jp, sentenceOffset);
                 cell.kana.text = groups[i].jp == groups[i].kana ? "" : groups[i].kana ?? "";
+                sentenceOffset += groups[i].jp.Length;
                 cell.romaji.text = groups[i].romaji;
                 widths[i] = Mathf.Ceil(Mathf.Max(cell.japanese.preferredWidth, cell.kana.preferredWidth, cell.romaji.preferredWidth)) + 2;
                 if (widths[i] > width) return 0f;
@@ -476,23 +508,34 @@ namespace ImmerseTheBay.Learning
                 cell.japanese.gameObject.SetActive(i < groups.Length);
                 cell.kana.gameObject.SetActive(i < groups.Length && !string.IsNullOrEmpty(cell.kana.text));
                 cell.romaji.gameObject.SetActive(i < groups.Length);
+                cell.underline.gameObject.SetActive(false);
             }
             float x = -rowWidths[0] * 0.5f;
+            sentenceOffset = 0;
             for (int i = 0; i < groups.Length; i++)
             {
                 if (i == secondRowAt) x = -rowWidths[1] * 0.5f;
                 float y = i < secondRowAt ? 0 : -rowHeight;
                 var cell = m_ReadingCells[i];
-                PositionReadingCell(cell.japanese, x, y, widths[i], japaneseHeight);
-                PositionReadingCell(cell.kana, x, y - japaneseHeight, widths[i], kanaHeight);
+                PositionReadingCell(cell.japanese.rectTransform, x, y, widths[i], japaneseHeight);
+                PositionReadingCell(cell.kana.rectTransform, x, y - japaneseHeight, widths[i], kanaHeight);
                 float cellKanaHeight = string.IsNullOrEmpty(cell.kana.text) ? 0f : kanaHeight;
-                PositionReadingCell(cell.romaji, x, y - japaneseHeight - cellKanaHeight, widths[i], romajiHeight);
+                PositionReadingCell(cell.romaji.rectTransform, x, y - japaneseHeight - cellKanaHeight, widths[i], romajiHeight);
+                int groupEnd = sentenceOffset + groups[i].jp.Length;
+                if (m_ShowCorrection && m_ResultAttempt.correction.start >= sentenceOffset && m_ResultAttempt.correction.end <= groupEnd)
+                {
+                    float lineWidth = Mathf.Min(widths[i], cell.japanese.preferredWidth);
+                    PositionReadingCell(cell.underline, x + (widths[i] - lineWidth) * 0.5f,
+                        y - japaneseHeight + 5, lineWidth, 3);
+                    cell.underline.gameObject.SetActive(true);
+                }
+                sentenceOffset = groupEnd;
                 x += widths[i] + gap;
             }
             return height;
         }
 
-        (Text japanese, Text kana, Text romaji) CreateReadingCell()
+        (Text japanese, Text kana, Text romaji, RectTransform underline) CreateReadingCell()
         {
             var japanese = MakeText("Word", m_Japanese.font, JapaneseSize, m_Japanese.color);
             japanese.supportRichText = true;
@@ -502,12 +545,16 @@ namespace ImmerseTheBay.Learning
             kana.transform.SetParent(m_ReadingPanel, false);
             romaji.transform.SetParent(m_ReadingPanel, false);
             japanese.horizontalOverflow = kana.horizontalOverflow = romaji.horizontalOverflow = HorizontalWrapMode.Overflow;
-            return (japanese, kana, romaji);
+            var underline = new GameObject("Correction underline", typeof(Image)).GetComponent<Image>();
+            underline.transform.SetParent(m_ReadingPanel, false);
+            underline.color = new Color(1f, 0.68f, 0.46f);
+            underline.raycastTarget = false;
+            underline.gameObject.SetActive(false);
+            return (japanese, kana, romaji, underline.rectTransform);
         }
 
-        static void PositionReadingCell(Text text, float x, float y, float width, float height)
+        static void PositionReadingCell(RectTransform rect, float x, float y, float width, float height)
         {
-            var rect = (RectTransform)text.transform;
             rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 1);
             rect.pivot = new Vector2(0, 1);
             rect.sizeDelta = new Vector2(width, height);
@@ -666,6 +713,7 @@ namespace ImmerseTheBay.Learning
         void LateUpdate()
         {
             if (!m_Panel) return;
+            if (m_ShowCorrection != ShouldShowCorrection()) Refresh();
             if (!headCamera) headCamera = Camera.main;
             m_Canvas.worldCamera = headCamera;
             m_ControlCanvas.worldCamera = headCamera;
