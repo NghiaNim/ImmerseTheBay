@@ -14,10 +14,13 @@ export const RESPONSE_SCHEMA = object({
   advance: { type: 'string', enum: ['stay', 'next_line', 'scene_done'] },
   route: object({ kind: { type: 'string', enum: ['main', 'detour', 'rejoin'] }, nodeId: text, label: text, returnBeat: { type: 'number' }, step: { type: 'number' }, total: { type: 'number' } }),
 }, ['visko', 'overlay', 'feedback', 'advance']);
+// Transport metadata is server-owned and deliberately excluded from model schemas.
+export const WIRE_RESPONSE_SCHEMA = { ...RESPONSE_SCHEMA, properties: { ...RESPONSE_SCHEMA.properties, operation: object({ requestId: text, runId: text, revision: { type: 'number' }, replayed: { type: 'boolean' } }) } };
 export function validateSchema(value, schema = RESPONSE_SCHEMA) {
   if (schema.anyOf) return schema.anyOf.some((s) => validateSchema(value, s));
   if (schema.enum) return schema.enum.includes(value);
   if (schema.type === 'null') return value === null;
+  if (schema.type === 'boolean') return typeof value === 'boolean';
   if (schema.type === 'number') return typeof value === 'number' && Number.isFinite(value);
   if (schema.type === 'string') return typeof value === 'string';
   if (schema.type === 'array') return Array.isArray(value) && value.length <= 20 && value.every((v) => validateSchema(v, schema.items));

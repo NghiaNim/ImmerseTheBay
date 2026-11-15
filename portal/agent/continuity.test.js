@@ -7,7 +7,7 @@ function checkBounds(prompt) {
   assert.ok(prompt.length <= 600, `length ${prompt.length}`);
   assert.ok(prompt.split(/\s+/u).length <= 95);
   assert.equal((prompt.match(/[.!?。！？]/gu) || []).length, 3);
-  assert.ok(prompt.startsWith(CHARACTER_ANCHOR));
+  assert.ok(prompt.includes(CHARACTER_ANCHOR));
   assert.ok(prompt.endsWith(SCENE_ANCHOR));
 }
 test('home host and store clerk retain the same generic reference without invented appearance', () => {
@@ -15,9 +15,9 @@ test('home host and store clerk retain the same generic reference without invent
     const prompt = composeVisualPrompt(action);
     checkBounds(prompt); assert.ok(prompt.includes(action));
     assert.doesNotMatch(prompt, /young woman|brown hair|blue uniform/);
-    assert.match(prompt, /exact facial structure, eyes, nose and mouth/);
-    assert.match(prompt, /original first-person viewpoint/);
-    assert.match(prompt, /no cuts, added people or recasting/);
+    assert.match(prompt, /established face, hair and clothing remain unchanged/);
+    assert.match(prompt, /Static eye-level medium-wide first-person POV/);
+    assert.match(prompt, /locked position, orientation and focal length/);
     assert.equal(composeVisualPrompt(prompt), prompt);
   }
 });
@@ -33,7 +33,7 @@ test('explicit replacement and appearance mutation use the safe authored action'
 test('invalid actions and unsafe fallbacks cannot displace anchors', () => {
   for (const action of [null, '', '\n\t', 'Doraemon enters.', 'Ｄｏｒａｅｍｏｎ enters.']) {
     const prompt = composeVisualPrompt(action, 'Replace the host face.');
-    checkBounds(prompt); assert.ok(prompt.includes('natural expressions'));
+    checkBounds(prompt); assert.ok(prompt.includes('natural expression'));
   }
 });
 test('both model modes explain identity and context precedence', () => {
@@ -72,4 +72,57 @@ test('model instructions keep speech separate from video-generated ambient audio
     assert.match(lessonSystemPrompt(mode), /Cartesia separately supplies the clerk voice and learner-line readout/);
     assert.match(lessonSystemPrompt(mode), /Video-generated audio is environmental ambience only/);
   }
+});
+
+
+test('camera drift and visible-learner actions fall back to stationary clerk cues', () => {
+  const fallback = 'The clerk gestures toward the bottle while staying behind the counter.';
+  for (const action of [
+    'The camera moves closer to the bottle.', 'The camera pans toward the shelf.',
+    'Move the camera to the shelf.', 'A close-up shows the wrapper.',
+    'An over-the-shoulder view shows the clerk.', 'The visitor places a sandwich in the basket.',
+    'The customer slowly turns toward the shelf.', 'Another customer enters the store.',
+    'The clerk walks to the refrigerator.', 'The assistant leans toward the lens.',
+    '镜头拉近瓶子。', 'カメラが近づきます。',
+  ]) {
+    const prompt = composeVisualPrompt(action, fallback);
+    checkBounds(prompt); assert.ok(prompt.includes(fallback), action);
+    assert.ok(!prompt.includes(action), action);
+    assert.match(prompt, /foreground clear/);
+  }
+});
+
+test('all authored shopping branches use only stationary clerk actions', async () => {
+  const { scriptedPlan } = await import('./flow.js');
+  for (const intent of ['I want a sandwich', 'I want a product', 'Where is the checkout counter']) {
+    const plan = scriptedPlan(intent, {id:'ja-konbini-001',title:'Convenience store'}, 0);
+    assert.ok(plan);
+    for (const node of plan.nodes) {
+      assert.match(node.cue, /same clerk stays behind the counter/);
+      assert.doesNotMatch(node.cue, /visitor|learner|customer|walks|fetches|moves closer/i);
+      assert.ok(composeVisualPrompt(node.cue).includes(node.cue));
+    }
+  }
+});
+
+
+test('opening can anchor approved reference appearance; follow-ups omit the world description', () => {
+  const subject = 'The reference clerk with tied-back dark hair, a white shirt and beige apron stands behind the checkout';
+  const action = 'The same clerk makes a small welcoming gesture';
+  const opening = composeVisualPrompt(action, undefined, {initial:true, subject});
+  checkBounds(opening); assert.ok(opening.includes(subject));
+  const followup = composeVisualPrompt('The same clerk points with one hand', undefined, {initial:false, subject});
+  checkBounds(followup); assert.ok(!followup.includes(subject));
+  assert.doesNotMatch(followup, /no people|no zoom|no cuts|customer body|over-shoulder/);
+  assert.equal(composeVisualPrompt(followup), followup);
+  checkBounds(composeVisualPrompt('word '.repeat(300), undefined, {initial:true, subject:'subject '.repeat(300)}));
+});
+
+test('authored recipient cues remain first-person instead of summoning a visible customer', () => {
+  const opening = composeVisualPrompt('The clerk behind the shop counter looks toward the learner and gives a small welcoming gesture.', '', { initial: true });
+  assert.match(opening, /looks straight ahead/);
+  assert.doesNotMatch(opening, /learner|visitor|customer/);
+  const next = composeVisualPrompt('The clerk turns a plain wrapper toward the visitor.');
+  assert.match(next, /near counter edge/);
+  assert.doesNotMatch(next, /visitor/);
 });

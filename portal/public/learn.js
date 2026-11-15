@@ -1,6 +1,9 @@
 import { connectWithCapacityRetry } from './dynamic-retry.js';
 import { installScenePoint } from './scene-point.js';
 import { createLessonSpeech } from './lesson-speech.js';
+import { createLessonOperations } from './lesson-operations.js';
+import { createLineVoice, assertVoiceRevision } from './line-voice.js';
+import { createAgentMachine, createIdleInvitation } from './agent-machine.js';
 // SDK 3.4.0 signatures verified against its published declarations and Reactor's
 // reactor-class / Visko stable schema docs. sendCommand reports errors via replies/events.
 const $ = (id) => document.getElementById(id);
@@ -22,11 +25,22 @@ let nextAllowedConnectAt = 0, lastRateLimitReason = 'rate_limit';
 let runtimeEvents = [], runtimeState = emptyRuntimeState();
 let mediaStream = new MediaStream();
 let recording = null, micStarting = false, transcribing = false, speechAttempt = 0;
-let clerkSpeech = null;
+let clerkSpeech = null, ttsBusy = false, voiceActive = false, voiceReconciling = false, voiceUnsafe = false, voiceCheckRunning = false;
+let lastMediaTime = 0, lastMediaProgressAt = -Infinity;
+const agentMachine = createAgentMachine({ onChange: (state) => { document.body.dataset.agentState = state; $('runtimeTrace').dataset.agentState = state; idleInvitation.sync(latestDecision?.route?.nodeId || null); } });
+const idleInvitation = createIdleInvitation({
+  eligible: () => active && !voiceActive && !voiceReconciling && !voiceUnsafe && !busy && !finished && agentMachine.state === 'waiting'
+    && document.visibilityState === 'visible' && !recognition && !recording && !micStarting && !transcribing && !ttsBusy
+    && (preview || (!$('video').paused && $('video').videoWidth > 0 && performance.now() - lastMediaProgressAt < 2000)),
+  invite: () => { void turn({ action: 'idle_hint' }); },
+});
+const lessonOperations = createLessonOperations({ headers: authHeaders });
 const lessonSpeech = createLessonSpeech({
   video: $('video'), headers: authHeaders,
   isMicrophoneActive: () => !!recognition || !!recording || micStarting || transcribing,
   onState: ({ state, role, message }) => {
+    ttsBusy = state === 'loading' || state === 'playing';
+    idleInvitation.sync(latestDecision?.route?.nodeId || null);
     const label = role === 'clerk' ? '店员' : 'Your line';
     $('ttsStatus').textContent = state === 'loading' ? `${label} · preparing audio…`
       : state === 'playing' ? `${label} · speaking…`
@@ -34,6 +48,56 @@ const lessonSpeech = createLessonSpeech({
     $('ttsStatus').classList.toggle('error', state === 'error');
   },
 });
+
+const lineVoice = createLineVoice({
+  getSession: async () => {
+    const run = epoch;
+    const session = await api('/api/voice/token', { sessionId, lessonId: lesson.id }, apiAbort.signal);
+    assertCurrent(run);
+    try { assertVoiceRevision(session, latestDecision?.operation); }
+    catch (error) { voiceUnsafe = true; throw error; }
+    return session;
+  },
+  onState: ({ state, message }) => {
+    const wasActive = voiceActive;
+    voiceActive = state !== 'off'; document.body.dataset.voiceState = state;
+    if (state === 'off' && wasActive && active) { voiceReconciling = true; void reconcileVoice(); }
+    $('conversationStatus').dataset.state = state;
+    $('conversationStatus').textContent = message || ({ off: '', connecting: 'Connecting voice…', listening: 'Listening · 日本語 / English', speaking: '店员 speaking · you can interrupt' })[state];
+    refresh();
+  },
+  onText: (text, role) => { if (role === 'user') $('transcript').textContent = text; else { $('clerkCaption').textContent = `店员 · ${text}`; $('clerkCaption').hidden = false; } },
+  onTool: async (call, current) => {
+    if (!current() || !active || finished) throw new Error('The lesson is not active.');
+    const parameters = call.parameters || {};
+    let input;
+    if (call.tool_name === 'branch_scene' && typeof parameters.intent === 'string' && parameters.intent.trim()) input = { intent: parameters.intent.slice(0, 1000) };
+    else if (call.tool_name === 'return_to_main') input = { action: 'return_to_main' };
+    else if (call.tool_name === 'rehearse_line' && typeof parameters.transcript === 'string' && parameters.transcript.trim()) input = { transcript: parameters.transcript.slice(0, 2000) };
+    else throw new Error('Unsupported lesson tool or invalid arguments.');
+    const accepted = await turn({ ...input, fromVoice: true });
+    if (!accepted) throw new Error('Lesson change was not confirmed. Do not claim it succeeded.');
+    return { accepted: true, route: latestDecision?.route, feedback: latestDecision?.feedback, overlay: latestDecision?.overlay };
+  },
+});
+
+async function reconcileVoice() {
+  if (!voiceReconciling || voiceCheckRunning || busy || !active) return;
+  const run = epoch; voiceCheckRunning = true;
+  $('conversationStatus').textContent = 'Checking lesson state…';
+  try {
+    const snapshot = await api('/api/agent/snapshot', { sessionId, lessonId: lesson.id }, apiAbort.signal);
+    assertCurrent(run); assertVoiceRevision(snapshot, latestDecision?.operation);
+  } catch (error) {
+    if (run === epoch) { voiceUnsafe = true; notify('Lesson state could not be confirmed. Leave and restart safely; no scene commands were replayed.', true); }
+  } finally {
+    if (run === epoch) {
+      voiceCheckRunning = false; voiceReconciling = false;
+      $('conversationStatus').textContent = voiceUnsafe ? 'Leave and restart to recover lesson state.' : 'Manual controls ready.';
+      refresh();
+    }
+  }
+}
 
 if (token) $('homeLink').href = `/?portal_token=${encodeURIComponent(token)}`;
 
@@ -47,16 +111,19 @@ function recordRuntime(kind, data = {}) {
   runtimeState.hasAppliedPromptTelemetry = runtimeState.activePrompt !== null || runtimeState.currentPrompt !== null;
   runtimeEvents.push({ at: new Date().toISOString(), kind, ...data });
   runtimeEvents = runtimeEvents.slice(-16);
-  $('runtimeTrace').textContent = JSON.stringify({ model, sessionId, resolution: webResolution, ...runtimeState, events: runtimeEvents }, null, 2);
+  $('runtimeTrace').textContent = JSON.stringify({ agentState: agentMachine.state, model, sessionId, resolution: webResolution, ...runtimeState, events: runtimeEvents }, null, 2);
 }
 function notify(text, error = false) { $('notice').textContent = text; $('notice').classList.toggle('error', error); }
 function refresh() {
+  $('conversation').disabled = !voiceActive && (!active || finished || busy || voiceReconciling || voiceUnsafe);
+  $('conversation').textContent = voiceActive ? 'End conversation' : 'Conversation';
+  $('conversation').setAttribute('aria-pressed', String(voiceActive));
   $('begin').disabled = busy || active || !lesson;
   $('begin').textContent = $('previewOnly').checked ? 'Start practice' : 'Start live lesson';
   $('leave').disabled = !active && !busy && !reactor;
   for (const id of ['lesson', 'sample', 'photo', 'model', 'sessionId', 'previewOnly']) $(id).disabled = busy || active;
   $('useShared').disabled = busy || active || !sharedSession;
-  const speechInUse = !!recognition || !!recording || micStarting || transcribing;
+  const speechInUse = voiceActive || voiceReconciling || voiceUnsafe || !!recognition || !!recording || micStarting || transcribing;
   for (const id of ['pinch', 'longPinch', 'point', 'sendContext']) $(id).disabled = !active || busy || finished || speechInUse;
   const engineAvailable = $('speechEngine').value === 'browser' ? !!SpeechRecognition : !!window.MediaRecorder && !!navigator.mediaDevices?.getUserMedia;
   $('speak').disabled = !active || busy || finished || !engineAvailable || speechInUse;
@@ -66,6 +133,9 @@ function refresh() {
   $('speak').textContent = $('speechMode').value === 'intent' ? 'Tell guide' : 'Speak Japanese';
   $('listen').disabled = !active || busy || finished || speechInUse || !latestDecision?.overlay?.jp;
   $('clerkReplay').disabled = !active || busy || speechInUse || !clerkSpeech;
+  $('returnMain').hidden = !active || latestDecision?.route?.kind !== 'detour';
+  $('returnMain').disabled = !active || busy || finished || speechInUse;
+  idleInvitation.sync(latestDecision?.route?.nodeId || null);
   $('sound').disabled = !reactor;
   $('sessionInfo').textContent = sessionId ? `${preview ? 'Practice' : model} · ${sessionId}` : sharedSession ? `Shared session available: ${sharedSession.sessionId}` : '';
 }
@@ -244,6 +314,9 @@ async function connectReactor(targetModel, joinId, run) {
 }
 async function begin() {
   if (busy || active || !lesson) return;
+  voiceReconciling = voiceUnsafe = voiceCheckRunning = false;
+  lessonOperations.reset(); idleInvitation.reset(); agentMachine.send('begin');
+  lastMediaTime = 0; lastMediaProgressAt = -Infinity;
   busy = true; finished = false; preview = $('previewOnly').checked; beat = 0; imageRef = null; latestDecision = null; lastPromptAt = 0; availableResolutions = []; webResolution = 'native';
   runtimeEvents = []; runtimeState = emptyRuntimeState(); $('runtimeTrace').textContent = 'No live model activity.';
   const run = ++epoch; apiAbort = new AbortController(); refresh(); notify('Preparing your scene…');
@@ -283,7 +356,7 @@ async function begin() {
     if (!await turn({}, run)) throw new Error('The lesson guide could not start. Please try again.');
   } catch (error) {
     if (run === epoch) { await leave(); notify(error.name === 'AbortError' ? 'Lesson cancelled.' : `Could not start: ${error.message}`, error.name !== 'AbortError'); }
-  } finally { if (run === epoch) { busy = false; refresh(); } }
+  } finally { if (run === epoch) { busy = false; refresh(); void reconcileVoice(); } }
 }
 function contextSnapshot(gesture = null) {
   return {
@@ -344,19 +417,26 @@ function renderDecision(decision, hasSpeech = false) {
     ? `支线 · ${route.label} ${route.step}/${route.total} → 主线 ${Number(route.returnBeat) + 1}`
     : route?.kind === 'rejoin' ? `回到主线 · ${route.label}` : '';
 }
-async function turn({ gesture = null, transcript, intent } = {}, run = epoch) {
-  if (!active || busy || finished) return;
-  lessonSpeech.cancel();
+async function turn({ gesture = null, transcript, intent, action, fromVoice = false } = {}, run = epoch) {
+  if (!active || busy || finished || voiceReconciling || voiceUnsafe || (voiceActive && !fromVoice) || !agentMachine.send('observe')) return;
+  idleInvitation.suspend(); lessonSpeech.cancel();
   busy = true; refresh();
   const context = contextSnapshot(gesture);
-  const request = { sessionId, lessonId: lesson.id, beat, imageRef, context, ...(transcript ? { transcript } : {}), ...(intent ? { intent } : {}) };
+  let request = { sessionId, lessonId: lesson.id, beat, imageRef, context, ...(transcript ? { transcript } : {}), ...(intent ? { intent } : {}), ...(action ? { action } : {}) };
+  agentMachine.send('plan');
   try {
-    const decision = await api('/api/agent/turn', request, apiAbort.signal); assertCurrent(run);
+    const operation = await lessonOperations.turn(request, { signal: apiAbort.signal, isCurrent: () => run === epoch }); assertCurrent(run);
+    request = operation.request;
+    const decision = operation.decision;
     if (!Array.isArray(decision.visko) || !['stay', 'next_line', 'scene_done'].includes(decision.advance)) throw new Error('The lesson guide returned an invalid decision.');
+    agentMachine.send('act');
     let executed;
-    try { executed = await executeDecision(decision, run); assertCurrent(run); }
+    try {
+      if (!operation.claimExecution()) return false;
+      executed = await executeDecision(decision, run); assertCurrent(run);
+    }
     catch (error) {
-      if (run === epoch) { await leave(); notify(`Scene command failed: ${error.message}. Begin again to restart safely.`, true); }
+      if (run === epoch) { agentMachine.send('fail'); await leave(); notify(`Scene command failed: ${error.message}. Begin again to restart safely.`, true); }
       return false;
     }
     if (decision.advance === 'next_line') beat++;
@@ -365,10 +445,14 @@ async function turn({ gesture = null, transcript, intent } = {}, run = epoch) {
     renderDecision(decision, Boolean(transcript)); $('decision').textContent = JSON.stringify({ request, response: decision, execution }, null, 2);
     hubSend({ type: 'learn', sessionId, lessonId: lesson.id, beat, context, ...(transcript ? { transcript } : {}), ...(intent ? { intent } : {}), ...decision, execution });
     notify(finished ? (preview ? 'Practice complete. Press Leave to start again.' : 'Lesson complete. Press Leave to end the billed session.') : preview ? 'Practice mode: speak a line or try the glasses signals.' : 'Your scene is ready. Speak the Japanese line, or ask for a hint.');
-    if (clerkSpeech) void lessonSpeech.play(clerkSpeech);
+    agentMachine.send('done', { complete: finished });
+    if (clerkSpeech && !voiceActive) void lessonSpeech.play(clerkSpeech);
     return true;
-  } catch (error) { if (run === epoch && error.name !== 'AbortError') notify(`Turn failed: ${error.message}`, true); return false; }
-  finally { if (run === epoch) { busy = false; refresh(); } }
+  } catch (error) {
+    if (run === epoch && error.name !== 'AbortError') { agentMachine.send('fail'); notify(error.status === 409 ? 'Lesson state changed or this request expired. Leave and restart safely; no scene commands were replayed.' : `Turn failed: ${error.message}`, true); }
+    return false;
+  }
+  finally { if (run === epoch) { busy = false; refresh(); void reconcileVoice(); } }
 }
 function stopSpeech() {
   if (recognition) recognition.stop();
@@ -485,12 +569,15 @@ function startBrowserSpeech() {
   try { speech.start(); refresh(); } catch (error) { recognition = null; notify(microphoneError(error), true); refresh(); }
 }
 function startSpeech() {
-  if (recognition || recording || micStarting || transcribing || busy || !active || finished) return;
-  lessonSpeech.cancel();
+  if (voiceActive || voiceReconciling || voiceUnsafe || recognition || recording || micStarting || transcribing || busy || !active || finished) return;
+  idleInvitation.suspend(); lessonSpeech.cancel();
   if ($('speechEngine').value === 'browser') startBrowserSpeech(); else void startRecording();
 }
 async function leave(message = 'You have left the lesson.') {
-  scenePoint.clear(); lessonSpeech.cancel(); clerkSpeech = null;
+  active = false; lineVoice.disconnect();
+  voiceReconciling = voiceUnsafe = voiceCheckRunning = false;
+  idleInvitation.reset(); agentMachine.send('stop');
+  scenePoint.clear(); lessonSpeech.cancel(); lessonOperations.reset(); clerkSpeech = null;
   $('clerkCaption').hidden = true; $('clerkReplay').hidden = true;
   ++epoch; apiAbort?.abort(); $('retryStatus').hidden = true; const client = reactor, oldId = sessionId, wasPreview = preview;
   reactor = null; active = false; busy = false; sessionId = null; finished = false; latestDecision = null;
@@ -538,8 +625,13 @@ $('translationToggle').onclick = () => {
 $('begin').onclick = begin; $('leave').onclick = () => leave();
 $('listen').onclick = () => { if (!$('listen').disabled) void lessonSpeech.play({ text: latestDecision.overlay.jp, language: 'ja', role: 'learner' }); };
 $('clerkReplay').onclick = () => { if (!$('clerkReplay').disabled && clerkSpeech) void lessonSpeech.play(clerkSpeech); };
+$('conversation').onclick = () => {
+  if (voiceActive) lineVoice.disconnect();
+  else if (active && !busy && !finished && !voiceReconciling && !voiceUnsafe) { cancelSpeech(); lessonSpeech.cancel(); idleInvitation.suspend(); scenePoint.clear(); void lineVoice.connect(); }
+};
 $('speak').onclick = startSpeech; $('stopSpeech').onclick = stopSpeech;
 $('pinch').onclick = () => void turn({ gesture: 'pinch' });
+$('returnMain').onclick = () => void turn({ action: 'return_to_main' });
 $('longPinch').onclick = () => void turn({ gesture: 'long_pinch' });
 $('point').onclick = () => void turn({ gesture: 'point' });
 $('sendContext').onclick = () => void turn();
@@ -551,7 +643,7 @@ window.addEventListener('pageshow', (event) => { if (event.persisted) { closing 
 if (!window.MediaRecorder || !navigator.mediaDevices?.getUserMedia) $('speechStatus').textContent = 'Audio recording requires a supported browser on HTTPS or localhost.';
 else if (!window.isSecureContext) $('speechStatus').textContent = 'Microphone access needs HTTPS or localhost. On a phone, use an HTTPS portal URL.';
 const scenePoint = installScenePoint({
-  ready: () => active && !busy && !finished && !recognition && !recording && !micStarting && !transcribing,
+  ready: () => active && !voiceActive && !voiceReconciling && !voiceUnsafe && !busy && !finished && !recognition && !recording && !micStarting && !transcribing,
   getRun: () => `${epoch}:${beat}:${latestDecision?.route?.nodeId || ''}`,
   getSignal: () => apiAbort?.signal,
   headers: authHeaders,
@@ -559,3 +651,14 @@ const scenePoint = installScenePoint({
   notify,
 });
 connectHub(); void loadCatalog(); refresh();
+
+// Deliberate user activity postpones help; passive viewing can receive one invitation.
+for (const event of ['pointerdown', 'keydown', 'input']) document.addEventListener(event, () => idleInvitation.activity(), { passive: true });
+document.addEventListener('visibilitychange', () => idleInvitation.activity());
+$('video').addEventListener('timeupdate', () => {
+  const time = $('video').currentTime;
+  if (time > lastMediaTime) lastMediaProgressAt = performance.now();
+  lastMediaTime = time;
+  idleInvitation.sync(latestDecision?.route?.nodeId || null);
+});
+for (const event of ['pause', 'ended', 'waiting', 'stalled']) $('video').addEventListener(event, () => { lastMediaProgressAt = -Infinity; idleInvitation.suspend(); });

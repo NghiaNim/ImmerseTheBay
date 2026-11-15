@@ -6,6 +6,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const live = process.argv.includes('--live');
 const speech = process.argv.includes('--speech');
+const dropResponse = process.argv.includes('--drop-response');
 const base = process.env.PORTAL_URL || 'http://localhost:8792';
 const artifacts = process.env.E2E_ARTIFACTS || '/tmp/il-context-e2e';
 fs.mkdirSync(artifacts, { recursive: true });
@@ -13,7 +14,7 @@ fs.mkdirSync(artifacts, { recursive: true });
   const browser = await chromium.launch({ headless: true, ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : {}), args: ['--autoplay-policy=no-user-gesture-required'] });
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   page.setDefaultTimeout(15000);
-  const errors = [], turns = [], speechResponses = [], started = Date.now();
+  const errors = [], turns = [], speechResponses = [], nativeFrames = [], droppedOperations = [], started = Date.now();
   const deadline = setTimeout(() => void page.locator('#leave').click({ timeout: 2000 }).finally(() => browser.close()), 110000);
   page.on('pageerror', (error) => errors.push(error.message));
   page.on('response', async (response) => {
@@ -27,6 +28,14 @@ fs.mkdirSync(artifacts, { recursive: true });
       abort() { this.onend?.(); }
     };
   });
+  if (dropResponse) await page.route('**/api/agent/turn', async (route) => {
+    const request = route.request().postDataJSON();
+    if (!droppedOperations.length && request.context?.gesture === 'pinch') {
+      const response = await route.fetch(); assert.equal(response.status(), 200);
+      droppedOperations.push(request.operation.requestId);
+      await route.abort('failed'); // Server committed; client never receives this response.
+    } else await route.continue();
+  });
   const ready = async () => {
     await page.waitForFunction(() => !document.querySelector('#pinch').disabled || document.querySelector('#notice').classList.contains('error'), {}, { timeout: 90000 });
     assert.equal(await page.locator('#pinch').isDisabled(), false, await page.locator('#notice').innerText());
@@ -38,6 +47,15 @@ fs.mkdirSync(artifacts, { recursive: true });
       const before = await page.locator('#video').evaluate((v) => v.currentTime);
       await page.waitForTimeout(7000);
       assert.ok(await page.locator('#video').evaluate((v) => v.currentTime) > before, 'Video must advance');
+    }
+    if (live) {
+      const frame = await page.locator('#video').evaluate((v) => {
+        const canvas = document.createElement('canvas'); canvas.width = v.videoWidth; canvas.height = v.videoHeight;
+        canvas.getContext('2d').drawImage(v, 0, 0);
+        return { width: v.videoWidth, height: v.videoHeight, mediaTime: v.currentTime, png: canvas.toDataURL('image/png').split(',')[1] };
+      });
+      fs.writeFileSync(path.join(artifacts, `native-${name}.png`), Buffer.from(frame.png, 'base64'));
+      nativeFrames.push({ name, width: frame.width, height: frame.height, mediaTime: frame.mediaTime });
     }
     await page.screenshot({ path: path.join(artifacts, `${live ? 'live' : 'practice'}-${name}.png`) });
   };
@@ -67,19 +85,21 @@ fs.mkdirSync(artifacts, { recursive: true });
     await page.waitForFunction(() => document.querySelector('#routeStatus').textContent.includes('1/3'), {}, { timeout: 20000 });
     await ready(); assert.equal((await decision()).route.kind, 'detour');
     await capture('detour');
-    for (let i = 0; i < 3; i++) { await page.locator('#pinch').click(); await ready(); }
+    for (let i = 0; i < 3; i++) { await page.locator('#pinch').click(); await ready(); if (i < 2 && live) await capture(`detour-${i + 2}`); }
     const rejoin = await decision();
     assert.equal(rejoin.route.kind, 'rejoin'); assert.equal(rejoin.overlay.jp, first.overlay.jp);
     await capture('rejoin');
     assert.equal(turns.length, 5);
+    assert.deepEqual(turns.map((turn) => turn.operation.revision), [1, 2, 3, 4, 5]);
+    if (dropResponse) { assert.equal(droppedOperations.length, 1); assert.equal(turns[2].operation.replayed, true); assert.equal(turns[2].operation.requestId, droppedOperations[0]); }
     for (const turn of turns) for (const command of turn.visko.filter((c) => c.name === 'set_prompt')) {
-      assert.match(command.data.prompt, /exact facial structure, eyes, nose and mouth/);
+      assert.match(command.data.prompt, /established face, hair and clothing remain unchanged/);
       assert.ok(command.data.prompt.length <= 600);
       assert.ok(command.data.prompt.split(/\s+/u).length <= 95);
     }
     assert.deepEqual(errors, []);
     if (speech) { assert.ok(speechResponses.length >= 2); assert.ok(speechResponses.every((status) => status === 200)); }
-    const report = { mode: live ? 'real-dynamic' : 'practice-real-api', speech: 'simulated browser recognition callback', cartesia: speech ? { realPlayback: true, responses: speechResponses } : 'not asserted', turns: turns.length, routes: turns.map((t) => t.route.kind), elapsedMs: Date.now() - started, visualIdentity: 'requires human frame review', prompts: turns.map((t) => t.visko.find((c) => c.name === 'set_prompt')?.data.prompt) };
+    const report = { mode: live ? 'real-dynamic' : 'practice-real-api', speech: 'simulated browser recognition callback', cartesia: speech ? { realPlayback: true, responses: speechResponses } : 'not asserted', turns: turns.length, routes: turns.map((t) => t.route.kind), elapsedMs: Date.now() - started, visualIdentity: 'requires human frame review', nativeFrames, droppedOperations, operationRevisions: turns.map((t) => t.operation.revision), prompts: turns.map((t) => t.visko.find((c) => c.name === 'set_prompt')?.data.prompt) };
     fs.writeFileSync(path.join(artifacts, `${live ? 'live' : 'practice'}-report.json`), JSON.stringify(report, null, 2));
     console.log(JSON.stringify(report));
   } catch (error) {

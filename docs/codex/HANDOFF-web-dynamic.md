@@ -1,3 +1,15 @@
+# Current conversational demo update — 2026-11-14
+
+Open http://localhost:8793/learn.html on the demo machine. Start a live lesson (or choose practice in Lesson setup), then press **Conversation**, allow microphone access, and speak Japanese. Interrupt directly while the clerk talks. Try asking for a sandwich, changing to bottled water, then asking to return to the lesson. **End conversation** returns to manual controls after state reconciliation; **Leave** ends video billing and releases the microphone.
+
+The voice orchestrator is Cartesia Managed Agents, not LiveKit. Credentials and dedicated agent ID are already in ignored `portal/.env`. Conversation uses `gemini-3.5-flash-lite` and Haruka; scene planning still uses the existing OpenAI configuration. No permanent key reaches the browser. Japanese/English are configured; Chinese voice was rejected by the provider and is not supported in this path.
+
+Read [voice implementation](IMPLEMENTATION-conversational-agent.md), [prompt architecture](PROMPT-ARCHITECTURE.md), [bounded agent state machine](DEMO-AGENT-STATE-MACHINE.md) and [provisioning](../../portal/voice-worker/README.md). Provider IDs in the provisioning receipt are not credentials. Do not overwrite unrelated account agents.
+
+Real voice E2E with synthesized mic audio passed sandwich → water → rejoin with three interruption clear events. Real Dynamic five-step branch/rejoin and lost-response replay also passed independently; combined live result is recorded in the voice implementation report. Actual human microphone acoustics and glasses hardware remain unverified. Face/camera prompts improved one sampled run, but shelf geometry and fine identity still drift.
+
+---
+
 # Coworker handoff — immersive learning web and Unity
 
 Updated 2026-11-14. All current A–E work is integrated into `main`; feature implementation head was `77d115c`. Start from `main`, not individual workstream branches. Read `AGENTS.md`, `docs/HANDOFF.md`, and `docs/INFRASTRUCTURE.md` first.

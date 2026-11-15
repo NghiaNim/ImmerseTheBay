@@ -4,18 +4,18 @@ import { validateSchema, PLAN_SCHEMA } from './schema.js';
 const line = (jp, kana, romaji, zh, en, cue) => ({ jp, kana, romaji, zh, en, cue });
 // Original conversational content; a detour changes the target overlay, not just the video prompt.
 const sandwich = [
-  line('すみません、予定を変えてサンドイッチを見たいんですが、どちらにありますか。', 'すみません、よていをかえてさんどいっちをみたいんですが、どちらにありますか。', 'Sumimasen, yotei o kaete sandoicchi o mitai n desu ga, dochira ni arimasu ka.', '不好意思，我想改一下主意，看看三明治，请问在哪边？', 'Excuse me, I have changed my mind and would like to look at the sandwiches. Where are they?', 'The shop assistant points toward the refrigerated sandwich shelf.'),
-  line('こちらのサンドイッチは何が入っていますか。ほかの種類もまだありますか。', 'こちらのさんどいっちはなにがはいっていますか。ほかのしゅるいもまだありますか。', 'Kochira no sandoicchi wa nani ga haitte imasu ka. Hoka no shurui mo mada arimasu ka.', '这个三明治里面有什么？其他种类现在还有吗？', 'What is in this sandwich? Do you still have any other kinds?', 'The assistant turns a plain sandwich wrapper toward the visitor.'),
-  line('では、こちらを一つお願いします。かごに入れておきますね。', 'では、こちらをひとつおねがいします。かごにいれておきますね。', 'Dewa, kochira o hitotsu onegaishimasu. Kago ni irete okimasu ne.', '那就要这个一个吧。我先把它放进购物篮。', 'Then I will take one of these. I will put it in my basket.', 'The visitor places the selected sandwich in the shopping basket.'),
+  line('すみません、予定を変えてサンドイッチを見たいんですが、どちらにありますか。', 'すみません、よていをかえてさんどいっちをみたいんですが、どちらにありますか。', 'Sumimasen, yotei o kaete sandoicchi o mitai n desu ga, dochira ni arimasu ka.', '不好意思，我想改一下主意，看看三明治，请问在哪边？', 'Excuse me, I have changed my mind and would like to look at the sandwiches. Where are they?', 'The same clerk stays behind the counter and indicates the sandwich shelf with a small hand gesture.'),
+  line('こちらのサンドイッチは何が入っていますか。ほかの種類もまだありますか。', 'こちらのさんどいっちはなにがはいっていますか。ほかのしゅるいもまだありますか。', 'Kochira no sandoicchi wa nani ga haitte imasu ka. Hoka no shurui mo mada arimasu ka.', '这个三明治里面有什么？其他种类现在还有吗？', 'What is in this sandwich? Do you still have any other kinds?', 'The same clerk stays behind the counter and gestures toward the sandwich packaging already in view.'),
+  line('では、こちらを一つお願いします。かごに入れておきますね。', 'では、こちらをひとつおねがいします。かごにいれておきますね。', 'Dewa, kochira o hitotsu onegaishimasu. Kago ni irete okimasu ne.', '那就要这个一个吧。我先把它放进购物篮。', 'Then I will take one of these. I will put it in my basket.', 'The same clerk stays behind the counter and gives a small acknowledging nod for the sandwich selection.'),
 ];
 const product = [
-  line('すみません、探している商品があるんですが、売り場を教えていただけますか。', 'すみません、さがしているしょうひんがあるんですが、うりばをおしえていただけますか。', 'Sumimasen, sagashite iru shouhin ga aru n desu ga, uriba o oshiete itadakemasu ka.', '不好意思，我在找一种商品，可以告诉我在哪个货架吗？', 'Excuse me, I am looking for an item. Could you show me its section?', 'The assistant gestures toward a nearby shelf.'),
-  line('こちらの商品について、少し伺ってもよろしいでしょうか。', 'こちらのしょうひんについて、すこしうかがってもよろしいでしょうか。', 'Kochira no shouhin ni tsuite, sukoshi ukagatte mo yoroshii deshou ka.', '我可以问一下这个商品的情况吗？', 'May I ask you a little about this item?', 'The assistant lifts a plain package from the shelf.'),
-  line('ありがとうございます。こちらを一つ、かごに入れておきます。', 'ありがとうございます。こちらをひとつ、かごにいれておきます。', 'Arigatou gozaimasu. Kochira o hitotsu, kago ni irete okimasu.', '谢谢。我先把这个放一个进购物篮。', 'Thank you. I will put one of these in my basket.', 'The visitor puts the package into the basket.'),
+  line('すみません、探している商品があるんですが、売り場を教えていただけますか。', 'すみません、さがしているしょうひんがあるんですが、うりばをおしえていただけますか。', 'Sumimasen, sagashite iru shouhin ga aru n desu ga, uriba o oshiete itadakemasu ka.', '不好意思，我在找一种商品，可以告诉我在哪个货架吗？', 'Excuse me, I am looking for an item. Could you show me its section?', 'The same clerk stays behind the counter and indicates the nearby shelf with a small hand gesture.'),
+  line('こちらの商品について、少し伺ってもよろしいでしょうか。', 'こちらのしょうひんについて、すこしうかがってもよろしいでしょうか。', 'Kochira no shouhin ni tsuite, sukoshi ukagatte mo yoroshii deshou ka.', '我可以问一下这个商品的情况吗？', 'May I ask you a little about this item?', 'The same clerk stays behind the counter and gestures toward the package already in view.'),
+  line('ありがとうございます。こちらを一つ、かごに入れておきます。', 'ありがとうございます。こちらをひとつ、かごにいれておきます。', 'Arigatou gozaimasu. Kochira o hitotsu, kago ni irete okimasu.', '谢谢。我先把这个放一个进购物篮。', 'Thank you. I will put one of these in my basket.', 'The same clerk stays behind the counter and gives a small acknowledging nod for the selected package.'),
 ];
 const counter = [
-  line('すみません、お会計はこちらでよろしいでしょうか。', 'すみません、おかいけいはこちらでよろしいでしょうか。', 'Sumimasen, okaikei wa kochira de yoroshii deshou ka.', '不好意思，是在这里结账吗？', 'Excuse me, is this where I pay?', 'The assistant gestures toward the checkout counter.'),
-  line('ありがとうございます。こちらで順番を待ちます。', 'ありがとうございます。こちらでじゅんばんをまちます。', 'Arigatou gozaimasu. Kochira de junban o machimasu.', '谢谢。我在这里等候。', 'Thank you. I will wait here for my turn.', 'The visitor sets the basket beside the checkout counter.'),
+  line('すみません、お会計はこちらでよろしいでしょうか。', 'すみません、おかいけいはこちらでよろしいでしょうか。', 'Sumimasen, okaikei wa kochira de yoroshii deshou ka.', '不好意思，是在这里结账吗？', 'Excuse me, is this where I pay?', 'The same clerk stays behind the counter and indicates the checkout surface with one hand.'),
+  line('ありがとうございます。こちらで順番を待ちます。', 'ありがとうございます。こちらでじゅんばんをまちます。', 'Arigatou gozaimasu. Kochira de junban o machimasu.', '谢谢。我在这里等候。', 'Thank you. I will wait here for my turn.', 'The same clerk stays behind the counter and waits with a welcoming expression.'),
 ];
 export function detectedIntent(request, target) {
   if (request.intent?.trim()) return request.intent.trim();
@@ -75,6 +75,13 @@ export function startDetour(state, plan) {
   state.hintLevel = 0;
   visit(flow, 'detour', flow.mainBeat, plan.label, 1, plan.nodes.length);
 }
+export function rejoinFlow(state) {
+  if (!state.flow.active) return false;
+  state.flow.active = null;
+  state.hintLevel = 0;
+  visit(state.flow, 'rejoin', state.flow.mainBeat, 'Back to the saved lesson checkpoint');
+  return true;
+}
 export function detourTurn(request, state, mainTarget, entered = false) {
   const flow = state.flow;
   const active = flow.active;
@@ -87,7 +94,7 @@ export function detourTurn(request, state, mainTarget, entered = false) {
   const move = !entered && !request.intent && !hint && !point && (c.gesture === 'pinch' || c.glassesKey === 'next' || score !== null && score >= 75);
   const notes = [];
   if (entered) notes.push('Follow this short side interaction; your main lesson checkpoint is saved.');
-  else if (request.intent) notes.push('Finish this side interaction before starting another; your main checkpoint is still saved.');
+  else if (request.intent) notes.push('The current side interaction is unchanged; your main checkpoint is still saved.');
   if (transcript) notes.push('Text similarity only; this does not measure pronunciation.', score >= 75 ? 'Good match. Continue with the next interaction.' : 'Try the current side-interaction line again.');
   if (hint || c.gaze === 'room' || transcript && score < 75) state.hintLevel = Math.min(3, state.hintLevel + 1);
   if (hint) notes.push(`Cue: ${current.cue}`);
@@ -95,8 +102,7 @@ export function detourTurn(request, state, mainTarget, entered = false) {
     state.hintLevel = 0;
     active.index++;
     if (active.index === active.nodes.length) {
-      flow.active = null;
-      visit(flow, 'rejoin', flow.mainBeat, 'Back to the saved lesson checkpoint');
+      rejoinFlow(state);
       notes.push('Side interaction complete. Continue from your saved main lesson line.');
       return { line: mainTarget.line, cue: mainTarget.line.cue, score, notes, current };
     }
