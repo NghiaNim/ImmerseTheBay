@@ -54,6 +54,8 @@ namespace ImmerseTheBay.Visko
         long m_SceneFrameFloor;
         double m_LiveFrameAt;
         float m_LiveBlend;
+        float m_TransitionOpacity = 1f, m_TransitionTarget = 1f;
+        static readonly int TransitionOpacity = Shader.PropertyToID("_TransitionOpacity");
         const float LessonAspect = 16f / 9f;
         public string Model { get; private set; } = "";
         public bool IsConnected => Status == "READY";
@@ -184,9 +186,12 @@ namespace ImmerseTheBay.Visko
         {
             while (m_Main.TryDequeue(out var a)) a();
             PullFrame();
+            if (m_TransitionOpacity != m_TransitionTarget)
+                SetTransitionOpacity(Mathf.MoveTowards(m_TransitionOpacity, m_TransitionTarget,
+                    Time.unscaledDeltaTime / (m_TransitionTarget > m_TransitionOpacity ? 0.85f : 0.4f)));
             if (m_PreparingScene && HasLiveFrame && m_LiveBlend < 1f)
             {
-                m_LiveBlend = Mathf.MoveTowards(m_LiveBlend, 1f, Time.unscaledDeltaTime * 4f);
+                m_LiveBlend = Mathf.MoveTowards(m_LiveBlend, 1f, Time.unscaledDeltaTime / 1.15f);
                 ApplyVideoBlend();
             }
             UpdateSceneOpenings();
@@ -258,6 +263,8 @@ namespace ImmerseTheBay.Visko
             FailPending("Visko connection closed");
             m_ImageTask = null;
             m_LastFrame = -1;
+            m_TransitionTarget = 1f;
+            SetTransitionOpacity(1f);
             m_AcceptSceneFrames = false;
             SetHasVideo(false);
             backend?.Dispose();
@@ -370,6 +377,32 @@ namespace ImmerseTheBay.Visko
             CheckVersion(version);
             if (!m_PreparingScene || !StartImageTexture)
                 DisplayStartImage(bytes);
+        }
+
+        void SetTransitionOpacity(float opacity)
+        {
+            m_TransitionOpacity = opacity;
+            if (screen && screen.sharedMaterial && screen.sharedMaterial.HasProperty(TransitionOpacity))
+                screen.material.SetFloat(TransitionOpacity, Mathf.SmoothStep(0f, 1f, opacity));
+        }
+
+        public async Task FadeToScenePreview(byte[] image)
+        {
+            int version = m_ConnectVersion;
+            m_TransitionTarget = 0f;
+            try
+            {
+                while (m_TransitionOpacity > 0f)
+                {
+                    await Task.Yield();
+                    CheckVersion(version);
+                }
+                PrepareScenePreview(image);
+            }
+            finally
+            {
+                if (version == m_ConnectVersion) m_TransitionTarget = 1f;
+            }
         }
 
         /// <summary>Display the selected local image independently of the provider connection.</summary>

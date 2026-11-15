@@ -78,7 +78,10 @@ namespace ImmerseTheBay.Learning
             rect.anchorMax = Vector2.one;
             rect.offsetMin = rect.offsetMax = Vector2.zero;
             panel.GetComponent<Image>().color = TeninPrimary; // opaque: also blocks touches to the stock controller
-            var t = panel.transform;
+            liveLessonPanel = new GameObject("Live lesson controls", typeof(RectTransform));
+            var t = liveLessonPanel.transform;
+            t.SetParent(panel.transform, false);
+            Place(liveLessonPanel.GetComponent<RectTransform>(), 0f, 0f, 1f, 1f);
 
             Place(Label(t, 66, Color.white, "Tenin", font: serif), 0.06f, 0.905f, 0.5f, 0.965f);
             var pill = Box(t, new Color(1f, 1f, 1f, 0.16f), 0.52f, 0.91f, 0.94f, 0.955f, rounded: true);
@@ -138,20 +141,45 @@ namespace ImmerseTheBay.Learning
             Box(t, new Color(1f, 1f, 1f, 0.25f), 0.06f, 0.255f, 0.94f, 0.262f, rounded: true);
             progressFill = Box(t, TeninYellow, 0.06f, 0.255f, 0.06f, 0.262f, rounded: true).GetComponent<RectTransform>();
 
-            Place(Label(t, 32, new Color(1f, 1f, 1f, 0.85f), "You can end the lesson anytime.", TextAnchor.MiddleCenter, font: serif), 0.06f, 0.115f, 0.94f, 0.15f);
+            var actions = new GameObject("Lesson actions", typeof(RectTransform));
+            actions.transform.SetParent(t, false);
+            Place(actions.GetComponent<RectTransform>(), 0.06f, 0.17f, 0.94f, 0.235f);
+            actionRow = actions;
+            conversationAction = ActionButton(actions.transform, "Conversation", PhoneConversation, 0f, 0.31f);
+            hintAction = ActionButton(actions.transform, "Hint", PhoneHint, 0.33f, 0.52f);
+            nextAction = ActionButton(actions.transform, "Next", PhoneNext, 0.54f, 0.73f);
+            speechAction = ActionButton(actions.transform, "Speak", SpeakOrRetry, 0.75f, 1f, primary: true);
+            conversationActionLabel = conversationAction.GetComponentInChildren<Text>();
+            speechActionLabel = speechAction.GetComponentInChildren<Text>();
+            actionRow.SetActive(false);
+
+            var detour = new GameObject("Detour actions", typeof(RectTransform));
+            detour.transform.SetParent(t, false);
+            Place(detour.GetComponent<RectTransform>(), 0.23f, 0.113f, 0.77f, 0.158f);
+            returnAction = ActionButton(detour.transform, "Return to lesson", PhoneReturn, 0f, 1f);
+            returnAction.gameObject.SetActive(false);
+
             var end = Box(t, Color.white, 0.06f, 0.04f, 0.94f, 0.105f, rounded: true);
             var endButton = end.AddComponent<Button>();
             endButton.targetGraphic = end.GetComponent<Image>();
             endButton.onClick.AddListener(EndLessonAndReturn);
             endLabel = Place(Label(end.transform, 44, TeninPrimaryDark, "■  End lesson", TextAnchor.MiddleCenter, FontStyle.Bold, serif), 0f, 0f, 1f, 1f);
+            BuildCompletionReview(panel.transform);
         }
 
         Font serif;
         Button speakButton, retryButton, sceneAudioButton, exampleButton;
+        GameObject actionRow;
+        Button conversationAction, hintAction, nextAction, speechAction, returnAction;
+        Text conversationActionLabel, speechActionLabel;
         Text speakLabel, step, endLabel, sceneAudioLabel, exampleLabel, resultLabel;
         Image resultBadge;
         RectTransform speakRing, progressFill, loadingFill;
         RawImage startPreview;
+        GameObject liveLessonPanel, reviewPanel, reviewCard, reviewAudio, reviewNavigation;
+        Text reviewTitle, reviewPosition, reviewTarget, reviewTranscript, reviewOutcome, reviewEmpty, reviewAudioNote;
+        Button reviewPrevious, reviewNext, reviewRecording, reviewExample;
+        int reviewIndex, shownReviewCount;
         static readonly Color TeninYellow = new Color32(0xFF, 0xE2, 0x99, 0xFF);
 
         static T Place<T>(T component, float x0, float y0, float x1, float y1) where T : Component
@@ -173,6 +201,142 @@ namespace ImmerseTheBay.Learning
             Place(go.GetComponent<RectTransform>(), x0, y0, x1, y1);
             return go;
         }
+
+        static Button ActionButton(Transform parent, string caption, UnityEngine.Events.UnityAction action,
+            float left, float right, bool primary = false)
+        {
+            var background = primary ? Color.white : new Color(1f, 1f, 1f, 0.22f);
+            var go = Box(parent, background, left, 0f, right, 1f, rounded: true);
+            go.name = caption + " action";
+            var button = go.AddComponent<Button>();
+            button.targetGraphic = go.GetComponent<Image>();
+            button.onClick.AddListener(action);
+            var label = Place(Label(go.transform, 36, primary ? TeninPrimaryDark : Color.white, caption,
+                TextAnchor.MiddleCenter, FontStyle.Bold), 0.04f, 0.03f, 0.96f, 0.97f);
+            label.resizeTextForBestFit = true;
+            label.resizeTextMinSize = 20;
+            label.resizeTextMaxSize = 36;
+            return button;
+        }
+
+        void BuildCompletionReview(Transform parent)
+        {
+            reviewPanel = Box(parent, TeninPrimary, 0f, 0f, 1f, 1f);
+            reviewPanel.name = "Lesson review";
+            var panel = reviewPanel.transform;
+            Place(Label(panel, 64, Color.white, "Lesson review", TextAnchor.MiddleCenter, font: serif),
+                0.06f, 0.872f, 0.94f, 0.949f);
+            reviewTitle = ReviewText(panel, 40, Color.white, 0.06f, 0.824f, 0.94f, 0.866f);
+            reviewPosition = ReviewText(panel, 34, Color.white, 0.06f, 0.765f, 0.94f, 0.807f);
+
+            reviewCard = Box(panel, TeninBg, 0.06f, 0.383f, 0.94f, 0.754f, rounded: true);
+            var card = reviewCard.transform;
+            Place(Label(card, 31, TeninMuted, "Target"), 0.07f, 0.829f, 0.93f, 0.96f);
+            reviewTarget = ReviewText(card, 51, TeninInk, 0.07f, 0.634f, 0.93f, 0.829f, TextAnchor.MiddleLeft);
+            Place(Label(card, 31, TeninMuted, "You said"), 0.07f, 0.49f, 0.93f, 0.619f);
+            reviewTranscript = ReviewText(card, 44, TeninInk, 0.07f, 0.246f, 0.93f, 0.49f, TextAnchor.MiddleLeft);
+            reviewOutcome = ReviewText(card, 41, TeninPrimaryDark, 0.07f, 0.051f, 0.93f, 0.218f, TextAnchor.MiddleLeft);
+
+            reviewEmpty = ReviewText(panel, 43, Color.white, 0.07f, 0.43f, 0.93f, 0.68f);
+            reviewEmpty.text = "No attempts to review.";
+
+            reviewAudio = new GameObject("Review audio", typeof(RectTransform));
+            reviewAudio.transform.SetParent(panel, false);
+            Place(reviewAudio.GetComponent<RectTransform>(), 0.06f, 0.287f, 0.94f, 0.353f);
+            reviewRecording = ActionButton(reviewAudio.transform, "My recording", PlaySelectedRecording, 0f, 0.48f);
+            reviewExample = ActionButton(reviewAudio.transform, "Example", PlaySelectedExample, 0.52f, 1f);
+            reviewAudioNote = ReviewText(panel, 30, Color.white, 0.07f, 0.235f, 0.93f, 0.283f);
+            reviewAudioNote.text = "No recording for this attempt.";
+
+            reviewNavigation = new GameObject("Review navigation", typeof(RectTransform));
+            reviewNavigation.transform.SetParent(panel, false);
+            Place(reviewNavigation.GetComponent<RectTransform>(), 0.06f, 0.151f, 0.94f, 0.219f);
+            reviewPrevious = ActionButton(reviewNavigation.transform, "Previous", () => MoveReview(-1), 0f, 0.48f);
+            reviewNext = ActionButton(reviewNavigation.transform, "Next", () => MoveReview(1), 0.52f, 1f);
+
+            var doneRow = new GameObject("Done row", typeof(RectTransform));
+            doneRow.transform.SetParent(panel, false);
+            Place(doneRow.GetComponent<RectTransform>(), 0.06f, 0.048f, 0.94f, 0.121f);
+            ActionButton(doneRow.transform, "Done", EndLessonAndReturn, 0f, 1f, primary: true);
+            reviewPanel.SetActive(false);
+        }
+
+        Text ReviewText(Transform parent, int size, Color color, float left, float bottom, float right, float top,
+            TextAnchor alignment = TextAnchor.MiddleCenter)
+        {
+            var label = Place(Label(parent, size, color, "", alignment, font: serif), left, bottom, right, top);
+            label.resizeTextForBestFit = true;
+            label.resizeTextMinSize = 24;
+            label.resizeTextMaxSize = size;
+            label.supportRichText = false;
+            return label;
+        }
+
+        void RefreshCompletionReview()
+        {
+            if (!practiceVisible || !lesson.IsDone)
+            {
+                if (reviewPanel.activeSelf)
+                {
+                    reviewPanel.SetActive(false);
+                    liveLessonPanel.SetActive(true);
+                }
+                return;
+            }
+
+            int count = lesson.CompletedReview?.Count ?? 0;
+            if (!reviewPanel.activeSelf)
+            {
+                reviewIndex = 0;
+                reviewTitle.text = currentTitle;
+                UpdateReviewAttempt();
+                liveLessonPanel.SetActive(false);
+                reviewPanel.SetActive(true);
+            }
+            else if (shownReviewCount != count)
+                UpdateReviewAttempt();
+        }
+
+        void UpdateReviewAttempt()
+        {
+            var attempts = lesson.CompletedReview;
+            shownReviewCount = attempts?.Count ?? 0;
+            bool hasAttempt = shownReviewCount > 0;
+            reviewPosition.gameObject.SetActive(hasAttempt);
+            reviewCard.SetActive(hasAttempt);
+            reviewEmpty.gameObject.SetActive(!hasAttempt);
+            reviewAudio.SetActive(hasAttempt);
+            reviewNavigation.SetActive(shownReviewCount > 1);
+            reviewAudioNote.gameObject.SetActive(false);
+            if (!hasAttempt) return;
+
+            reviewIndex = Mathf.Clamp(reviewIndex, 0, shownReviewCount - 1);
+            var attempt = attempts[reviewIndex];
+            reviewPosition.text = $"Attempt {reviewIndex + 1} of {shownReviewCount}";
+            reviewTarget.text = string.IsNullOrWhiteSpace(attempt.Target) ? "Target unavailable" : attempt.Target;
+            reviewTranscript.text = string.IsNullOrWhiteSpace(attempt.Transcript) ? "No speech captured" : attempt.Transcript;
+            reviewOutcome.text = attempt.Outcome == "skip" ? "Skipped"
+                : attempt.Score >= 0 && attempt.Score <= 100
+                    ? LearningContract.AttemptLabel(new LearningAttempt { outcome = attempt.Outcome, score = attempt.Score })
+                    : "No match score";
+            reviewRecording.interactable = attempt.HasRecording;
+            reviewExample.interactable = !string.IsNullOrWhiteSpace(attempt.Target);
+            reviewAudioNote.gameObject.SetActive(!attempt.HasRecording);
+            reviewPrevious.interactable = reviewIndex > 0;
+            reviewNext.interactable = reviewIndex + 1 < shownReviewCount;
+        }
+
+        void MoveReview(int direction)
+        {
+            int next = reviewIndex + direction;
+            if (next < 0 || next >= (lesson.CompletedReview?.Count ?? 0)) return;
+            lesson.StopReviewPlayback();
+            reviewIndex = next;
+            UpdateReviewAttempt();
+        }
+
+        void PlaySelectedRecording() => lesson.PlayReviewRecording(reviewIndex);
+        void PlaySelectedExample() => lesson.PlayReviewExample(reviewIndex);
 
         /// <summary>Large round button centred at an anchor point.</summary>
         static Button RoundButton(Transform parent, string caption, UnityEngine.Events.UnityAction action, float size, float x, float y)
@@ -219,7 +383,8 @@ namespace ImmerseTheBay.Learning
         {
             if (!speakButton) return;
             float time = Time.unscaledTime;
-            bool listening = lesson.IsListening, waiting = lesson.IsBusy || WaitingForAudio;
+            bool listening = CapturingSpeech;
+            bool waiting = lesson.IsListening || lesson.IsBusy || lesson.IsConversationActive || WaitingForAudio;
             float scale = listening ? 1f + 0.07f * Mathf.Sin(time * 6f) : waiting ? 0.94f : 1f + 0.02f * Mathf.Sin(time * 2f);
             speakButton.transform.localScale = Vector3.one * scale;
             speakRing.localScale = Vector3.one * (listening ? 1f + 0.12f * (0.5f + 0.5f * Mathf.Sin(time * 6f)) : 1f);
@@ -254,11 +419,21 @@ namespace ImmerseTheBay.Learning
 
         void UpdateSceneGain()
         {
-            bool speaking = lesson.IsClerkSpeaking || lesson.IsConversationActive || lesson.IsExamplePlaying || lesson.IsFeedbackPlaying;
+            bool speaking = lesson.IsClerkSpeaking || lesson.IsConversationActive || lesson.IsExamplePlaying ||
+                lesson.IsFeedbackPlaying || lesson.IsDone;
             video.SetSceneGain(sceneSound ? (speaking ? SpeakingSceneGain : QuietSceneGain) : 0f);
         }
 
-        bool WaitingForAudio => lesson.IsClerkSpeaking || lesson.IsExamplePending || lesson.IsFeedbackPlaying;
+        bool WaitingForAudio => lesson.IsClerkSpeaking || lesson.IsExamplePending ||
+            lesson.IsExamplePlaying || lesson.IsFeedbackPlaying;
+        bool LessonActionsVisible => practiceVisible && !starting && lesson.HasActiveLesson && !lesson.IsDone;
+        bool CapturingSpeech => lesson.IsListening &&
+            (lesson.speechProvider is not PortalSpeechToText portal || portal.IsCapturing);
+        bool ManualActionReady => LessonActionsVisible && !lesson.IsBusy && !lesson.IsListening &&
+            !WaitingForAudio && !lesson.IsConversationActive;
+        bool SpeechActionReady => ManualActionReady || (LessonActionsVisible && CapturingSpeech);
+        bool ConversationActionReady => ManualActionReady || (LessonActionsVisible && lesson.IsConversationActive);
+        bool OnDetour => lesson.CurrentRoute?.kind == "detour";
         string VoiceExampleLabel => lesson.PlayExamples ? "Voice example: On" : "Voice example: Off";
 
         void ToggleVoiceExample()
@@ -272,7 +447,23 @@ namespace ImmerseTheBay.Learning
         void SpeakOrRetry()
         {
             if (retryAvailable) StartLive();
-            else if (practiceVisible && !starting && lesson.HasActiveLesson) lesson.Speak();
+            else if (SpeechActionReady) lesson.Speak();
+        }
+
+        void PhoneConversation() { if (ConversationActionReady) lesson.ToggleConversation(); }
+        void PhoneHint() { if (ManualActionReady) lesson.Hint(); }
+        void PhoneNext() { if (ManualActionReady) lesson.Next(); }
+        void PhoneReturn() { if (ManualActionReady && OnDetour) lesson.ReturnToMain(); }
+
+        void RefreshPhoneActions()
+        {
+            actionRow.SetActive(LessonActionsVisible);
+            returnAction.gameObject.SetActive(LessonActionsVisible && OnDetour);
+            conversationActionLabel.text = lesson.IsConversationActive ? "End chat" : "Conversation";
+            speechActionLabel.text = CapturingSpeech ? "Finish" : lesson.IsListening ? "Checking…" : "Speak";
+            conversationAction.interactable = ConversationActionReady;
+            hintAction.interactable = nextAction.interactable = returnAction.interactable = ManualActionReady;
+            speakButton.interactable = speechAction.interactable = SpeechActionReady;
         }
 
         void EndPractice()
@@ -526,6 +717,8 @@ namespace ImmerseTheBay.Learning
             if (status)
             {
                 UpdateSceneGain();
+                RefreshCompletionReview();
+                if (reviewPanel.activeSelf) return;
                 sceneAudioButton.gameObject.SetActive(practiceVisible);
                 exampleButton.gameObject.SetActive(practiceVisible);
                 bool waiting = starting || lesson.IsBusy || WaitingForAudio;
@@ -535,14 +728,17 @@ namespace ImmerseTheBay.Learning
                 status.text = startupError.Length > 0 ? startupError
                     : !practiceVisible ? "Choose a lesson on your phone." : starting ? "Getting the scene ready…"
                     : lesson.IsDone ? "Well done. End the lesson to see your summary."
-                    : lesson.IsListening ? "Listening… say the line."
+                    : CapturingSpeech ? "Listening… say the line."
+                    : lesson.IsListening ? "Processing speech…"
+                    : lesson.IsConversationActive ? "Conversation in progress."
                     : lesson.IsClerkSpeaking ? "Listen to the other person…"
                     : lesson.IsExamplePlaying ? "Listen, then repeat."
                     : lesson.IsExamplePending ? "Preparing the voice example…"
                     : waiting ? "One moment…"
-                    : "Say the line, or tap the circle.";
-                speakLabel.text = lesson.IsListening ? "Listening…" : waiting ? "…" : "Tap to\nspeak";
-                speakButton.interactable = practiceVisible && !waiting && !lesson.IsDone && lesson.HasActiveLesson;
+                    : "Tap Speak when you’re ready.";
+                speakLabel.text = CapturingSpeech ? "Listening…" : waiting || lesson.IsListening || lesson.IsConversationActive
+                    ? "…" : "Tap to\nspeak";
+                RefreshPhoneActions();
                 speakButton.gameObject.SetActive(practiceVisible && !starting);
                 retryButton.gameObject.SetActive(retryAvailable);
                 speakRing.gameObject.SetActive(speakButton.gameObject.activeSelf);

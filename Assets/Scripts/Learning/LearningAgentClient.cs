@@ -11,6 +11,14 @@ using UnityEngine.Networking;
 
 namespace ImmerseTheBay.Learning
 {
+    public sealed class LearningReviewLine
+    {
+        public string Target, Transcript, Outcome;
+        public int Score;
+        internal byte[] Recording;
+        public bool HasRecording => Recording != null;
+    }
+
     /// <summary>
     /// Serialized lesson turns over the portal. Mirrored learn events only render; they never execute
     /// Reactor commands. BeginLesson explicitly resets the shared scene; no session starts on enable.
@@ -39,6 +47,11 @@ namespace ImmerseTheBay.Learning
         public LearningAttempt VisibleAttempt => m_LastAttempt;
         public LearningProgress Progress => m_LastResponse?.progress;
         public LearningRoute CurrentRoute => m_LastResponse?.route;
+        readonly List<LearningReviewLine> m_Review = new();
+        AudioSource m_ReviewSpeaker;
+        AudioClip m_ReviewClip;
+        public IReadOnlyList<LearningReviewLine> CompletedReview =>
+            IsDone ? m_Review : (IReadOnlyList<LearningReviewLine>)Array.Empty<LearningReviewLine>();
         int m_Revision, m_AudioTurn;
         double m_LastPromptAt = double.NegativeInfinity;
         bool m_VoiceActive, m_VoiceConnecting, m_Reconciling, m_ToolRunning, m_Cancelling;
@@ -114,6 +127,8 @@ namespace ImmerseTheBay.Learning
                 overlay.HintRequested += Hint;
                 overlay.NextRequested += Next;
                 overlay.ExploreRequested += ToggleExplore;
+                overlay.ReviewRecordingRequested += PlayReviewRecording;
+                overlay.ReviewExampleRequested += PlayReviewExample;
                 if (visko) overlay.screen = visko.screen;
             }
             if (conversation) { conversation.ToolCall += OnVoiceTool; conversation.StateChanged += OnVoiceState; conversation.Transcript += OnVoiceTranscript; conversation.Interrupted += OnVoiceInterrupted; }
@@ -136,6 +151,8 @@ namespace ImmerseTheBay.Learning
                 overlay.HintRequested -= Hint;
                 overlay.NextRequested -= Next;
                 overlay.ExploreRequested -= ToggleExplore;
+                overlay.ReviewRecordingRequested -= PlayReviewRecording;
+                overlay.ReviewExampleRequested -= PlayReviewExample;
             }
             if (IsBusy) m_NeedsRestart = true;
             m_HasLesson = false; // /sync does not replay missed learn events on re-enable.
@@ -309,14 +326,19 @@ namespace ImmerseTheBay.Learning
             {
                 if (SpeechCurrent(generation, speechGeneration)) SetStatus(text ?? "");
             });
-            m_FinalHandler = text => m_Main.Enqueue(() =>
+            var portal = m_Speech as PortalSpeechToText;
+            m_FinalHandler = text =>
             {
-                if (!SpeechCurrent(generation, speechGeneration)) return;
-                EndRecognition();
-                if (string.IsNullOrWhiteSpace(text)) { SetStatus("No speech heard. Try Speak again."); return; }
-                ShowDialogue(false, text);
-                Submit(text, context ? context.Capture() : null, practiceAttempt: true);
-            });
+                byte[] recording = portal?.TakeFinalUtterance();
+                m_Main.Enqueue(() =>
+                {
+                    if (!SpeechCurrent(generation, speechGeneration)) return;
+                    EndRecognition();
+                    if (string.IsNullOrWhiteSpace(text)) { SetStatus("No speech heard. Try Speak again."); return; }
+                    ShowDialogue(false, text);
+                    Submit(text, context ? context.Capture() : null, practiceAttempt: true, recording: recording);
+                });
+            };
             m_ErrorHandler = error => m_Main.Enqueue(() =>
             {
                 if (!SpeechCurrent(generation, speechGeneration)) return;
@@ -361,7 +383,8 @@ namespace ImmerseTheBay.Learning
             return true;
         }
 
-        async void Submit(string transcript, LearningContextSnapshot snapshot, string intent = null, string action = null, bool practiceAttempt = false)
+        async void Submit(string transcript, LearningContextSnapshot snapshot, string intent = null, string action = null,
+            bool practiceAttempt = false, byte[] recording = null)
         {
             if (!CanSubmit()) return;
             CancelExploreInput();
@@ -371,7 +394,7 @@ namespace ImmerseTheBay.Learning
             {
                 await visko.ConfigReady;
                 EnsureCurrent(generation);
-                await ExecuteTurn(transcript, snapshot, generation, intent, action, practiceAttempt);
+                await ExecuteTurn(transcript, snapshot, generation, intent, action, practiceAttempt, recording: recording);
             }
             catch (OperationCanceledException) { }
             catch (Exception e) { FailTurn(generation, e); }
@@ -379,7 +402,7 @@ namespace ImmerseTheBay.Learning
         }
 
         async Task ExecuteTurn(string transcript, LearningContextSnapshot snapshot, int generation, string intent = null, string action = null,
-            bool practiceAttempt = false, ExplorationSelection exploration = null)
+            bool practiceAttempt = false, ExplorationSelection exploration = null, byte[] recording = null)
         {
             SetStatus(practiceAttempt ? "Checking your answer…" : "Preparing…");
             if (m_Claims.Count >= 256) throw new InvalidOperationException("Lesson operation limit reached; restart safely.");
@@ -394,6 +417,7 @@ namespace ImmerseTheBay.Learning
             if (!m_Claims.Add(id)) throw new InvalidOperationException("Scene operation already attempted.");
             // Portal has committed scoring. Media acknowledgement only gates advancing the target.
             PublishAttempt(response.attempt, playCue: true);
+            if (response.attempt != null) RecordReviewLine(response.attempt, recording);
             bool nextTarget = response.overlay != null &&
                 (response.route?.nodeId != m_LastResponse?.route?.nodeId ||
                  response.overlay.jp != m_LastResponse?.overlay?.jp);
@@ -413,12 +437,22 @@ namespace ImmerseTheBay.Learning
             }
             else if (!reseed) visko.ConfirmSceneOpening(m_RunLesson, sceneId);
             bool preparingNext = reseed || response.advance == "next_line" && response.visko.Any(command => command.name == "set_prompt");
-            if (preparingNext && overlay) overlay.SetSceneTransition(true);
-            if (!preparingNext && !IsConversationActive && response.speech?.role == "clerk")
+            double transitionAt = Time.realtimeSinceStartupAsDouble + 1;
+            if (!IsConversationActive && response.reaction?.role == "clerk")
             {
-                ShowClerkDialogue(response.speech);
-                PlayClerkAudio(response.speech, generation);
+                ShowClerkDialogue(response.reaction);
+                await PlayClerkAudio(response.reaction, generation, reaction: true);
+                EnsureCurrent(generation);
             }
+            if (preparingNext && response.attempt?.outcome is "pass" or "assisted")
+            {
+                while (Time.realtimeSinceStartupAsDouble < transitionAt)
+                {
+                    await Task.Yield();
+                    EnsureCurrent(generation);
+                }
+            }
+            if (preparingNext && overlay) overlay.SetSceneTransition(true);
             if (reseed)
             {
                 if (response.visko.All(command => command.name != "set_prompt"))
@@ -438,7 +472,8 @@ namespace ImmerseTheBay.Learning
                     image ??= await visko.PrefetchLessonScene(sceneId);
                 }
                 EnsureCurrent(generation);
-                visko.PrepareScenePreview(image);
+                await visko.FadeToScenePreview(image);
+                EnsureCurrent(generation);
                 if (!exploring) visko.UseSceneOpening(m_RunLesson, sceneId);
                 await visko.CommandAsync("reset", "{}");
                 EnsureCurrent(generation);
@@ -498,8 +533,9 @@ namespace ImmerseTheBay.Learning
             Beat = nextBeat;
             IsDone = response.advance == "scene_done";
             Present(response);
-            if (preparingNext && !IsConversationActive && response.speech?.role == "clerk")
-                PlayClerkAudio(response.speech, generation);
+            if (!IsConversationActive && response.speech?.role == "clerk")
+                _ = PlayClerkAudio(response.speech, generation);
+            else if (!IsConversationActive) ShowClerkDialogue(null);
             SetStatus(IsDone ? "Lesson complete." : "");
             if (IsDone) PresentCompletion(playCue: true);
             else if (nextTarget && !IsConversationActive && PlayExamples)
@@ -608,7 +644,9 @@ namespace ImmerseTheBay.Learning
         {
             bool pending = m_RecognitionPending;
             EndRecognition();
-            if (pending) m_Speech?.StopListening();
+            if (!pending) return;
+            if (m_Speech is PortalSpeechToText portal) portal.Dispose();
+            else m_Speech?.StopListening();
         }
 
         void OnApplicationPause(bool paused)
@@ -662,7 +700,7 @@ namespace ImmerseTheBay.Learning
             if (overlay) overlay.SetClerkSpeaking(false);
         }
 
-        async void PlayClerkAudio(LearningSpeech speech, int generation)
+        async Task PlayClerkAudio(LearningSpeech speech, int generation, bool reaction = false)
         {
             if (string.IsNullOrWhiteSpace(speech.text)) return;
             StopClerkAudio();
@@ -675,7 +713,8 @@ namespace ImmerseTheBay.Learning
                 string body = "{\"sessionId\":" + LearningContract.Quote(m_Session)
                     + ",\"lessonId\":" + LearningContract.Quote(m_RunLesson)
                     + ",\"runId\":" + LearningContract.Quote(m_RunId)
-                    + ",\"revision\":" + m_Revision.ToString(System.Globalization.CultureInfo.InvariantCulture) + "}";
+                    + ",\"revision\":" + m_Revision.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                    + (reaction ? ",\"part\":\"reaction\"}" : "}");
                 request.uploadHandler = new UploadHandlerRaw(Encoding.UTF8.GetBytes(body));
                 request.SetRequestHeader("Content-Type", "application/json");
                 if (!string.IsNullOrEmpty(visko.config.portalToken)) request.SetRequestHeader("portal_token", visko.config.portalToken);
@@ -705,7 +744,7 @@ namespace ImmerseTheBay.Learning
                     m_ClerkSpeaker.clip = m_ClerkAudio;
                     m_ClerkSpeaker.Play();
                     if (overlay) overlay.SetClerkSpeaking(true);
-                    Debug.Log("[Learning] Clerk speech started");
+                    Debug.Log(reaction ? "[Learning] Clerk reaction started" : "[Learning] Clerk prompt started");
                     while (IsCurrent(generation) && m_ClerkAudioRequest == request && m_ClerkSpeaker.isPlaying)
                         await Task.Yield();
                 }
@@ -924,8 +963,76 @@ namespace ImmerseTheBay.Learning
             if (!overlay || string.IsNullOrEmpty(m_RunId) || m_CompletionRunId == m_RunId) return;
             m_CompletionRunId = m_RunId;
             overlay.SetCompletionSummary("Loading session results…");
+            overlay.SetReview(CompletedReview);
             ReadCompletionSummary(m_RunId, m_RunLesson, m_Revision, m_Generation);
             if (playCue) PlayCompletionCue(m_RunId, m_Generation);
+        }
+
+        void RecordReviewLine(LearningAttempt attempt, byte[] recording)
+        {
+            const int maxReviewLines = 36;
+            const int maxRecordings = 12;
+            if (m_Review.Count == maxReviewLines) m_Review.RemoveAt(0);
+            if (recording != null && m_Review.Count(line => line.HasRecording) >= maxRecordings)
+                m_Review.First(line => line.HasRecording).Recording = null;
+            m_Review.Add(new LearningReviewLine
+            {
+                Target = attempt.jp,
+                Transcript = attempt.text,
+                Outcome = attempt.outcome,
+                Score = attempt.score,
+                Recording = recording
+            });
+        }
+
+        public void PlayReviewRecording(int index)
+        {
+            if (!IsDone || index < 0 || index >= m_Review.Count || IsClerkSpeaking) return;
+            byte[] wav = m_Review[index].Recording;
+            if (wav == null || wav.Length <= 44) return;
+            StopExampleAudio();
+            StopReviewRecording();
+            // PortalSpeechToText encodes this recording in PCM16 mono with the canonical 44-byte WAV header.
+            int rate = BitConverter.ToInt32(wav, 24);
+            int frames = (wav.Length - 44) / 2;
+            if (rate < 8000 || rate > 48000 || frames == 0) return;
+            var stereo = new float[frames * 2];
+            for (int indexInClip = 0; indexInClip < frames; indexInClip++)
+            {
+                float sample = BitConverter.ToInt16(wav, 44 + indexInClip * 2) / 32768f;
+                stereo[indexInClip * 2] = stereo[indexInClip * 2 + 1] = sample;
+            }
+            if (!m_ReviewSpeaker)
+            {
+                m_ReviewSpeaker = gameObject.AddComponent<AudioSource>();
+                m_ReviewSpeaker.playOnAwake = false;
+                m_ReviewSpeaker.spatialBlend = 0;
+            }
+            m_ReviewClip = AudioClip.Create("Learner recording", frames, 2, rate, false);
+            m_ReviewClip.SetData(stereo, 0);
+            m_ReviewSpeaker.clip = m_ReviewClip;
+            m_ReviewSpeaker.Play();
+        }
+
+        public void PlayReviewExample(int index)
+        {
+            if (!IsDone || index < 0 || index >= m_Review.Count || IsClerkSpeaking) return;
+            StopReviewRecording();
+            StopExampleAudio();
+            PlayExample(m_Review[index].Target, m_Generation);
+        }
+
+        public void StopReviewPlayback()
+        {
+            StopReviewRecording();
+            StopExampleAudio();
+        }
+
+        void StopReviewRecording()
+        {
+            if (m_ReviewSpeaker) { m_ReviewSpeaker.Stop(); m_ReviewSpeaker.clip = null; }
+            if (m_ReviewClip) Destroy(m_ReviewClip);
+            m_ReviewClip = null;
         }
 
         bool IsCompletionCurrent(string runId, int generation) =>
@@ -937,7 +1044,13 @@ namespace ImmerseTheBay.Learning
             m_CompletionRequest?.Abort();
             m_CompletionRequest = null;
             m_CompletionRunId = null;
-            if (overlay) overlay.SetCompletionSummary("");
+            m_Review.Clear();
+            StopReviewRecording();
+            if (overlay)
+            {
+                overlay.SetReview(null);
+                overlay.SetCompletionSummary("");
+            }
         }
 
         async void ReadCompletionSummary(string runId, string completedLessonId, int revision, int generation)

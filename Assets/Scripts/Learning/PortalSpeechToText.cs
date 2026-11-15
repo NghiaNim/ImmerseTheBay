@@ -39,6 +39,7 @@ namespace ImmerseTheBay.Learning
         public string Status { get; private set; } = "idle";
 
         const int SampleRate = 16000;
+        const int MaxReplayWavBytes = 1536 * 1024;
         const float PreRollSeconds = 0.3f;
         // Normalized RMS. Speech must clear 3x the room's noise level (2x to keep going) and these minimums.
         const float MinStartLevel = 0.015f, MinEndLevel = 0.008f;
@@ -54,6 +55,7 @@ namespace ImmerseTheBay.Learning
         float m_Floor, m_StartedAt;
         bool m_Speaking, m_Transcribing, m_Muted, m_RestorePending;
         UnityWebRequest m_Upload;
+        byte[] m_FinalUtterance;
         Func<string> m_Debug;
 
         [Serializable] sealed class Transcript { public string text; }
@@ -89,11 +91,20 @@ namespace ImmerseTheBay.Learning
                 StopWithoutTranscript("Microphone unavailable: " + Regex.Replace(m_Microphone.Status, "<[^>]+>", ""));
         }
 
+        /// <summary>Transfers this result's WAV once, synchronously from its FinalResult callback.</summary>
+        public byte[] TakeFinalUtterance()
+        {
+            byte[] wav = m_FinalUtterance;
+            m_FinalUtterance = null;
+            return wav;
+        }
+
         public void StartListening()
         {
             if (IsListening || !isActiveAndEnabled) return;
             IsListening = true;
             m_Request++;
+            m_FinalUtterance = null;
             m_Speaking = m_Transcribing = false;
             m_PreRoll.Clear();
             m_Utterance.Clear();
@@ -123,6 +134,7 @@ namespace ImmerseTheBay.Learning
         public void Dispose()
         {
             m_Request++;
+            m_FinalUtterance = null;
             m_Upload?.Abort();
             m_Upload = null;
             ReleaseMicrophone();
@@ -179,11 +191,12 @@ namespace ImmerseTheBay.Learning
             ReleaseMicrophone();
             Status = "transcribing";
             PartialResult?.Invoke("Checking what you said…");
-            var wav = EncodeWav(m_Utterance, m_UtteranceSamples, m_Rate);
-            m_Utterance.Clear();
+            byte[] wav = null;
             string text = null, error = null;
             try
             {
+                wav = EncodeWav(m_Utterance, m_UtteranceSamples, m_Rate);
+                m_Utterance.Clear();
                 if (!m_Scene) m_Scene = FindAnyObjectByType<ViskoSession>();
                 if (!m_Scene) throw new InvalidOperationException("portal settings are unavailable");
                 await m_Scene.ConfigReady;
@@ -196,23 +209,26 @@ namespace ImmerseTheBay.Learning
                 if (!string.IsNullOrEmpty(m_Scene.config.portalToken)) upload.SetRequestHeader("portal_token", m_Scene.config.portalToken);
                 upload.timeout = 25;
                 m_Upload = upload;
-                var operation = upload.SendWebRequest();
-                while (!operation.isDone) await Task.Yield();
-                if (request != m_Request) return;
-                m_Upload = null;
-                if (upload.result == UnityWebRequest.Result.Success)
-                    text = JsonUtility.FromJson<Transcript>(upload.downloadHandler.text)?.text?.Trim();
-                else error = upload.responseCode switch
+                try
                 {
-                    429 => "Speech service is busy. Try again in a moment.",
-                    503 => "Server transcription is not configured on the portal.",
-                    0 => "Could not reach the portal for speech.",
-                    _ => $"Speech could not be transcribed ({upload.responseCode}).",
-                };
+                    var operation = upload.SendWebRequest();
+                    while (!operation.isDone) await Task.Yield();
+                    if (request != m_Request) return;
+                    if (upload.result == UnityWebRequest.Result.Success)
+                        text = JsonUtility.FromJson<Transcript>(upload.downloadHandler.text)?.text?.Trim();
+                    else error = upload.responseCode switch
+                    {
+                        429 => "Speech service is busy. Try again in a moment.",
+                        503 => "Server transcription is not configured on the portal.",
+                        0 => "Could not reach the portal for speech.",
+                        _ => $"Speech could not be transcribed ({upload.responseCode}).",
+                    };
+                }
+                finally { if (ReferenceEquals(m_Upload, upload)) m_Upload = null; }
             }
             catch (Exception e) { error = "Speech service unavailable: " + e.Message; }
             if (request != m_Request) return;
-            Finish(text, error);
+            Finish(text, error, wav);
         }
 
         void StopWithoutTranscript(string error)
@@ -221,15 +237,25 @@ namespace ImmerseTheBay.Learning
             Finish(null, error);
         }
 
-        void Finish(string text, string error)
+        void Finish(string text, string error, byte[] wav = null)
         {
             IsListening = m_Speaking = m_Transcribing = false;
             m_PreRoll.Clear();
             m_Utterance.Clear();
             if (error == null && string.IsNullOrEmpty(text)) error = "No speech was recognized";
             Status = error ?? "ready";
-            if (error != null) Error?.Invoke(error);
-            else FinalResult?.Invoke(text);
+            m_FinalUtterance = null;
+            if (error != null)
+            {
+                Error?.Invoke(error);
+                return;
+            }
+
+            // The listener transfers ownership before any queued work. An unused WAV
+            // becomes unreachable when this callback returns.
+            if (wav != null && wav.Length <= MaxReplayWavBytes) m_FinalUtterance = wav;
+            try { FinalResult?.Invoke(text); }
+            finally { m_FinalUtterance = null; }
         }
 
         // Stopping can be deferred while a PCM chunk is being delivered, so paused users restart later (Update).

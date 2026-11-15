@@ -30,6 +30,8 @@ namespace ImmerseTheBay.Learning
         public event Action HintRequested;
         public event Action NextRequested;
         public event Action ExploreRequested;
+        public event Action<int> ReviewRecordingRequested;
+        public event Action<int> ReviewExampleRequested;
         public RectTransform Panel => m_Panel;
         public RectTransform ControlsPanel => m_ControlPanel;
         RectTransform m_ControlPanel;
@@ -44,6 +46,8 @@ namespace ImmerseTheBay.Learning
         const int PronunciationSize = 40;
         const int TranslationSize = 36;
         const int DialogueSize = 40;
+        const int ClerkJapaneseSize = 58;
+        const int ClerkTranslationSize = 48;
         const float ControlButtonSpacing = 248f;
         const float CaptionBottom = 0.055f;
         const float CaptionSidePadding = 36f;
@@ -63,7 +67,11 @@ namespace ImmerseTheBay.Learning
         Vector3? m_ExploreAim;
         string m_ExploreHint;
         public bool HoveringLessonAction => m_HoveredButton && m_HoveredButton.isActiveAndEnabled && m_HoveredButton.interactable;
-        Button[] m_Buttons;
+        Button[] m_Buttons, m_ReviewButtons;
+        Button m_ReviewPrevious, m_ReviewNext, m_ReviewRecording, m_ReviewExample;
+        IReadOnlyList<LearningReviewLine> m_ReviewLines;
+        int m_ReviewIndex;
+        bool ShowingReview => m_Done && !m_SceneTransition && m_ReviewLines?.Count > 0;
         Button m_HoveredButton;
         bool m_SceneTransition;
         static readonly Color ActionPurple = new Color32(70, 48, 146, 245);
@@ -101,6 +109,11 @@ namespace ImmerseTheBay.Learning
             BuildUi();
             m_FocusWords = focusWords;
             m_Overlay = overlay; m_Feedback = feedback; m_Done = done;
+            if (!done)
+            {
+                m_ReviewLines = null;
+                m_ReviewIndex = 0;
+            }
             m_SceneTransition = false;
             m_StatusOverride = "";
             Refresh();
@@ -122,6 +135,20 @@ namespace ImmerseTheBay.Learning
         public void SetCompletionSummary(string text)
         {
             m_CompletionSummary = text ?? "";
+            Refresh();
+        }
+
+        public void SetReview(IReadOnlyList<LearningReviewLine> lines)
+        {
+            m_ReviewLines = lines;
+            m_ReviewIndex = 0;
+            Refresh();
+        }
+
+        public void ShowReviewLine(int index)
+        {
+            if (!ShowingReview || index < 0 || index >= m_ReviewLines.Count || index == m_ReviewIndex) return;
+            m_ReviewIndex = index;
             Refresh();
         }
 
@@ -297,10 +324,27 @@ namespace ImmerseTheBay.Learning
             m_Next = MakeButton("Next", font, out _);
             m_Explore = MakeButton("Explore", font, out m_ExploreLabel);
             m_Explore.onClick.AddListener(() => ExploreRequested?.Invoke());
-            m_Buttons = new[] { m_Conversation, m_Speak, m_Hint, m_Next, m_Explore };
+            // Keep Speak and Finish in the same far-right slot.
+            m_Buttons = new[] { m_Conversation, m_Hint, m_Next, m_Explore, m_Speak };
             m_Speak.onClick.AddListener(Speak);
             m_Hint.onClick.AddListener(Hint);
             m_Next.onClick.AddListener(Next);
+            m_ReviewPrevious = MakeButton("Previous", font, out _);
+            m_ReviewNext = MakeButton("Next", font, out _);
+            m_ReviewRecording = MakeButton("My recording", font, out _);
+            m_ReviewExample = MakeButton("Example", font, out _);
+            ((RectTransform)m_ReviewRecording.transform).sizeDelta = new Vector2(246, 136);
+            m_ReviewButtons = new[] { m_ReviewPrevious, m_ReviewRecording, m_ReviewExample, m_ReviewNext };
+            m_ReviewPrevious.onClick.AddListener(() => ShowReviewLine(m_ReviewIndex - 1));
+            m_ReviewNext.onClick.AddListener(() => ShowReviewLine(m_ReviewIndex + 1));
+            m_ReviewRecording.onClick.AddListener(() =>
+            {
+                if (ShowingReview && m_ReviewLines[m_ReviewIndex].HasRecording) ReviewRecordingRequested?.Invoke(m_ReviewIndex);
+            });
+            m_ReviewExample.onClick.AddListener(() =>
+            {
+                if (ShowingReview && !string.IsNullOrWhiteSpace(m_ReviewLines[m_ReviewIndex].Target)) ReviewExampleRequested?.Invoke(m_ReviewIndex);
+            });
             foreach (var laser in FindObjectsByType<XRInteractorLineVisual>(FindObjectsInactive.Include, FindObjectsSortMode.None))
             {
                 laser.lineWidth = Mathf.Max(0.007f, laser.lineWidth);
@@ -385,35 +429,43 @@ namespace ImmerseTheBay.Learning
         {
             if (!m_Panel) return;
             m_ShowCorrection = ShouldShowCorrection();
-            bool clerkTurn = !m_SceneTransition && !m_ConversationActive && m_ClerkSpeaking && m_ClerkCaption.Length > 0;
-            bool targetTurn = !m_SceneTransition && !m_ConversationActive && !clerkTurn;
+            bool reviewing = ShowingReview;
+            var review = reviewing ? m_ReviewLines[m_ReviewIndex] : default;
+            bool clerkTurn = !reviewing && !m_SceneTransition && !m_ConversationActive && m_ClerkSpeaking && m_ClerkCaption.Length > 0;
+            bool targetTurn = !reviewing && !m_SceneTransition && !m_ConversationActive && !clerkTurn;
             bool showLearner = !m_SceneTransition && (m_ConversationActive || (targetTurn && !m_ExampleSpeaking
                 && !m_ShowCorrection && m_PracticeStatus.Length > 0 && !RepeatsTarget(m_LearnerCaption, m_Overlay?.jp)));
-            m_Clerk.text = !m_SceneTransition && m_ConversationActive ? Dialogue("店員", m_ClerkCaption, m_ClerkEnglish, m_ClerkRomaji)
+            m_Clerk.fontSize = m_ConversationActive ? ClerkTranslationSize : ClerkJapaneseSize;
+            m_Translation.fontSize = clerkTurn ? ClerkTranslationSize : TranslationSize;
+            m_Clerk.text = !reviewing && !m_SceneTransition && m_ConversationActive ? Dialogue("店員", m_ClerkCaption, m_ClerkEnglish, m_ClerkRomaji)
                 : clerkTurn ? Dialogue("店員", m_ClerkCaption, "") : "";
-            m_Learner.text = showLearner ? Dialogue("あなた", m_LearnerCaption, m_LearnerEnglish) : "";
-            m_Japanese.text = m_SceneTransition ? "Preparing next scene…" :
+            m_Learner.text = reviewing ? Dialogue("Heard", review.Transcript, null)
+                : showLearner ? Dialogue("あなた", m_LearnerCaption, m_LearnerEnglish) : "";
+            m_Japanese.text = reviewing ? EscapeRichText(review.Target ?? "") : m_SceneTransition ? "Preparing next scene…" :
                 targetTurn ? Highlight(m_Overlay?.jp ?? (m_Done ? "お疲れさまでした" : "")) : "";
             m_Romaji.text = clerkTurn ? m_ClerkRomaji : targetTurn && showRomaji ? m_Overlay?.romaji ?? "" : "";
             m_Kana.text = targetTurn && showKana ? m_Overlay?.kana ?? "" : "";
-            m_Translation.text = clerkTurn ? m_ClerkEnglish : targetTurn && m_Done ? m_CompletionSummary
+            m_Translation.text = reviewing ? (string.IsNullOrEmpty(m_CompletionSummary) ? "Lesson complete" : m_CompletionSummary)
+                : clerkTurn ? m_ClerkEnglish : targetTurn && m_Done ? m_CompletionSummary
                 : targetTurn && showTranslation && m_Overlay != null
                     ? (useChineseTranslation ? m_Overlay.zh : m_Overlay.en) ?? "" : "";
             m_ReadingHeight = targetTurn && showRomaji ? LayoutReadingGroups(m_Overlay?.readingGroups) : 0f;
             if (m_ReadingHeight > 0f)
                 m_Japanese.text = m_Kana.text = m_Romaji.text = "";
             bool controls = m_Overlay != null && !m_Done && !m_SceneTransition;
-            string status = PracticeInstruction();
+            string status = reviewing ? ReviewOutcome(review) : PracticeInstruction();
             bool showCorner = controls || m_ConversationActive || m_Done;
             m_Status.text = showCorner ? "" : Shorten(status, 150);
             SetBadge(m_Instruction, showCorner ? Shorten(status, 46) : "");
-            SetBadge(m_LookDown, controls ? "↓  Look down for actions" : "");
-            SetBadge(m_ProgressBadge, !m_ConversationActive ? Shorten(m_PracticeProgress, 28) : "");
-            UpdateResultBadge();
+            SetBadge(m_LookDown, reviewing ? "↓  Review actions" : controls ? "↓  Look down for actions" : "");
+            SetBadge(m_ProgressBadge, reviewing ? $"Review {m_ReviewIndex + 1} / {m_ReviewLines.Count}"
+                : !m_ConversationActive ? Shorten(m_PracticeProgress, 28) : "");
+            if (reviewing) SetBadge(m_ResultBadge, "");
+            else UpdateResultBadge();
             bool showWaveform = m_Listening && controls && !m_ExampleSpeaking && !clerkTurn;
             m_InstructionText.offsetMin = new Vector2(showWaveform ? 90 : 12, 0);
             foreach (var bar in m_Waveform) bar.gameObject.SetActive(showWaveform);
-            m_Conversation.gameObject.SetActive(controls || m_ConversationActive);
+            m_Conversation.gameObject.SetActive(!reviewing && (controls || m_ConversationActive));
             bool manual = controls && !m_ConversationActive;
             m_Speak.gameObject.SetActive(manual);
             m_Hint.gameObject.SetActive(manual);
@@ -422,9 +474,17 @@ namespace ImmerseTheBay.Learning
             m_ExploreLabel.text = m_ExploreActive ? "Cancel" : "Explore";
             m_Explore.interactable = manual && m_ExploreAvailable && !m_ControlsLocked;
             m_Return.gameObject.SetActive(controls && m_Detour);
+            m_ReviewPrevious.gameObject.SetActive(reviewing && m_ReviewLines.Count > 1);
+            m_ReviewNext.gameObject.SetActive(m_ReviewPrevious.gameObject.activeSelf);
+            m_ReviewRecording.gameObject.SetActive(reviewing && review.HasRecording);
+            m_ReviewExample.gameObject.SetActive(reviewing && !string.IsNullOrWhiteSpace(review.Target));
+            bool canReview = reviewing && !m_Busy && !m_ControlsLocked;
+            m_ReviewPrevious.interactable = canReview && m_ReviewIndex > 0;
+            m_ReviewNext.interactable = canReview && m_ReviewIndex + 1 < m_ReviewLines.Count;
+            m_ReviewRecording.interactable = m_ReviewExample.interactable = canReview;
             LayoutButtons();
             FitLayout();
-            m_ControlPanel.gameObject.SetActive(isActiveAndEnabled && (controls || m_ConversationActive));
+            m_ControlPanel.gameObject.SetActive(isActiveAndEnabled && (controls || m_ConversationActive || reviewing));
             m_ConversationLabel.text = m_ConversationActive ? "End conversation" : "Conversation";
             m_Conversation.interactable = m_ConversationActive || (controls && !m_Busy && !m_Listening && !m_ControlsLocked);
             m_SpeakLabel.text = m_Listening ? "Finish" : "Speak";
@@ -433,6 +493,21 @@ namespace ImmerseTheBay.Learning
             m_Return.interactable = controls && !m_Busy && !m_Listening && !m_ControlsLocked && !m_ConversationActive;
             bool content = m_SceneTransition || showCorner || m_Status.text.Length > 0 || m_PracticeStatus.Length > 0;
             m_Panel.gameObject.SetActive(isActiveAndEnabled && content);
+        }
+
+        static string ReviewOutcome(LearningReviewLine line)
+        {
+            if (line.Outcome == "skip") return "Skipped";
+            string outcome = line.Outcome switch
+            {
+                "pass" => "Matched",
+                "assisted" => "Matched with hint",
+                "retry" => "Try again",
+                _ => ""
+            };
+            if (line.Score >= 0 && line.Score <= 100)
+                return outcome.Length > 0 ? $"{outcome} · {line.Score}% match" : $"{line.Score}% match";
+            return outcome.Length > 0 ? outcome : "No scored attempt";
         }
 
         string PracticeInstruction()
@@ -448,11 +523,11 @@ namespace ImmerseTheBay.Learning
             if (m_Busy) return "One moment…";
             if (m_Done) return "Lesson complete";
             if (m_Detour) return string.IsNullOrEmpty(m_RouteLabel) ? "Exploring · return when ready" : m_RouteLabel;
-            if (m_Feedback?.notes != null && m_Feedback.notes.Length > 0)
-            {
-                string note = m_Feedback.notes[0] ?? "";
-                if (!RepeatsTarget(note, m_Overlay?.jp)) return note;
-            }
+            if (m_Feedback?.notes != null)
+                foreach (string note in m_Feedback.notes)
+                    if (!string.IsNullOrWhiteSpace(note) &&
+                        !note.StartsWith("Text similarity only", StringComparison.OrdinalIgnoreCase) &&
+                        !RepeatsTarget(note, m_Overlay?.jp)) return note;
             return "";
         }
 
@@ -633,7 +708,9 @@ namespace ImmerseTheBay.Learning
                 if (button.gameObject.activeSelf)
                     ((RectTransform)button.transform).anchoredPosition =
                         new Vector2((index++ - (count - 1) * 0.5f) * ControlButtonSpacing, 110);
-            bool hasReturn = m_Return.gameObject.activeSelf;
+            for (int i = 0; i < m_ReviewButtons.Length; i++)
+                ((RectTransform)m_ReviewButtons[i].transform).anchoredPosition =
+                    new Vector2((i - (m_ReviewButtons.Length - 1) * 0.5f) * ControlButtonSpacing, 110);
             var returnRect = (RectTransform)m_Return.transform;
             returnRect.anchoredPosition = new Vector2(0, 212);
             returnRect.sizeDelta = new Vector2(310, 126);
@@ -647,10 +724,17 @@ namespace ImmerseTheBay.Learning
             if (m_HoveredButton && (!m_HoveredButton.isActiveAndEnabled || !m_HoveredButton.interactable))
                 m_HoveredButton = null;
             foreach (var button in m_Buttons) button.targetGraphic.color = button == m_HoveredButton ? HoverPurple : ActionPurple;
+            foreach (var button in m_ReviewButtons) button.targetGraphic.color = button == m_HoveredButton ? HoverPurple : ActionPurple;
             m_Return.targetGraphic.color = m_Return == m_HoveredButton ? HoverPurple : ActionPurple;
-            m_ControlHint.text = m_HoveredButton
-                ? $"Pinch to select {(m_HoveredButton == m_Explore ? m_ExploreLabel.text : m_HoveredButton.name)}"
-                : m_ExploreHint ?? "Aim the pointer at an action";
+            if (!m_HoveredButton)
+            {
+                m_ControlHint.text = ShowingReview ? "Point and pinch to review"
+                    : m_ExploreHint ?? "Aim the pointer at an action";
+                return;
+            }
+            string label = m_HoveredButton == m_Speak ? m_SpeakLabel.text
+                : m_HoveredButton == m_Explore ? m_ExploreLabel.text : m_HoveredButton.name;
+            m_ControlHint.text = $"Pinch to select {label}";
         }
 
         void FitLayout()
@@ -693,8 +777,9 @@ namespace ImmerseTheBay.Learning
             }
             float y = padding;
             LayoutCaption(m_Clerk, ref y, clerk);
+            if (ShowingReview) LayoutCaption(m_Japanese, ref y, japanese);
             LayoutCaption(m_Learner, ref y, learner);
-            LayoutCaption(m_Japanese, ref y, japanese);
+            if (!ShowingReview) LayoutCaption(m_Japanese, ref y, japanese);
             LayoutCaption(m_Romaji, ref y, romaji);
             m_ReadingPanel.gameObject.SetActive(m_ReadingHeight > 0);
             if (m_ReadingHeight > 0)
@@ -728,9 +813,8 @@ namespace ImmerseTheBay.Learning
             if (height <= 0 || text.preferredHeight + 6 <= height) return;
             // Japanese is the only rich-text row; truncate the source before adding
             // vocabulary highlights so an ellipsis can never leave a broken color tag.
-            string source = text == m_Japanese
-                ? m_Overlay?.jp ?? (m_Done ? "お疲れさまでした" : "")
-                : text.text;
+            bool highlight = text == m_Japanese && !ShowingReview && !m_SceneTransition;
+            string source = highlight ? m_Overlay?.jp ?? (m_Done ? "お疲れさまでした" : "") : text.text;
             var boundaries = System.Globalization.StringInfo.ParseCombiningCharacters(source);
             int low = 0, high = boundaries.Length;
             while (low < high)
@@ -738,13 +822,13 @@ namespace ImmerseTheBay.Learning
                 int mid = (low + high + 1) / 2;
                 int end = mid < boundaries.Length ? boundaries[mid] : source.Length;
                 string candidate = source.Substring(0, end).TrimEnd() + "…";
-                text.text = text == m_Japanese ? Highlight(candidate) : candidate;
+                text.text = highlight ? Highlight(candidate) : candidate;
                 if (text.preferredHeight + 6 <= height) low = mid;
                 else high = mid - 1;
             }
             int length = low < boundaries.Length ? boundaries[low] : source.Length;
             string fitted = source.Substring(0, length).TrimEnd() + "…";
-            text.text = text == m_Japanese ? Highlight(fitted) : fitted;
+            text.text = highlight ? Highlight(fitted) : fitted;
         }
 
         static float MinimumLineHeight(Text text)
@@ -851,7 +935,7 @@ namespace ImmerseTheBay.Learning
                 var upright = Quaternion.LookRotation(heading, Vector3.up);
                 // Give the fallback rail a short, downward sightline from arm's reach.
                 var pose = m_Tabletop ?? new Pose(
-                    headCamera.transform.position + heading * 0.48f - Vector3.up * 0.18f,
+                    headCamera.transform.position + heading * 0.48f - Vector3.up * 0.205f,
                     upright * Quaternion.Euler(18, 0, 0));
                 m_ControlPanel.SetPositionAndRotation(pose.position, pose.rotation);
                 m_ControlPanel.localScale = Vector3.one * 0.00040f;

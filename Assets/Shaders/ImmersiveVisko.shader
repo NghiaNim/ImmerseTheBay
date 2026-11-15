@@ -10,6 +10,7 @@ Shader "ImmerseTheBay/ImmersiveVisko"
         _EnvironmentDim ("Peripheral brightness", Range(0, 1)) = 0.36
         _HasVideo ("Live frame available", Float) = 0
         _SceneOpacity ("Scene opacity", Range(0, 1)) = 1
+        _TransitionOpacity ("Transition opacity", Range(0, 1)) = 1
     }
     SubShader
     {
@@ -27,7 +28,7 @@ Shader "ImmerseTheBay/ImmersiveVisko"
 
             sampler2D _MainTex, _EnvironmentTex, _OpeningTex;
             float4 _MainTex_ST, _EnvironmentTex_ST;
-            float _EnvironmentDim, _HasVideo, _SceneOpacity, _OpeningBlend;
+            float _EnvironmentDim, _HasVideo, _SceneOpacity, _OpeningBlend, _TransitionOpacity;
             struct appdata
             {
                 float4 vertex : POSITION;
@@ -70,7 +71,7 @@ Shader "ImmerseTheBay/ImmersiveVisko"
                 float2 falloff = smoothstep(float2(0.015, 0.02), float2(0.24, 0.27), margins);
                 float edge = falloff.x * falloff.y;
                 edge *= edge;
-                return fixed4(lerp(photo * _EnvironmentDim, focus, centre), edge * _SceneOpacity);
+                return fixed4(lerp(photo * _EnvironmentDim, focus, centre), edge * _SceneOpacity * _TransitionOpacity);
             }
             ENDCG
         }

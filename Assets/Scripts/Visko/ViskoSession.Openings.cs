@@ -222,7 +222,7 @@ namespace ImmerseTheBay.Visko
             }
             if (m_OpenFrameShown && m_OpeningFade < 1f)
             {
-                m_OpeningFade = Mathf.MoveTowards(m_OpeningFade, 1f, Time.unscaledDeltaTime * 6f);
+                m_OpeningFade = Mathf.MoveTowards(m_OpeningFade, 1f, Time.unscaledDeltaTime / 0.8f);
                 screen.material.SetFloat(OpeningBlend, m_OpeningFade);
             }
         }

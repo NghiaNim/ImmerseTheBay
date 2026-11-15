@@ -20,8 +20,26 @@ public static class DevReferenceBuild {
   if (!hands) throw new System.InvalidOperationException("Official XREAL hands rig missing.");
   PrefabUtility.ReplacePrefabAssetOfPrefabInstance(rig, hands,
       new PrefabReplacingSettings { objectMatchMode = ObjectMatchMode.ByHierarchy }, InteractionMode.AutomatedAction);
+  // Use an unlit, bright mesh in the optical see-through development view.
+  const string handMaterialPath = "Assets/ImmerseIntegration/TrackedHand.mat";
+  var handMaterial = AssetDatabase.LoadAssetAtPath<Material>(handMaterialPath);
+  if (!handMaterial)
+  {
+   var handShader = Shader.Find("Unlit/Color");
+   if (!handShader) throw new System.InvalidOperationException("Unlit hand shader missing.");
+   handMaterial = new Material(handShader);
+   AssetDatabase.CreateAsset(handMaterial, handMaterialPath);
+  }
+  handMaterial.color = new Color(0.68f, 0.60f, 0.89f);
+  EditorUtility.SetDirty(handMaterial);
   foreach (var visualizer in rig.GetComponentsInChildren<HandVisualizer>(true))
   {
+   visualizer.enabled = true;
+   var meshSettings = new SerializedObject(visualizer);
+   var meshMaterial = meshSettings.FindProperty("m_HandMeshMaterial");
+   if (meshMaterial == null) throw new System.InvalidOperationException("XREAL hand mesh material property missing.");
+   meshMaterial.objectReferenceValue = handMaterial;
+   meshSettings.ApplyModifiedPropertiesWithoutUndo();
    visualizer.drawMeshes = true;
    visualizer.debugDrawJoints = false;
    visualizer.velocityType = HandVisualizer.VelocityType.None;
