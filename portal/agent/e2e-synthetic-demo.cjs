@@ -10,10 +10,10 @@ const origin = process.env.PORTAL_URL || 'http://localhost:8793';
 const out = path.resolve(process.env.E2E_ARTIFACTS || '/tmp/itb-synthetic-demo');
 const lessonId = 'ja-konbini-demo-001';
 const cases = [
-  { id: 'sandwich-pass', text: 'サンドイッチはどこですか。', scene: 'sandwiches', outcome: 'pass' },
-  { id: 'water-retry', text: 'おみずがください。', scene: 'drinks', outcome: 'retry', focus: 'を' },
-  { id: 'water-assisted', text: 'お水をください。', scene: 'drinks', outcome: 'assisted', hint: true },
-  { id: 'checkout-pass', text: 'カードで払えますか。', scene: 'checkout', outcome: 'pass' },
+  { id: 'sandwich-pass', text: 'サンドイッチはどこですか。', scene: 'store-sandwich', outcome: 'pass' },
+  { id: 'water-retry', text: 'おみずがください。', scene: 'store-drink', outcome: 'retry', focus: 'を' },
+  { id: 'water-assisted', text: 'お水をください。', scene: 'store-drink', outcome: 'assisted', hint: true },
+  { id: 'checkout-pass', text: 'カードで払えますか。', scene: 'store-checkout', outcome: 'pass' },
 ];
 const headings = {
   pass: 'Good job',

@@ -41,6 +41,8 @@ const artifacts = process.env.E2E_ARTIFACTS || '/tmp/il-voice-e2e';
   try {
     await page.goto(`${base}/learn.html`);
     await page.waitForFunction(()=>!document.querySelector('#begin').disabled);
+    await page.locator('#lesson').selectOption('ja-konbini-001');
+    await page.waitForFunction(() => !document.querySelector('#begin').disabled);
     await page.getByText('Guide language & session options',{exact:true}).click();
     await page.locator('#previewOnly').setChecked(!live);
     await page.locator('#begin').click();

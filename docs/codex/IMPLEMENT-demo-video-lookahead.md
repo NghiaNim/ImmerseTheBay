@@ -35,3 +35,31 @@ First separate the logical lesson/run binding from the transport session ID. The
 - Measure at least ten transitions per path using the same three-scene lesson. Log monotonic times for committed destination, visible still, preview frame, image accepted, generation started and first accepted live frame. Separate perceived wait from live wait. Report p50/p95, cache hits, visible stale frames, peak device memory and provider ready seconds. Measure the two distinct stops in a matched run and keep wearer observations beside provider/device telemetry.
 - Exercise retry, detour and return, repeated destination, predecode or upload timeout, `429`, reconnect and Leave. Check that the committed score and existing target stay responsive, only the correct scene is shown, and no speculative session remains. Capture all three destination views for review.
 - The existing native first-frame floor is a local increasing decoded-frame counter. It disambiguates frames relative to a baseline but cannot establish the originating generation if a delayed WebRTC frame crosses reset. The SDK exposes timestamp and optional frame user data, while Dynamic exposes reset/start and chunk events. The live test should record which generation evidence actually arrives. If identity cannot be established from the deployment, use a separate transport for the candidate and verify pixels against reviewable captures. Do not claim seed identity from a command acknowledgement, frame count or an arbitrary elapsed delay alone. [Dynamic events](https://docs.reactor.inc/model-api-reference/visko-orbis-dynamic/schema.md#events)
+
+## Order Coffee rollout and gesture exploration
+
+Order Coffee is now the default pre-made lesson. Its three scene IDs are `cafe-order`, `cafe-pour` and `cafe-serve`. Ship these first, then publish equivalent openings for the other authored lessons. Photo-created lessons keep their original upload and a three-cue plan. Generated exploration assets belong to the active run.
+
+### Opening clips
+
+Review a real Dynamic clip against its authored scene before publishing. On a machine with FFmpeg, use:
+
+```sh
+node portal/agent/publish-opening-clip.js ja-cafe-demo-001 cafe-order /path/to/reviewed-dynamic.mp4 1.25
+```
+
+The optional offset skips unstable lead-in frames. Publishing atomically replaces a silent, 16:9, fast-start MP4 in the stable Portal `data/scene-openings/` directory. Use 2–6 seconds of continuous action. The storage key binds the lesson, authored scene, model and exact seed bytes. Bump the version when changing the global visual prompt/clip contract. The authenticated lesson scene opening route supports HTTP ranges and returns 404 on a cache miss. Keep draft exports outside the publication directory.
+
+### Native playback and forecasting
+
+1. Fetch the first opening on the phone while the learner chooses a lesson or sees the glasses setup. Transfer the prepared file reference to the glasses scene only for the exact selected lesson and scene. Use the same feathered surface for still, clip and Dynamic. Show the still immediately if lookup or decode misses. Route guide speech through Cartesia and preserve its microphone/feedback timing.
+2. During the opening, bring up Dynamic in parallel on the committed scene. Crossfade only once the new stream can display a qualified frame. If the cached motion finishes earlier, hold its last frame until Dynamic or the existing Retry path is ready.
+3. While the learner is speaking, read ahead at most one predicted mainline clip using the existing `nextSceneId`. Revision and destination checks fence what can be shown. When intent changes, drop the candidate and keep the current scene active until the new branch is ready. Keep the same return checkpoint and avoid opening a second paid Dynamic stream until the transport and cost experiment above has passed.
+4. Measure time to visible motion separately from time to an interactive live frame. For the demo, use the same S25/Ultra run for cold start, warm start, branch, resume, network failure, and left/right display checks.
+
+### Gesture-triggered branch
+
+1. Add an explicit Look / Explore interaction. Show the pointer target when the hand ray intersects the video and use a deliberate pinch to submit it. Keep action controls and Explore mutually exclusive for each pinch. An open hand or a passing ray only highlights.
+2. Capture the exact decoded video image at submit time. Convert the ray hit to the decoded frame's normalized coordinates using the same aspect crop and orientation as the material. Use the existing Portal point-vision path for grounded object evidence. Bind the request to run, revision, scene and frame; drop stale responses and leave the lesson in place when there is no reliable object hit.
+3. Pass the recognized object, optional spoken intent, action and current lesson goal to the branch planner. Generate one next-scene description and an image edit from the captured frame, preserving viewpoint, lighting and visible characters. Keep raw frames and generated assets temporary per run. Run the same environment-only audio constraints and validate identity before handing the new seed to Dynamic.
+4. Use the existing DAG to commit the branch and later restore the main checkpoint. Keep the current video active if planning, image or Dynamic fails. Rate-limit to one request in flight per run, and avoid recording lesson attempts as points. Evaluate with the milk pitcher as a positive case, the blank counter as a no-hit control, and returning from exploration to the pending coffee sentence.

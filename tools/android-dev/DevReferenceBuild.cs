@@ -4,6 +4,7 @@ using UnityEngine;
 using UnityEditor.SceneManagement;
 using System.Linq;
 using Unity.XR.XREAL;
+using UnityEngine.XR.Hands.Samples.VisualizerSample;
 public static class DevReferenceBuild {
  public static void Build() {
   PlayerSettings.SetApplicationIdentifier(BuildTargetGroup.Android, "com.immersethebay.app");
@@ -19,6 +20,13 @@ public static class DevReferenceBuild {
   if (!hands) throw new System.InvalidOperationException("Official XREAL hands rig missing.");
   PrefabUtility.ReplacePrefabAssetOfPrefabInstance(rig, hands,
       new PrefabReplacingSettings { objectMatchMode = ObjectMatchMode.ByHierarchy }, InteractionMode.AutomatedAction);
+  foreach (var visualizer in rig.GetComponentsInChildren<HandVisualizer>(true))
+  {
+   visualizer.drawMeshes = true;
+   visualizer.debugDrawJoints = false;
+   visualizer.velocityType = HandVisualizer.VelocityType.None;
+   PrefabUtility.RecordPrefabInstancePropertyModifications(visualizer);
+  }
   foreach (var root in scene.GetRootGameObjects())
    if (root != rig && !root.GetComponent<Light>() &&
        !root.GetComponent<UnityEngine.XR.ARFoundation.ARSession>()) root.SetActive(false);

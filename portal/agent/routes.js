@@ -4,7 +4,8 @@ import { createTranscriber, audioType, MAX_AUDIO_BYTES } from './transcribe.js';
 import { AgentError, createLessonStore } from './lessons.js';
 import { createDialogueTranslator } from './translate.js';
 import { createAgentService } from './service.js';
-export function registerAgentRoutes(app, { authorized = () => true, store = createLessonStore(), service = createAgentService({ store }), transcribe = createTranscriber(), synthesize = createCartesiaSpeech(), translate = createDialogueTranslator() } = {}) {
+import { OPENING_CLIP_ROOT, resolveOpeningClip } from './opening-clips.js';
+export function registerAgentRoutes(app, { authorized = () => true, store = createLessonStore(), service = createAgentService({ store }), transcribe = createTranscriber(), synthesize = createCartesiaSpeech(), translate = createDialogueTranslator(), openingClipRoot = OPENING_CLIP_ROOT } = {}) {
   const protect = (req, res, next) => authorized(req) ? next() : res.status(401).json({ error: 'portal_token required' });
   const route = (fn) => async (req, res) => {
     try { await fn(req, res); } catch (e) { res.status(e.status || 500).json({ error: e.status ? e.message : 'Learning service unavailable' }); }
@@ -66,6 +67,16 @@ export function registerAgentRoutes(app, { authorized = () => true, store = crea
   }));
   app.get('/api/agent/lessons', protect, route(async (_req, res) => res.json({ lessons: await store.list() })));
   app.get('/api/agent/lessons/:id', protect, route(async (req, res) => res.json(await store.load(req.params.id))));
+  app.get('/api/agent/lessons/:id/scenes/:sceneId/opening', protect, route(async (req, res) => {
+    const clip = await resolveOpeningClip(store, openingClipRoot, req.params.id, req.params.sceneId);
+    if (!clip) return res.set('Cache-Control', 'no-store').status(404).json({ error: 'Scene opening unavailable' });
+    res.sendFile(clip, { cacheControl: false, headers: { 'Cache-Control': 'private, no-cache' } }, error => {
+      if (!error) return;
+      if (res.headersSent) return res.destroy(error);
+      res.set('Cache-Control', 'no-store').status(error.status === 404 ? 404 : 500)
+        .json({ error: 'Scene opening unavailable' });
+    });
+  }));
   app.get('/lessons/images/:filename', protect, route(async (req, res) => res.sendFile(await store.image(req.params.filename))));
   app.post('/api/agent/summary', protect, route(async (req, res) => res.set('Cache-Control', 'no-store').json(service.summary(req.body))));
   app.post('/api/agent/snapshot', protect, route(async (req, res) => res.set('Cache-Control', 'no-store').json(service.snapshot(req.body))));
