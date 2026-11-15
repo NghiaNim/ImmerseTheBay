@@ -12,6 +12,7 @@ namespace ImmerseTheBay.Learning
         public Camera headCamera;
         [Tooltip("Optional override; otherwise loads the bundled Noto CJK font.")]
         public Font subtitleFont;
+        public bool showRomaji = true;
         public bool showKana = true;
         public bool showTranslation;
         public bool useChineseTranslation;
@@ -30,7 +31,7 @@ namespace ImmerseTheBay.Learning
         const float Width = 1400f;
         RectTransform m_Panel;
         Canvas m_Canvas;
-        Text m_Japanese, m_Kana, m_Translation, m_Status, m_SpeakLabel, m_Clerk, m_ConversationLabel;
+        Text m_Japanese, m_Romaji, m_Kana, m_Translation, m_Status, m_SpeakLabel, m_Clerk, m_ConversationLabel;
         Button m_Speak, m_Hint, m_Next, m_Conversation, m_Return;
         LearningOverlayData m_Overlay;
         LearningFeedback m_Feedback;
@@ -61,6 +62,7 @@ namespace ImmerseTheBay.Learning
         public void SetStatus(string text) { BuildUi(); m_StatusOverride = text ?? ""; Refresh(); }
         public void SetBusy(bool busy) { BuildUi(); m_Busy = busy; Refresh(); }
         public void SetListening(bool listening) { BuildUi(); m_Listening = listening; Refresh(); }
+        public void SetRomajiVisible(bool visible) { showRomaji = visible; Refresh(); }
         public void SetKanaVisible(bool visible) { showKana = visible; Refresh(); }
         public void SetTranslationVisible(bool visible) { showTranslation = visible; Refresh(); }
         public void SetChineseTranslation(bool chinese) { useChineseTranslation = chinese; Refresh(); }
@@ -108,6 +110,7 @@ namespace ImmerseTheBay.Learning
 
             m_Clerk = MakeText("Clerk", font, 26, new Color(0.82f, 0.9f, 0.94f));
             m_Japanese = MakeText("Japanese", font, 42, Color.white);
+            m_Romaji = MakeText("Romaji", font, 29, new Color(0.9f, 0.94f, 0.96f));
             m_Kana = MakeText("Kana", font, 29, new Color(0.82f, 0.9f, 0.94f));
             m_Translation = MakeText("Translation", font, 29, new Color(0.82f, 0.9f, 0.94f));
             m_Status = MakeText("Feedback", font, 25, new Color(0.68f, 0.84f, 0.83f));
@@ -168,6 +171,7 @@ namespace ImmerseTheBay.Learning
             if (!m_Panel) return;
             m_Clerk.text = string.IsNullOrEmpty(m_ClerkCaption) ? "" : "店員 · " + Shorten(m_ClerkCaption, 110);
             m_Japanese.text = m_Overlay?.jp ?? (m_Done ? "お疲れさまでした" : "");
+            m_Romaji.text = showRomaji ? m_Overlay?.romaji ?? "" : "";
             m_Kana.text = showKana ? m_Overlay?.kana ?? "" : "";
             m_Translation.text = showTranslation && m_Overlay != null
                 ? (useChineseTranslation ? m_Overlay.zh : m_Overlay.en) ?? "" : "";
@@ -222,31 +226,44 @@ namespace ImmerseTheBay.Learning
             float footer = controls ? 76 : 12;
             float budget = Mathf.Max(1, m_AvailableHeight - footer - 12);
             m_Japanese.resizeTextForBestFit = false;
+            m_Romaji.resizeTextForBestFit = false;
             m_Status.resizeTextForBestFit = false;
             m_Japanese.fontSize = 42;
+            m_Romaji.fontSize = 29;
             float japanese = MeasureLine(m_Japanese);
+            float romaji = MeasureLine(m_Romaji);
             float clerk = Mathf.Min(MeasureLine(m_Clerk), 78);
             float kana = MeasureLine(m_Kana);
             float translation = MeasureLine(m_Translation);
             float status = MeasureLine(m_Status);
-            // Keep the learner sentence and clerk caption first; secondary hints collapse.
-            if (japanese + clerk + kana + translation + status > budget) translation = 0;
-            if (japanese + clerk + kana + translation + status > budget) kana = 0;
-            if (japanese + clerk + kana + translation + status > budget && m_Overlay != null) status = 0;
-            if (japanese + clerk > budget) clerk = Mathf.Min(clerk, 39);
-            while (japanese + clerk + status > budget && m_Japanese.fontSize > 32)
+            // Pronunciation stays directly under Japanese; collapse optional hints first.
+            if (japanese + romaji + clerk + kana + translation + status > budget) translation = 0;
+            if (japanese + romaji + clerk + kana + translation + status > budget) kana = 0;
+            if (japanese + romaji + clerk + kana + translation + status > budget && m_Overlay != null) status = 0;
+            if (japanese + romaji + clerk + status > budget) clerk = Mathf.Min(clerk, 39);
+            while (japanese + romaji + clerk + status > budget && (m_Japanese.fontSize > 32 || m_Romaji.fontSize > 23))
             {
-                m_Japanese.fontSize -= 2;
+                m_Japanese.fontSize = Mathf.Max(32, m_Japanese.fontSize - 2);
+                m_Romaji.fontSize = Mathf.Max(23, m_Romaji.fontSize - 2);
                 japanese = MeasureLine(m_Japanese);
+                romaji = MeasureLine(m_Romaji);
             }
-            if (japanese + clerk + status > budget && japanese > 0)
+            if (japanese + romaji + clerk + status > budget && japanese + romaji > 0)
             {
+                // Unusually long external lines share the remaining safe area. The text
+                // rectangles never overlap the caption or controls, even on narrow displays.
+                float remaining = Mathf.Max(0, budget - clerk - status);
+                float scale = remaining / (japanese + romaji);
+                japanese *= scale;
+                romaji *= scale;
                 m_Japanese.resizeTextForBestFit = true;
-                m_Japanese.resizeTextMinSize = 24;
+                m_Japanese.resizeTextMinSize = 18;
                 m_Japanese.resizeTextMaxSize = 32;
-                japanese = Mathf.Max(0, budget - clerk - status);
+                m_Romaji.resizeTextForBestFit = true;
+                m_Romaji.resizeTextMinSize = 18;
+                m_Romaji.resizeTextMaxSize = 23;
             }
-            if (japanese == 0 && clerk + status > budget)
+            if (japanese + romaji == 0 && clerk + status > budget)
             {
                 m_Status.resizeTextForBestFit = true;
                 m_Status.resizeTextMinSize = 20;
@@ -256,6 +273,7 @@ namespace ImmerseTheBay.Learning
             float y = 12;
             LayoutLine(m_Clerk, ref y, clerk);
             LayoutLine(m_Japanese, ref y, japanese);
+            LayoutLine(m_Romaji, ref y, romaji);
             LayoutLine(m_Kana, ref y, kana);
             LayoutLine(m_Translation, ref y, translation);
             LayoutLine(m_Status, ref y, status);
