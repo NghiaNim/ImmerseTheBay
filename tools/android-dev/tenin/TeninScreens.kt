@@ -181,11 +181,12 @@ class TeninScreens(private val context: Context) {
 
     // 3 · Say my goal listening
     /** `busy`: the recording is being processed; the mic is greyed out and cannot be tapped again. */
-    fun sayGoal(connected: Boolean, transcript: String, listening: Boolean, micLevel: Float, onMic: () -> Unit, onClose: () -> Unit, busy: Boolean = false) = ui.run {
-        screen(listOf(
+    fun sayGoal(connected: Boolean, transcript: String, listening: Boolean, micLevel: Float, onMic: () -> Unit, onClose: () -> Unit, busy: Boolean = false, photo: Bitmap? = null) = ui.run {
+        screen(listOfNotNull(
             header(onClose, close = true, connected = connected),
             title("What do you need to do?").margins(top = 18f),
             body("Speak in any language. Tenin will set up the lesson.").margins(top = 12f),
+            photo?.let { scenePhoto(it, busy).margins(top = 16f) },
             card(eyebrow("You said"),
                 text(SpannableStringBuilder(if (transcript.isEmpty()) "…" else "“$transcript").apply {
                     if (transcript.isNotEmpty() && listening) append("…", ForegroundColorSpan(Tenin.PRIMARY), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
@@ -194,6 +195,7 @@ class TeninScreens(private val context: Context) {
                 fill = Tenin.TINT).margins(top = 16f),
         ), footer = listOf(
             Waveform(context).apply {
+                tag = "goal-waveform"
                 level = if (listening) micLevel else 0.15f
                 layoutParams = LinearLayout.LayoutParams(dp(128f), dp(56f)).apply { gravity = Gravity.CENTER_HORIZONTAL; bottomMargin = dp(12f) }
             },
@@ -212,16 +214,41 @@ class TeninScreens(private val context: Context) {
         ))
     }
 
-    private fun photo(bitmap: Bitmap?) = ImageView(context).apply {
-        background = rounded(0xFFD9D5E8.toInt(), dp(24f).toFloat())
-        clipToOutline = true
-        scaleType = ImageView.ScaleType.CENTER_CROP
-        if (bitmap != null) setImageBitmap(bitmap)
-        contentDescription = "Your photo"
-        layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(250f))
+    fun updateGoalLevel(root: View, level: Float) {
+        root.findViewWithTag<Waveform>("goal-waveform")?.level = level
     }
 
-    private fun checklist(steps: List<TeninStep>, outlined: Boolean = false) = ui.run {
+    private fun scenePhoto(bitmap: Bitmap?, loading: Boolean = false) = object : FrameLayout(context) {
+        override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+            val width = MeasureSpec.getSize(widthMeasureSpec)
+            super.onMeasure(widthMeasureSpec, MeasureSpec.makeMeasureSpec(width * 9 / 16, MeasureSpec.EXACTLY))
+        }
+    }.apply {
+        background = rounded(0xFFD9D5E8.toInt(), dp(24f).toFloat())
+        clipToOutline = true
+        layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        if (bitmap != null) {
+            addView(ImageView(context).apply {
+                scaleType = ImageView.ScaleType.FIT_CENTER
+                setImageBitmap(bitmap)
+                contentDescription = "Your scene preview"
+            }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        }
+        if (loading) {
+            addView(FrameLayout(context).apply {
+                background = rounded(Tenin.TINT, dp(36f).toFloat())
+                addView(ProgressBar(context).apply {
+                    indeterminateTintList = android.content.res.ColorStateList.valueOf(Tenin.PRIMARY)
+                    contentDescription = "Preparing your scene"
+                }, FrameLayout.LayoutParams(dp(22f), dp(22f), Gravity.CENTER))
+            }, FrameLayout.LayoutParams(dp(36f), dp(36f), Gravity.BOTTOM or Gravity.END).apply {
+                marginEnd = dp(12f)
+                bottomMargin = dp(12f)
+            })
+        }
+    }
+
+    private fun checklist(steps: List<TeninStep>, outlined: Boolean = false, showSpinner: Boolean = true) = ui.run {
         card(*steps.flatMapIndexed { i, step ->
             listOfNotNull(if (i > 0) divider().margins(top = 12f, bottom = 12f) else null, row(
                 if (step.done && outlined) icon(TeninIcon.CHECK_CIRCLE, 22f, Tenin.GREEN).margins(right = 12f)
@@ -229,8 +256,10 @@ class TeninScreens(private val context: Context) {
                     background = rounded(Tenin.GREEN, dp(26f).toFloat())
                     layoutParams = LinearLayout.LayoutParams(dp(26f), dp(26f)).apply { rightMargin = dp(12f) }
                     addView(ImageView(context).apply { setImageDrawable(TeninIconDrawable(TeninIcon.CHECK, Tenin.WHITE, 2.6f)) }, FrameLayout.LayoutParams(dp(14f), dp(14f), Gravity.CENTER))
-                } else ProgressBar(context).apply {
+                } else if (showSpinner) ProgressBar(context).apply {
                     indeterminateTintList = android.content.res.ColorStateList.valueOf(Tenin.PRIMARY)
+                    layoutParams = LinearLayout.LayoutParams(dp(26f), dp(26f)).apply { rightMargin = dp(12f) }
+                } else View(context).apply {
                     layoutParams = LinearLayout.LayoutParams(dp(26f), dp(26f)).apply { rightMargin = dp(12f) }
                 },
                 text(step.label, 18f, Tenin.INK, if (step.done) 400 else 600).weighted(),
@@ -245,12 +274,13 @@ class TeninScreens(private val context: Context) {
 
     // 4 · Reading your photo and 5 · Photo ready (ready = every step done)
     fun photoProgress(connected: Boolean, bitmap: Bitmap?, steps: List<TeninStep>, ready: Boolean, error: String, onContinue: () -> Unit, onRetake: () -> Unit, onCancel: () -> Unit, onBack: () -> Unit) = ui.run {
+        val loading = !ready && error.isEmpty()
         screen(listOfNotNull(
             header(onBack, connected = connected),
-            title(if (error.isNotEmpty()) "That didn’t work" else if (ready) "Photo ready" else "Reading your photo").margins(top = 18f),
-            photo(bitmap).margins(top = 16f),
+            title(if (error.isNotEmpty()) "That didn’t work" else if (ready) "Photo ready" else "Preparing your scene").margins(top = 18f),
+            if (bitmap != null || loading) scenePhoto(bitmap, loading).margins(top = 16f) else null,
             if (error.isNotEmpty()) card(text(error, 17f, Tenin.BROWN), fill = Tenin.YELLOW_BG, line = Tenin.YELLOW_LINE, padding = 16f, radius = 18f).margins(top = 16f)
-            else checklist(steps).margins(top = 16f),
+            else checklist(steps, showSpinner = !loading).margins(top = 16f),
         ), footer = when {
             error.isNotEmpty() -> listOf(primaryButton("Try again", TeninIcon.RETRY, onContinue), secondaryButton("Retake", null, onRetake).margins(top = 10f))
             ready -> listOf(primaryButton("Continue in glasses", TeninIcon.GLASSES, onContinue), secondaryButton("Retake", null, onRetake).margins(top = 10f))
@@ -279,10 +309,10 @@ class TeninScreens(private val context: Context) {
 
     // 6 · Put on your glasses
     // `warning` (e.g. low battery) shows above the checklist. Starting waits until the glasses are connected.
-    fun putOnGlasses(connected: Boolean, lessonTitle: String, warning: String, onWearing: () -> Unit, onBack: () -> Unit) = ui.run {
+    fun putOnGlasses(connected: Boolean, lessonTitle: String, warning: String, onWearing: () -> Unit, onBack: () -> Unit, photo: Bitmap? = null) = ui.run {
         screen(listOfNotNull(
             header(onBack),
-            FrameLayout(context).apply {
+            if (photo != null) scenePhoto(photo).margins(top = 26f) else FrameLayout(context).apply {
                 background = rounded(0, dp(196f).toFloat(), 0xFFCFC6F0.toInt(), dp(1.5f), dp(4f).toFloat())
                 layoutParams = LinearLayout.LayoutParams(dp(196f), dp(196f)).apply { gravity = Gravity.CENTER_HORIZONTAL; topMargin = dp(26f) }
                 addView(FrameLayout(context).apply {

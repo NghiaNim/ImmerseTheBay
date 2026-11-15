@@ -43,16 +43,17 @@ object PracticePortal {
 
     // --- photos ---------------------------------------------------------------------------------
 
-    /** Upright JPEG, longest side at most 1280 px. */
+    /** Upright, center-cropped 16:9 JPEG, at most 1280 × 720. */
     fun encodePhoto(file: File): ByteArray {
+        val orientation = ExifInterface(file.path).getAttributeInt(
+            ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeFile(file.path, bounds)
         var sample = 1
-        while (maxOf(bounds.outWidth, bounds.outHeight) / sample > 2000) sample *= 2
+        while (maxOf(bounds.outWidth, bounds.outHeight) / sample > 4096 ||
+            (bounds.outWidth / sample).toLong() * (bounds.outHeight / sample) > 8_000_000L) sample *= 2
         val bitmap = BitmapFactory.decodeFile(file.path, BitmapFactory.Options().apply { inSampleSize = sample })
             ?: throw IllegalArgumentException("No photo")
-        val orientation = ExifInterface(file.path).getAttributeInt(
-            ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
         val transform = Matrix().apply {
             when (orientation) {
                 ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> postScale(-1f, 1f)
@@ -63,13 +64,25 @@ object PracticePortal {
                 ExifInterface.ORIENTATION_TRANSVERSE -> { postScale(-1f, 1f); postRotate(90f) }
                 ExifInterface.ORIENTATION_ROTATE_270 -> postRotate(270f)
             }
-            val scale = minOf(1f, 1280f / maxOf(bitmap.width, bitmap.height))
-            postScale(scale, scale)
         }
-        val upright = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, transform, true)
-        return try {
-            ByteArrayOutputStream().use { out -> upright.compress(Bitmap.CompressFormat.JPEG, 87, out); out.toByteArray() }
+        var upright: Bitmap = bitmap
+        var cropped: Bitmap = bitmap
+        var output: Bitmap = bitmap
+        try {
+            upright = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, transform, true)
+            val units = minOf(upright.width / 16, upright.height / 9)
+            require(units > 0) { "Photo is too small" }
+            val width = units * 16
+            val height = units * 9
+            cropped = Bitmap.createBitmap(upright, (upright.width - width) / 2, (upright.height - height) / 2, width, height)
+            output = if (width > 1280) Bitmap.createScaledBitmap(cropped, 1280, 720, true) else cropped
+            return ByteArrayOutputStream().use { out ->
+                check(output.compress(Bitmap.CompressFormat.JPEG, 87, out)) { "Could not prepare photo" }
+                out.toByteArray()
+            }
         } finally {
+            if (output !== cropped && output !== bitmap) output.recycle()
+            if (cropped !== upright && cropped !== bitmap) cropped.recycle()
             if (upright !== bitmap) upright.recycle()
             bitmap.recycle()
         }
@@ -77,7 +90,7 @@ object PracticePortal {
 
     /** A picked image (content URI) is copied to the cache first so EXIF orientation can be read. */
     fun encodePhoto(context: Context, uri: Uri): ByteArray {
-        val copy = File(context.cacheDir, "practice-picked.jpg")
+        val copy = File.createTempFile("practice-picked-", ".jpg", context.cacheDir)
         try {
             context.contentResolver.openInputStream(uri).use { input ->
                 requireNotNull(input) { "No photo" }

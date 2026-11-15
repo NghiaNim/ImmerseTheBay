@@ -6,6 +6,7 @@ import android.content.ActivityNotFoundException
 import android.content.ClipData
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.media.MediaRecorder
 import android.net.Uri
@@ -14,6 +15,8 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.MediaStore
 import java.io.File
+import java.net.HttpURLConnection
+import java.util.concurrent.CancellationException
 import java.util.concurrent.Executors
 
 /**
@@ -29,17 +32,24 @@ object TeninWorkflow {
     private const val LEVEL = "N4"
 
     private val worker = Executors.newSingleThreadExecutor()
+    private val disconnectWorker = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
+    private var owner: TeninActivity? = null
+    private var expectedResult: Int? = null
+    private var expectedPermission: Int? = null
     private var spokenGoal: String? = null
     // Photo taken first: the next spoken goal is sent together with it.
-    private var pendingPhoto: ByteArray? = null
+    private class PreparedPhoto(val jpeg: ByteArray, val preview: Bitmap)
+    private var pendingPhoto: PreparedPhoto? = null
     private var recorder: MediaRecorder? = null
     private var recording: File? = null
-    private var generation = 0
+    private val requestLock = Any()
+    private var activeRequest: HttpURLConnection? = null
+    @Volatile private var generation = 0
 
     fun install() {
         // Each Live Lesson action starts fresh; only "Add a photo" carries a spoken goal over.
-        TeninHooks.liveLesson = { activity, kind -> spokenGoal = null; start(activity, kind) }
+        TeninHooks.liveLesson = { activity, kind -> start(activity, kind) }
         TeninHooks.openGlasses = { activity ->
             // The glasses start the selected lesson themselves; no second tap on the XREAL controller.
             PracticePortal.requestLaunch()
@@ -49,11 +59,13 @@ object TeninWorkflow {
         TeninHooks.endLesson = { PracticePortal.requestEnd() }
     }
 
-    private fun start(activity: TeninActivity, kind: String) {
-        if (kind != "voice") pendingPhoto = null
+    private fun start(activity: TeninActivity, kind: String, goal: String? = null) {
+        owner?.let(::cancel)
+        owner = activity
+        spokenGoal = goal
         when (kind) {
             "photo" -> capture(activity)
-            "library" -> activity.startActivityForResult(Intent(Intent.ACTION_GET_CONTENT).setType("image/*"), PICK)
+            "library" -> launchPhotoIntent(activity, Intent(Intent.ACTION_GET_CONTENT).setType("image/*"), PICK)
             "voice" -> listen(activity)
         }
     }
@@ -65,63 +77,88 @@ object TeninWorkflow {
 
     private fun capture(activity: TeninActivity) {
         if (activity.checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+            expectedPermission = CAMERA_PERMISSION
             activity.requestPermissions(arrayOf(Manifest.permission.CAMERA), CAMERA_PERMISSION)
             return
         }
         cameraFile(activity).delete()
+        launchPhotoIntent(activity, Intent(MediaStore.ACTION_IMAGE_CAPTURE).apply {
+            putExtra(MediaStore.EXTRA_OUTPUT, cameraUri(activity))
+            clipData = ClipData.newRawUri("Scene photo", cameraUri(activity))
+            addFlags(GRANTS)
+        }, CAMERA)
+    }
+
+    private fun launchPhotoIntent(activity: TeninActivity, intent: Intent, code: Int) {
+        expectedResult = code
         try {
-            activity.startActivityForResult(Intent(MediaStore.ACTION_IMAGE_CAPTURE).apply {
-                putExtra(MediaStore.EXTRA_OUTPUT, cameraUri(activity))
-                clipData = ClipData.newRawUri("Scene photo", cameraUri(activity))
-                addFlags(GRANTS)
-            }, CAMERA)
+            activity.startActivityForResult(intent, code)
         } catch (_: ActivityNotFoundException) {
-            failed(activity, "No camera app is available.") { start(activity, "library") }
+            expectedResult = null
+            val other = if (code == CAMERA) "library" else "photo"
+            val message = if (code == CAMERA) "No camera app is available." else "No image picker is available."
+            failed(activity, message) { start(activity, other, spokenGoal) }
         }
     }
 
     fun onActivityResult(activity: TeninActivity, code: Int, result: Int, data: Intent?) {
+        if (activity !== owner || code != expectedResult) return
+        expectedResult = null
         if (code == CAMERA) activity.revokeUriPermission(cameraUri(activity), GRANTS)
-        if (code != CAMERA && code != PICK) return
-        if (result != Activity.RESULT_OK) { cameraFile(activity).delete(); return }
+        if (result != Activity.RESULT_OK) {
+            if (code == CAMERA) cameraFile(activity).delete()
+            return
+        }
         val picked = data?.data
         if (code == PICK && picked == null) return
+        activity.showPhotoProgress(null, listOf(TeninStep("Preparing your photo…", false)), ready = false,
+            onContinue = {}, onRetake = {})
         val run = ++generation
+        val source = if (code == CAMERA) runCatching {
+            // Detach this capture from the fixed path used by the next camera intent.
+            File.createTempFile("practice-capture-", ".jpg", activity.cacheDir).also { file ->
+                if (!cameraFile(activity).renameTo(file)) {
+                    file.delete()
+                    throw IllegalStateException("Could not store captured photo")
+                }
+            }
+        }.getOrNull() else null
         worker.execute {
-            val image = runCatching {
-                if (code == CAMERA) try { PracticePortal.encodePhoto(cameraFile(activity)) } finally { cameraFile(activity).delete() }
-                else PracticePortal.encodePhoto(activity, picked!!)
+            val prepared = runCatching {
+                val image = if (code == CAMERA) try { PracticePortal.encodePhoto(requireNotNull(source)) } finally { source?.delete() }
+                    else PracticePortal.encodePhoto(activity, picked!!)
+                PreparedPhoto(image, requireNotNull(BitmapFactory.decodeByteArray(image, 0, image.size)))
             }.getOrNull()
             ui(activity, run) {
                 when {
-                    image == null -> failed(activity, "Could not read that photo. Try another one.") { start(activity, "photo") }
+                    prepared == null -> failed(activity, "Could not read that photo. Try another one.") { start(activity, "photo", spokenGoal) }
                     // Goal already said (Add a photo from the lesson summary): build right away.
-                    spokenGoal != null -> buildFromPhoto(activity, image, spokenGoal!!, run)
+                    spokenGoal != null -> buildFromPhoto(activity, prepared, spokenGoal!!, run)
                     // Otherwise ask what they need to do here, then send the photo with that goal.
-                    else -> { pendingPhoto = image; listen(activity) }
+                    else -> { pendingPhoto = prepared; listen(activity) }
                 }
             }
         }
     }
 
-    private fun buildFromPhoto(activity: TeninActivity, image: ByteArray, goal: String, run: Int) {
-        val preview = BitmapFactory.decodeByteArray(image, 0, image.size)
-        val steps = listOf(TeninStep("Photo taken", true), TeninStep("Goal: $goal", true))
-        activity.showPhotoProgress(preview, steps + TeninStep("Building your lesson…", false), ready = false,
-            onContinue = {}, onRetake = { start(activity, "photo") })
+    private fun buildFromPhoto(activity: TeninActivity, photo: PreparedPhoto, goal: String, run: Int) {
+        val steps = listOf(TeninStep("Photo ready", true), TeninStep("Goal: $goal", true))
+        activity.showPhotoProgress(photo.preview, steps + TeninStep("Building your lesson…", false), ready = false,
+            onContinue = {}, onRetake = {})
         worker.execute {
-            val made = runCatching { PracticePortal.createPractice(activity, image, goal) }
+            val made = runCatching { PracticePortal.createPractice(activity, photo.jpeg, goal, requestTracker(run)) }
             ui(activity, run) {
                 made.onSuccess { practice ->
-                    spokenGoal = null
                     pendingPhoto = null
                     PracticePortal.remember(practice)
-                    activity.showPhotoProgress(preview, steps + TeninStep(englishTitle(practice.title).let { "Lesson ready: $it" }, true), ready = true,
-                        onContinue = { activity.showPutOnGlasses(practice.id, "", practice.title) }, onRetake = { start(activity, "photo") }, update = true)
+                    activity.showPhotoProgress(photo.preview, steps + TeninStep(englishTitle(practice.title).let { "Lesson ready: $it" }, true), ready = true,
+                        onContinue = { activity.showPutOnGlasses(practice.id, "", practice.title, photo.preview) },
+                        onRetake = { start(activity, "photo", goal) }, update = true)
                 }.onFailure {
                     // Try again: same photo and goal. Retake: a new photo.
-                    activity.showPhotoProgress(preview, steps, ready = false, error = it.message ?: "Could not build a lesson from that photo.",
-                        onContinue = { buildFromPhoto(activity, image, goal, ++generation) }, onRetake = { start(activity, "photo") }, update = true)
+                    activity.showPhotoProgress(photo.preview, steps, ready = false, error = it.message ?: "Could not build a lesson from that photo.",
+                        onContinue = { buildFromPhoto(activity, photo, goal, ++generation) },
+                        onRetake = { start(activity, "photo", goal) }, update = true)
                 }
             }
         }
@@ -131,11 +168,16 @@ object TeninWorkflow {
 
     private fun listen(activity: TeninActivity) {
         if (activity.checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            activity.showSayGoal("", false, 0f, onMic = { listen(activity) }, photo = pendingPhoto?.preview)
+            expectedPermission = MIC_PERMISSION
             activity.requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), MIC_PERMISSION)
             return
         }
-        stopRecorder()
-        val file = File(activity.cacheDir, "practice-goal.m4a").also { it.delete() }
+        if (recorder != null) return
+        val file = runCatching { File.createTempFile("practice-goal-", ".m4a", activity.cacheDir) }.getOrElse {
+            failed(activity, "Could not prepare a recording.") { listen(activity) }
+            return
+        }
         @Suppress("DEPRECATION")
         val next = if (Build.VERSION.SDK_INT >= 31) MediaRecorder(activity) else MediaRecorder()
         try {
@@ -146,25 +188,28 @@ object TeninWorkflow {
             next.setAudioSamplingRate(16000)
             next.setAudioEncodingBitRate(64000)
             next.setMaxDuration(30000)
-            next.setOnInfoListener { _, what, _ -> if (what == MediaRecorder.MEDIA_RECORDER_INFO_MAX_DURATION_REACHED) finishListening(activity) }
+            next.setOnInfoListener { source, what, _ ->
+                if (recorder === source && what == MediaRecorder.MEDIA_RECORDER_INFO_MAX_DURATION_REACHED) finishListening(activity)
+            }
             next.setOutputFile(file.path)
             next.prepare()
             next.start()
         } catch (_: Exception) {
             next.release()
+            file.delete()
             failed(activity, "Could not start the microphone.") { listen(activity) }
             return
         }
         recorder = next
         recording = file
         val run = ++generation
-        activity.showSayGoal("", true, 0f, onMic = { finishListening(activity) }, onClose = { cancel(); activity.onBackPressed() })
+        activity.showSayGoal("", true, 0f, onMic = { finishListening(activity) }, photo = pendingPhoto?.preview)
         // Live level for the waveform; tapping the mic again finishes.
         fun meter() {
             val current = recorder ?: return
             if (run != generation || activity.isDestroyed) return
             val level = (current.maxAmplitude / 12000f).coerceIn(0f, 1f)
-            activity.showSayGoal("", true, level, onMic = { finishListening(activity) }, onClose = { cancel(); activity.onBackPressed() }, update = true)
+            activity.updateGoalLevel(level)
             main.postDelayed({ meter() }, 250)
         }
         main.postDelayed({ meter() }, 250)
@@ -173,6 +218,7 @@ object TeninWorkflow {
     private fun finishListening(activity: TeninActivity) {
         if (recorder == null) return
         val file = recording
+        recording = null
         val ok = stopRecorder()
         if (!ok || file == null || file.length() == 0L) {
             file?.delete()
@@ -180,9 +226,11 @@ object TeninWorkflow {
             return
         }
         val run = ++generation
-        activity.showSayGoal("Understanding you…", false, 0f, onMic = {}, onClose = { cancel(); activity.onBackPressed() }, update = true, busy = true)
+        activity.showSayGoal("Understanding you…", false, 0f, onMic = {}, update = true, busy = true, photo = pendingPhoto?.preview)
         worker.execute {
-            val heard = runCatching { try { PracticePortal.transcribe(activity, file.readBytes(), "") } finally { file.delete() } }
+            val heard = runCatching {
+                try { PracticePortal.transcribe(activity, file.readBytes(), "", requestTracker(run)) } finally { file.delete() }
+            }
             ui(activity, run) {
                 heard.onSuccess { text ->
                     val photo = pendingPhoto
@@ -194,9 +242,9 @@ object TeninWorkflow {
     }
 
     private fun writeLesson(activity: TeninActivity, goal: String, run: Int) {
-        activity.showSayGoal(goal, false, 0f, onMic = {}, onClose = { cancel(); activity.onBackPressed() }, update = true, busy = true)
+        activity.showSayGoal(goal, false, 0f, onMic = {}, update = true, busy = true)
         worker.execute {
-            val written = runCatching { PracticePortal.createScenario(activity, goal, LEVEL, "") }
+            val written = runCatching { PracticePortal.createScenario(activity, goal, LEVEL, "", requestTracker(run)) }
             ui(activity, run) {
                 written.onSuccess { lesson ->
                     val title = lesson.getString("title")
@@ -206,7 +254,7 @@ object TeninWorkflow {
                         if (role.isNotEmpty()) "You talk with the $role" else "",
                         first?.let { "${it.optString("jp")} · ${it.optString("en")}" }.orEmpty(),
                         // Adding a photo grounds the same goal in the real place (photo practice).
-                        onAddPhoto = { spokenGoal = goal; start(activity, "photo") },
+                        onAddPhoto = { start(activity, "photo", goal) },
                         onContinue = { activity.showPutOnGlasses(lesson.getString("id"), lesson.optString("startImage"), title) },
                         onAgain = { listen(activity) })
                 }.onFailure { failed(activity, it.message ?: "Could not write a lesson from that.") { listen(activity) } }
@@ -217,17 +265,54 @@ object TeninWorkflow {
     // --- shared -------------------------------------------------------------------------------------
 
     fun onPermission(activity: TeninActivity, code: Int, grants: IntArray) {
+        if (activity !== owner || code != expectedPermission) return
+        expectedPermission = null
         val granted = grants.firstOrNull() == PackageManager.PERMISSION_GRANTED
         when (code) {
-            CAMERA_PERMISSION -> if (granted) capture(activity) else failed(activity, "Allow the camera to take a photo, or choose one from your library.") { start(activity, "library") }
+            CAMERA_PERMISSION -> if (granted) capture(activity) else failed(activity, "Allow the camera to take a photo, or choose one from your library.") { start(activity, "library", spokenGoal) }
             MIC_PERMISSION -> if (granted) listen(activity) else failed(activity, "Allow the microphone to say your goal.") { listen(activity) }
         }
     }
 
-    /** Stops any recording when the Tenin screen goes away. */
-    fun cancel() {
+    /** Release the microphone in the background, allowing a fresh take when the user returns. */
+    fun pause(activity: TeninActivity) {
+        if (activity !== owner || recorder == null) return
         generation++
+        discardRecording()
+        activity.showSayGoal("", false, 0f, onMic = { listen(activity) }, photo = pendingPhoto?.preview)
+    }
+
+    /** Cancels one preparation when its screen or owning activity goes away. */
+    fun cancel(activity: TeninActivity) {
+        if (activity !== owner) return
+        owner = null
+        if (expectedResult == CAMERA) {
+            activity.revokeUriPermission(cameraUri(activity), GRANTS)
+            cameraFile(activity).delete()
+        }
+        expectedResult = null
+        expectedPermission = null
+        spokenGoal = null
         pendingPhoto = null
+        val request = synchronized(requestLock) {
+            generation++
+            activeRequest.also { activeRequest = null }
+        }
+        if (request != null) disconnectWorker.execute { request.disconnect() }
+        discardRecording()
+    }
+
+    private fun requestTracker(run: Int): (HttpURLConnection?) -> Unit = { request ->
+        val current = synchronized(requestLock) {
+            (run == generation).also { if (it) activeRequest = request }
+        }
+        if (!current && request != null) {
+            request.disconnect()
+            throw CancellationException("Preparation was canceled")
+        }
+    }
+
+    private fun discardRecording() {
         stopRecorder()
         recording?.delete()
         recording = null
@@ -241,10 +326,10 @@ object TeninWorkflow {
     }
 
     private fun failed(activity: TeninActivity, message: String, retry: () -> Unit) =
-        activity.showPhotoProgress(null, emptyList(), ready = false, error = message, onContinue = retry, onRetake = retry)
+        activity.showPhotoProgress(pendingPhoto?.preview, emptyList(), ready = false, error = message, onContinue = retry, onRetake = retry)
 
     private fun ui(activity: TeninActivity, run: Int, block: () -> Unit) =
-        main.post { if (run == generation && !activity.isDestroyed) block() }
+        main.post { if (activity === owner && run == generation && !activity.isDestroyed) block() }
 
     private fun englishTitle(title: String) = title.substringAfter(" — ", title).trim()
 

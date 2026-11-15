@@ -56,6 +56,7 @@ class TeninActivity : Activity() {
     private lateinit var screens: TeninScreens
     private lateinit var root: FrameLayout
     private val stack = ArrayList<() -> View>()
+    private var preparationDepth = 0
     private val worker = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
     private var demo = false
@@ -119,8 +120,31 @@ class TeninActivity : Activity() {
     }
     private fun go(screen: () -> View) { stack.add(screen); render() }
     private fun replace(screen: () -> View) { if (stack.isNotEmpty()) stack.removeAt(stack.size - 1); go(screen) }
-    private fun reset(screen: () -> View) { stack.clear(); go(screen) }
-    private fun back() { if (stack.size > 1) { stack.removeAt(stack.size - 1); render() } else finish() }
+    private fun reset(screen: () -> View) {
+        if (!demo) TeninWorkflow.cancel(this)
+        preparationDepth = 0
+        stack.clear()
+        go(screen)
+    }
+
+    private fun back() {
+        if (!demo && (preparationDepth == 0 || preparationDepth == stack.size)) {
+            TeninWorkflow.cancel(this)
+            preparationDepth = 0
+        }
+        if (stack.size > 1) { stack.removeAt(stack.size - 1); render() } else finish()
+    }
+
+    private fun showPreparation(screen: () -> View, update: Boolean = false) {
+        if (demo) {
+            if (update) replace(screen) else go(screen)
+        } else if (preparationDepth > 0 && preparationDepth == stack.size) {
+            replace(screen)
+        } else {
+            preparationDepth = stack.size + 1
+            go(screen)
+        }
+    }
     @Deprecated("Handles the in-app screen stack.") override fun onBackPressed() = back()
 
     private fun nav(active: TeninUi.Tab) = screens.ui.bottomNav(active) { tab ->
@@ -144,10 +168,10 @@ class TeninActivity : Activity() {
         onStart = { prepare(scenarios[chosen]) }, onBack = ::back)
 
     /** Hands a lesson to the glasses: remember the choice, then ask the wearer to put them on. */
-    private fun prepare(scenario: TeninScenario) {
+    private fun prepare(scenario: TeninScenario, photo: Bitmap? = null) {
         TeninHooks.selected = arrayOf(scenario.id, scenario.startImage, scenario.title)
         running = scenario
-        go { screens.putOnGlasses(connected, scenario.title, batteryWarning(), onWearing = ::startInGlasses, onBack = ::back) }
+        go { screens.putOnGlasses(connected, scenario.title, batteryWarning(), onWearing = ::startInGlasses, onBack = ::back, photo = photo) }
     }
 
     private fun battery(): Pair<Int, Boolean> {
@@ -189,7 +213,13 @@ class TeninActivity : Activity() {
         // Back without End lesson (glasses disconnected, Back to Tenin, Home): the lesson has stopped there.
         if (inGlasses) { inGlasses = false; running?.let(::showStopped) }
     }
-    override fun onPause() { if (!demo) TeninGlassesScreen.hide(this); super.onPause() }
+    override fun onPause() {
+        if (!demo) {
+            TeninWorkflow.pause(this)
+            TeninGlassesScreen.hide(this)
+        }
+        super.onPause()
+    }
 
     /** Back from the glasses (their End lesson button): show the summary without stopping them again. */
     override fun onNewIntent(intent: Intent) {
@@ -236,24 +266,24 @@ class TeninActivity : Activity() {
     }
 
     /** Listening screen for a spoken goal. Call again with the latest transcript and level (0..1). */
-    fun showSayGoal(transcript: String, listening: Boolean, level: Float, onMic: () -> Unit, onClose: () -> Unit = ::back, update: Boolean = false, busy: Boolean = false) {
-        val screen = { screens.sayGoal(connected, transcript, listening, level, onMic, onClose, busy) }
-        if (update) replace(screen) else go(screen)
+    fun showSayGoal(transcript: String, listening: Boolean, level: Float, onMic: () -> Unit, onClose: () -> Unit = ::back, update: Boolean = false, busy: Boolean = false, photo: Bitmap? = null) {
+        showPreparation({ screens.sayGoal(connected, transcript, listening, level, onMic, onClose, busy, photo) }, update)
     }
+
+    fun updateGoalLevel(level: Float) = screens.updateGoalLevel(root, level)
 
     /** "Reading your photo" while steps are unfinished, "Photo ready" once `ready`, or an error with retry. */
     fun showPhotoProgress(photo: Bitmap?, steps: List<TeninStep>, ready: Boolean, error: String = "", onContinue: () -> Unit, onRetake: () -> Unit, onCancel: () -> Unit = ::back, update: Boolean = false) {
-        val screen = { screens.photoProgress(connected, photo, steps, ready, error, onContinue, onRetake, onCancel, ::back) }
-        if (update) replace(screen) else go(screen)
+        showPreparation({ screens.photoProgress(connected, photo, steps, ready, error, onContinue, onRetake, onCancel, ::back) }, update)
     }
 
     /** "Here's your lesson" after a spoken goal. Empty `remember` or `practice` rows are left out. */
     fun showLessonSummary(icon: TeninIcon, situation: String, remember: String, practice: String, onAddPhoto: (() -> Unit)?, onContinue: () -> Unit, onAgain: () -> Unit) =
-        go { screens.lessonSummary(connected, icon, situation, remember, practice, onAddPhoto, onContinue, onAgain, ::back) }
+        showPreparation({ screens.lessonSummary(connected, icon, situation, remember, practice, onAddPhoto, onContinue, onAgain, ::back) })
 
     /** Continue a generated lesson into the glasses, exactly like a pre-made one. */
-    fun showPutOnGlasses(lessonId: String, startImage: String, title: String) =
-        prepare(TeninScenario(lessonId, title, "", "", "", TeninIcon.CAMERA, emptyList(), startImage))
+    fun showPutOnGlasses(lessonId: String, startImage: String, title: String, photo: Bitmap? = null) =
+        prepare(TeninScenario(lessonId, title, "", "", "", TeninIcon.CAMERA, emptyList(), startImage), photo)
 
     fun showComplete(summary: String, saved: Int, review: Int, tip: String) = reset {
         screens.complete(summary, saved, review, tip, onPhrases = { reset(::vocabularyScreen); refreshSessions() }, onDone = { reset(::startScreen) })
@@ -439,7 +469,7 @@ class TeninActivity : Activity() {
     override fun onDestroy() {
         closed = true
         displays.unregisterDisplayListener(displayListener)
-        if (!demo) TeninWorkflow.cancel()
+        if (!demo) TeninWorkflow.cancel(this)
         main.removeCallbacksAndMessages(null)
         tts?.shutdown()
         worker.shutdownNow()
