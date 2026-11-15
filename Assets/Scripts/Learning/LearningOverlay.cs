@@ -13,8 +13,8 @@ namespace ImmerseTheBay.Learning
         [Tooltip("Optional override; otherwise loads the bundled Noto CJK font.")]
         public Font subtitleFont;
         public bool showRomaji = true;
-        public bool showKana = true;
-        public bool showTranslation;
+        public bool showKana;
+        public bool showTranslation = true;
         public bool useChineseTranslation;
         [Min(0.5f)] public float fallbackWidth = 1.3f;
         [Min(0.5f)] public float fallbackDistance = 1.6f;
@@ -40,20 +40,31 @@ namespace ImmerseTheBay.Learning
         const int PronunciationSize = 40;
         const int TranslationSize = 36;
         const int DialogueSize = 40;
+        const float ControlButtonSpacing = 248f;
+        const float CaptionBottom = 0.055f;
         RectTransform m_Panel;
+        RectTransform m_Hud, m_InstructionText;
         Canvas m_Canvas;
         Text m_Japanese, m_Romaji, m_Kana, m_Translation, m_Status, m_SpeakLabel, m_Clerk, m_Learner, m_ConversationLabel;
+        Text m_ProgressBadge, m_ResultBadge, m_Instruction, m_ControlHint;
+        GameObject m_Backdrop;
+        readonly RectTransform[] m_Waveform = new RectTransform[5];
+        readonly float[] m_ListeningHistory = new float[5];
         Button m_Speak, m_Hint, m_Next, m_Conversation, m_Return;
+        Button[] m_Buttons;
         LearningOverlayData m_Overlay;
         LearningFeedback m_Feedback;
         bool m_Busy, m_Listening, m_Done, m_ConversationActive, m_AgentSpeaking, m_Detour, m_ControlsLocked;
-        string m_ClerkCaption = "", m_ClerkEnglish = "", m_LearnerCaption = "", m_LearnerEnglish = "", m_RouteLabel = "", m_ConversationStatus = "";
+        bool m_ClerkSpeaking, m_ExampleSpeaking;
+        string m_ClerkCaption = "", m_ClerkEnglish = "", m_ClerkRomaji = "", m_LearnerCaption = "", m_LearnerEnglish = "", m_RouteLabel = "", m_ConversationStatus = "";
         Func<string> m_Debug;
         string m_StatusOverride = "";
         string m_PracticeStatus = "";
         string m_PracticeProgress = "";
+        string m_PracticeOutcome = "";
+        float m_ListeningLevel, m_NextWaveformSample, m_LastListeningSample;
         float m_Height;
-        float m_AvailableHeight = ReferenceHeight * 0.52f;
+        float m_AvailableHeight = ReferenceHeight * 0.38f;
 
         void Awake()
         {
@@ -73,17 +84,44 @@ namespace ImmerseTheBay.Learning
             Refresh();
         }
 
-        public void SetPracticeResult(string progress, string target, string result)
+        public void SetPracticeResult(string progress, string result, string outcome)
         {
             m_PracticeProgress = progress ?? "";
-            m_PracticeStatus = string.IsNullOrEmpty(result) ? ""
-                : result + " · " + progress + "\n" + Shorten(target ?? "", 24);
+            m_PracticeStatus = result ?? "";
+            m_PracticeOutcome = outcome ?? "";
             Refresh();
         }
 
         public void SetStatus(string text) { BuildUi(); m_StatusOverride = text ?? ""; Refresh(); }
         public void SetBusy(bool busy) { BuildUi(); m_Busy = busy; Refresh(); }
-        public void SetListening(bool listening) { BuildUi(); m_Listening = listening; Refresh(); }
+        public void SetListening(bool listening)
+        {
+            BuildUi();
+            if (m_Listening == listening) return;
+            m_Listening = listening;
+            m_ListeningLevel = m_NextWaveformSample = m_LastListeningSample = 0;
+            Array.Clear(m_ListeningHistory, 0, m_ListeningHistory.Length);
+            foreach (var bar in m_Waveform) bar.sizeDelta = new Vector2(8, 4);
+            Refresh();
+        }
+        public void SetListeningLevel(float normalized)
+        {
+            if (!m_Listening || float.IsNaN(normalized)) return;
+            m_ListeningLevel = Mathf.Clamp01(normalized);
+            m_LastListeningSample = Time.unscaledTime;
+        }
+        public void SetExampleSpeaking(bool speaking)
+        {
+            if (m_ExampleSpeaking == speaking) return;
+            m_ExampleSpeaking = speaking;
+            Refresh();
+        }
+        public void SetClerkSpeaking(bool speaking)
+        {
+            if (m_ClerkSpeaking == speaking) return;
+            m_ClerkSpeaking = speaking;
+            Refresh();
+        }
         public void SetRomajiVisible(bool visible) { showRomaji = visible; Refresh(); }
         public void SetKanaVisible(bool visible) { showKana = visible; Refresh(); }
         public void SetTranslationVisible(bool visible) { showTranslation = visible; Refresh(); }
@@ -96,14 +134,27 @@ namespace ImmerseTheBay.Learning
         }
         public void SetRoute(bool isDetour, string label = null)
         { BuildUi(); m_Detour = isDetour; m_RouteLabel = label ?? ""; Refresh(); }
-        public void SetClerkCaption(string text, string english = null)
-        { BuildUi(); m_ClerkCaption = text ?? ""; m_ClerkEnglish = english ?? ""; Refresh(); }
+        public void SetClerkCaption(string text, string english = null, string romaji = null)
+        {
+            BuildUi();
+            if (m_ClerkCaption != text) m_ClerkRomaji = "";
+            m_ClerkCaption = text ?? "";
+            m_ClerkEnglish = english ?? "";
+            m_ClerkRomaji = romaji ?? m_ClerkRomaji;
+            Refresh();
+        }
         public void SetLearnerCaption(string text, string english = null)
         { BuildUi(); m_LearnerCaption = text ?? ""; m_LearnerEnglish = english ?? ""; Refresh(); }
 
-        static string Dialogue(string label, string original, string english) =>
+        static string Dialogue(string label, string original, string english, string romaji = null) =>
             string.IsNullOrEmpty(original) ? "" :
-            label + " · " + original + (string.IsNullOrEmpty(english) ? "" : "\n" + english);
+            label + " · " + original + (string.IsNullOrEmpty(romaji) ? "" : "\n" + romaji)
+                + (string.IsNullOrEmpty(english) ? "" : "\n" + english);
+
+        static bool RepeatsTarget(string original, string target) =>
+            !string.IsNullOrWhiteSpace(original) && !string.IsNullOrWhiteSpace(target)
+            && string.Equals(original.Trim().TrimEnd('。', '？', '！', '.', '?', '!'),
+                target.Trim().TrimEnd('。', '？', '！', '.', '?', '!'), StringComparison.Ordinal);
         public void SetControlsLocked(bool locked) { BuildUi(); m_ControlsLocked = locked; Refresh(); }
         public void Conversation() { if (m_Conversation && m_Conversation.interactable) ConversationRequested?.Invoke(); }
         public void ReturnToLesson() { if (m_Return && m_Return.interactable) ReturnRequested?.Invoke(); }
@@ -126,7 +177,8 @@ namespace ImmerseTheBay.Learning
             var controls = new GameObject("Learning Buttons", typeof(RectTransform), typeof(Canvas),
                 typeof(GraphicRaycaster), typeof(TrackedDeviceGraphicRaycaster));
             m_ControlPanel = (RectTransform)controls.transform;
-            m_ControlPanel.sizeDelta = new Vector2(1240, 160);
+            m_ControlPanel.sizeDelta = new Vector2(1240, 300);
+            m_ControlPanel.pivot = new Vector2(0.5f, 0f);
             m_ControlCanvas = controls.GetComponent<Canvas>();
             m_ControlCanvas.renderMode = RenderMode.WorldSpace;
             m_ControlCanvas.sortingOrder = 21;
@@ -142,6 +194,7 @@ namespace ImmerseTheBay.Learning
             Stretch((RectTransform)background.transform);
             background.GetComponent<Image>().color = new Color(0.015f, 0.025f, 0.04f, 0.72f);
             background.GetComponent<Image>().raycastTarget = false;
+            m_Backdrop = background;
 
             m_Clerk = MakeText("Clerk", font, DialogueSize, new Color(0.82f, 0.9f, 0.94f));
             m_Learner = MakeText("Learner", font, DialogueSize, new Color(0.78f, 0.94f, 0.82f));
@@ -151,13 +204,39 @@ namespace ImmerseTheBay.Learning
             m_Kana = MakeText("Kana", font, TranslationSize, new Color(0.82f, 0.9f, 0.94f));
             m_Translation = MakeText("Translation", font, TranslationSize, new Color(0.82f, 0.9f, 0.94f));
             m_Status = MakeText("Feedback", font, 25, new Color(0.68f, 0.84f, 0.83f));
-            m_Conversation = MakeButton("Conversation", 0, font, out m_ConversationLabel);
-            m_Return = MakeButton("Return to lesson", 0, font, out _);
+            m_Hud = (RectTransform)new GameObject("Lesson HUD", typeof(RectTransform)).transform;
+            m_Hud.SetParent(m_Panel, false);
+            m_Hud.anchorMin = m_Hud.anchorMax = m_Hud.pivot = new Vector2(0.5f, 0f);
+            m_ProgressBadge = MakeHudBadge("Progress", font, 28, new Vector2(1, 1), new Vector2(-30, -22), new Vector2(405, 57));
+            m_ResultBadge = MakeHudBadge("Sentence result", font, 38, new Vector2(0, 1), new Vector2(30, -22), new Vector2(560, 70));
+            m_Instruction = MakeHudBadge("Instruction", font, 27, new Vector2(1, 0), new Vector2(-30, 3), new Vector2(530, 45));
+            m_InstructionText = (RectTransform)m_Instruction.transform;
+            for (int i = 0; i < m_Waveform.Length; i++)
+            {
+                var bar = new GameObject("Input level", typeof(Image)).GetComponent<Image>();
+                var rect = bar.rectTransform;
+                rect.SetParent(m_Instruction.transform.parent, false);
+                rect.anchorMin = rect.anchorMax = new Vector2(0, 0.5f);
+                rect.anchoredPosition = new Vector2(20 + 14 * i, 0);
+                rect.sizeDelta = new Vector2(8, 4);
+                bar.color = new Color(0.58f, 0.92f, 0.82f);
+                bar.raycastTarget = false;
+                m_Waveform[i] = rect;
+            }
+            m_ControlHint = MakeText("Button hint", font, 31, new Color(0.9f, 0.96f, 1f));
+            var hintRect = (RectTransform)m_ControlHint.transform;
+            hintRect.SetParent(m_ControlPanel, false);
+            hintRect.anchorMin = hintRect.anchorMax = new Vector2(0.5f, 0);
+            hintRect.sizeDelta = new Vector2(870, 54);
+            m_ControlHint.text = "Point and pinch · or tap Speak on your phone";
+            m_Conversation = MakeButton("Conversation", font, out m_ConversationLabel);
+            m_Return = MakeButton("Return to lesson", font, out _);
             m_Conversation.onClick.AddListener(Conversation);
             m_Return.onClick.AddListener(ReturnToLesson);
-            m_Speak = MakeButton("Speak", -205, font, out m_SpeakLabel);
-            m_Hint = MakeButton("Hint", 0, font, out _);
-            m_Next = MakeButton("Next", 205, font, out _);
+            m_Speak = MakeButton("Speak", font, out m_SpeakLabel);
+            m_Hint = MakeButton("Hint", font, out _);
+            m_Next = MakeButton("Next", font, out _);
+            m_Buttons = new[] { m_Conversation, m_Speak, m_Hint, m_Next };
             m_Speak.onClick.AddListener(Speak);
             m_Hint.onClick.AddListener(Hint);
             m_Next.onClick.AddListener(Next);
@@ -178,16 +257,34 @@ namespace ImmerseTheBay.Learning
             return text;
         }
 
-        Button MakeButton(string label, float x, Font font, out Text text)
+        Text MakeHudBadge(string name, Font font, int size, Vector2 corner, Vector2 offset, Vector2 dimensions)
+        {
+            var image = new GameObject(name, typeof(Image)).GetComponent<Image>();
+            var rect = image.rectTransform;
+            rect.SetParent(m_Hud, false);
+            rect.anchorMin = rect.anchorMax = rect.pivot = corner;
+            rect.anchoredPosition = offset;
+            rect.sizeDelta = dimensions;
+            image.color = new Color(0.015f, 0.025f, 0.04f, 0.83f);
+            image.raycastTarget = false;
+            var text = MakeText(name + " text", font, size, Color.white);
+            text.transform.SetParent(rect, false);
+            var textRect = (RectTransform)text.transform;
+            Stretch(textRect);
+            textRect.offsetMin = new Vector2(12, 0);
+            textRect.offsetMax = new Vector2(-12, 0);
+            return text;
+        }
+
+        Button MakeButton(string label, Font font, out Text text)
         {
             var go = new GameObject(label, typeof(RectTransform), typeof(Image), typeof(Button));
             go.transform.SetParent(m_ControlPanel, false);
             var rt = (RectTransform)go.transform;
             rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0);
-            rt.sizeDelta = new Vector2(228, 120);
-            rt.anchoredPosition = new Vector2(x, 40);
+            rt.sizeDelta = new Vector2(206, 136);
             var image = go.GetComponent<Image>();
-            image.color = new Color(0.15f, 0.25f, 0.3f, 1f);
+            image.color = new Color(0.20f, 0.34f, 0.40f, 1f);
             var button = go.GetComponent<Button>();
             button.targetGraphic = image;
             button.navigation = new Navigation { mode = Navigation.Mode.None };
@@ -207,31 +304,28 @@ namespace ImmerseTheBay.Learning
         void Refresh()
         {
             if (!m_Panel) return;
-            m_Clerk.text = Dialogue("店員", m_ClerkCaption, m_ClerkEnglish);
-            m_Learner.text = Dialogue("あなた", m_LearnerCaption, m_LearnerEnglish);
-            m_Japanese.text = m_ConversationActive ? "" : Highlight(m_Overlay?.jp ?? (m_Done ? "お疲れさまでした" : ""));
-            m_Romaji.text = !m_ConversationActive && showRomaji ? m_Overlay?.romaji ?? "" : "";
-            m_Kana.text = !m_ConversationActive && showKana ? m_Overlay?.kana ?? "" : "";
-            m_Translation.text = !m_ConversationActive && showTranslation && m_Overlay != null
+            bool clerkTurn = !m_ConversationActive && m_ClerkSpeaking && m_ClerkCaption.Length > 0;
+            bool targetTurn = !m_ConversationActive && !clerkTurn;
+            bool showLearner = m_ConversationActive || (targetTurn && !m_ExampleSpeaking
+                && m_PracticeStatus.Length > 0 && !RepeatsTarget(m_LearnerCaption, m_Overlay?.jp));
+            m_Clerk.text = m_ConversationActive ? Dialogue("店員", m_ClerkCaption, m_ClerkEnglish, m_ClerkRomaji)
+                : clerkTurn ? Dialogue("店員", m_ClerkCaption, "") : "";
+            m_Learner.text = showLearner ? Dialogue("あなた", m_LearnerCaption, m_LearnerEnglish) : "";
+            m_Japanese.text = targetTurn ? Highlight(m_Overlay?.jp ?? (m_Done ? "お疲れさまでした" : "")) : "";
+            m_Romaji.text = clerkTurn ? m_ClerkRomaji : targetTurn && showRomaji ? m_Overlay?.romaji ?? "" : "";
+            m_Kana.text = targetTurn && showKana ? m_Overlay?.kana ?? "" : "";
+            m_Translation.text = clerkTurn ? m_ClerkEnglish : targetTurn && showTranslation && m_Overlay != null
                 ? (useChineseTranslation ? m_Overlay.zh : m_Overlay.en) ?? "" : "";
-            string status = m_StatusOverride;
-            if (!m_ConversationActive && string.IsNullOrEmpty(status)) status = m_PracticeStatus;
-            if (string.IsNullOrEmpty(status))
-            {
-                if (m_ConversationActive) status = !string.IsNullOrEmpty(m_ConversationStatus) ? m_ConversationStatus
-                    : m_AgentSpeaking ? "Clerk speaking · you can interrupt" : "Listening · speak naturally";
-                else if (m_Listening) status = "Listening…";
-                else if (m_Busy) status = "One moment…";
-                else if (m_Done) status = "Lesson complete";
-                else if (m_Detour) status = string.IsNullOrEmpty(m_RouteLabel) ? "Exploring · return when ready" : Shorten(m_RouteLabel, 65);
-                else if (m_Feedback?.notes != null && m_Feedback.notes.Length > 0)
-                    status = m_Feedback.notes[0] ?? "";
-            }
-            if (!m_ConversationActive && m_PracticeStatus.Length == 0 && m_PracticeProgress.Length > 0)
-                status = string.IsNullOrWhiteSpace(status) ? m_PracticeProgress : m_PracticeProgress + "\n" + status;
-            // Feedback is supplementary; preserve the target sentence's visual priority.
-            m_Status.text = status.Length > 150 ? status.Substring(0, 147) + "…" : status;
             bool controls = m_Overlay != null && !m_Done;
+            string status = PracticeInstruction();
+            bool showCorner = controls || m_ConversationActive || m_Done;
+            m_Status.text = showCorner ? "" : Shorten(status, 150);
+            SetBadge(m_Instruction, showCorner ? Shorten(status, 46) : "");
+            SetBadge(m_ProgressBadge, !m_ConversationActive ? Shorten(m_PracticeProgress, 28) : "");
+            UpdateResultBadge();
+            bool showWaveform = m_Listening && controls && !m_ExampleSpeaking && !clerkTurn;
+            m_InstructionText.offsetMin = new Vector2(showWaveform ? 90 : 12, 0);
+            foreach (var bar in m_Waveform) bar.gameObject.SetActive(showWaveform);
             m_Conversation.gameObject.SetActive(controls || m_ConversationActive);
             bool manual = controls && !m_ConversationActive;
             m_Speak.gameObject.SetActive(manual);
@@ -247,8 +341,44 @@ namespace ImmerseTheBay.Learning
             m_Speak.interactable = manual && !m_Busy && !m_ControlsLocked;
             m_Hint.interactable = m_Next.interactable = manual && !m_Busy && !m_Listening && !m_ControlsLocked;
             m_Return.interactable = controls && !m_Busy && !m_Listening && !m_ControlsLocked && !m_ConversationActive;
-            bool content = controls || m_ConversationActive || !string.IsNullOrEmpty(m_Japanese.text) || !string.IsNullOrEmpty(m_Status.text) || m_Clerk.text.Length > 0 || m_Learner.text.Length > 0;
+            bool content = showCorner || m_Status.text.Length > 0 || m_PracticeStatus.Length > 0;
             m_Panel.gameObject.SetActive(isActiveAndEnabled && content);
+        }
+
+        string PracticeInstruction()
+        {
+            if (m_ConversationActive) return !string.IsNullOrEmpty(m_ConversationStatus) ? m_ConversationStatus
+                : m_AgentSpeaking ? "Clerk speaking · you can interrupt" : "Listening · speak naturally";
+            if (m_ExampleSpeaking) return "Listen, then repeat";
+            if (m_Listening) return m_StatusOverride == "Finishing speech…" ? m_StatusOverride : "Speak the Japanese sentence.";
+            if (m_ClerkSpeaking) return "Clerk speaking";
+            if (!string.IsNullOrEmpty(m_StatusOverride)) return m_StatusOverride;
+            if (m_Busy) return "One moment…";
+            if (m_Done) return "Lesson complete";
+            if (m_Detour) return string.IsNullOrEmpty(m_RouteLabel) ? "Exploring · return when ready" : m_RouteLabel;
+            if (m_Feedback?.notes != null && m_Feedback.notes.Length > 0)
+            {
+                string note = m_Feedback.notes[0] ?? "";
+                if (!RepeatsTarget(note, m_Overlay?.jp)) return note;
+            }
+            return "";
+        }
+
+        static void SetBadge(Text text, string value)
+        {
+            text.text = value;
+            text.transform.parent.gameObject.SetActive(value.Length > 0);
+        }
+
+        void UpdateResultBadge()
+        {
+            string result = m_ConversationActive ? "" : m_PracticeStatus;
+            bool passed = m_PracticeOutcome == "pass" || m_PracticeOutcome == "assisted";
+            bool retry = m_PracticeOutcome == "retry";
+            var background = m_ResultBadge.transform.parent.GetComponent<Image>();
+            background.color = passed ? new Color(0.07f, 0.28f, 0.18f, 0.94f)
+                : retry ? new Color(0.30f, 0.18f, 0.06f, 0.94f) : new Color(0.015f, 0.025f, 0.04f, 0.83f);
+            SetBadge(m_ResultBadge, result.Length == 0 ? "" : (passed ? "✓  " : retry ? "↻  " : "") + result);
         }
 
         string Highlight(string text)
@@ -277,13 +407,21 @@ namespace ImmerseTheBay.Learning
 
         void LayoutButtons()
         {
-            var buttons = new[] { m_Conversation, m_Speak, m_Hint, m_Next, m_Return };
             int count = 0;
-            foreach (var button in buttons) if (button.gameObject.activeSelf) count++;
+            foreach (var button in m_Buttons) if (button.gameObject.activeSelf) count++;
             int index = 0;
-            foreach (var button in buttons)
+            foreach (var button in m_Buttons)
                 if (button.gameObject.activeSelf)
-                    ((RectTransform)button.transform).anchoredPosition = new Vector2((index++ - (count - 1) * 0.5f) * 244, 80);
+                    ((RectTransform)button.transform).anchoredPosition =
+                        new Vector2((index++ - (count - 1) * 0.5f) * ControlButtonSpacing, 68);
+            bool hasReturn = m_Return.gameObject.activeSelf;
+            var returnRect = (RectTransform)m_Return.transform;
+            returnRect.anchoredPosition = new Vector2(0, 212);
+            returnRect.sizeDelta = new Vector2(310, 126);
+            var conversationRect = (RectTransform)m_Conversation.transform;
+            conversationRect.sizeDelta = new Vector2(m_ConversationActive ? 340 : 206, 136);
+            ((RectTransform)m_ControlHint.transform).anchoredPosition = new Vector2(0, hasReturn ? 312 : 165);
+            m_ControlHint.text = m_ConversationActive ? "Point at the button and pinch" : "Point and pinch · or tap Speak on your phone";
         }
 
         void FitLayout()
@@ -298,14 +436,12 @@ namespace ImmerseTheBay.Learning
             float kana = MeasureLine(m_Kana);
             float status = MeasureLine(m_Status);
 
-            // Never reduce glyph size as captions arrive or wrap. Keep the current
-            // lesson's Japanese, romaji and requested translation ahead of history/hints.
+            // The current utterance retains its Japanese, romaji and translation at
+            // fixed type sizes. Optional readings and the previous reply yield first.
             if (japanese + romaji + translation + clerk + learner + kana + status > budget) kana = 0;
-            if (japanese + romaji + translation + clerk + learner + status > budget && japanese + romaji > 0)
-                clerk = learner = 0;
+            if (japanese + romaji + translation + clerk + learner + status > budget && japanese > 0) learner = 0;
             if (japanese + romaji + translation + clerk + learner + status > budget)
-                status = !m_ConversationActive && (m_PracticeStatus.Length > 0 || m_PracticeProgress.Length > 0)
-                    ? MinimumLineHeight(m_Status) : 0;
+                status = 0;
             float textBudget = budget - status;
 
             float required = japanese + romaji + translation + clerk + learner;
@@ -336,6 +472,18 @@ namespace ImmerseTheBay.Learning
             LayoutCaption(m_Status, ref y, status);
             m_Height = Mathf.Min(m_AvailableHeight, y + padding);
             m_Panel.sizeDelta = new Vector2(Width, m_Height);
+            m_Backdrop.SetActive(y > padding);
+        }
+
+        void UpdateWaveform()
+        {
+            float now = Time.unscaledTime;
+            if (!m_Waveform[0].gameObject.activeSelf || now < m_NextWaveformSample) return;
+            m_NextWaveformSample = now + 0.05f;
+            Array.Copy(m_ListeningHistory, 1, m_ListeningHistory, 0, m_ListeningHistory.Length - 1);
+            m_ListeningHistory[m_ListeningHistory.Length - 1] = now - m_LastListeningSample <= 0.16f ? m_ListeningLevel : 0f;
+            for (int i = 0; i < m_Waveform.Length; i++)
+                m_Waveform[i].sizeDelta = new Vector2(8, 4 + 27 * m_ListeningHistory[i]);
         }
 
         void LayoutCaption(Text text, ref float y, float height)
@@ -433,29 +581,32 @@ namespace ImmerseTheBay.Learning
             // wide video; width caps it on narrow video. Resolution changes at the
             // same aspect cannot change typography, and ultrawide media cannot inflate it.
             float pixelScale = Mathf.Min(width / Width, screenHeight / ReferenceHeight);
-            // The band grows only as needed, up to the lower 52%; controls have their
-            // own tabletop canvas. Keep the upper scene visible even for long captions.
-            float available = screenHeight * 0.52f / pixelScale;
+            // The subtitle band excludes navigation, results, and input status.
+            float available = screenHeight * 0.38f / pixelScale;
             if (Mathf.Abs(available - m_AvailableHeight) > 0.5f)
             {
                 m_AvailableHeight = available;
                 Refresh();
             }
-            Vector3 anchor = bottom + up * (screenHeight * 0.03f + m_Height * pixelScale * 0.5f);
+            Vector3 anchor = bottom + up * (screenHeight * CaptionBottom + m_Height * pixelScale * 0.5f);
             if (headCamera) anchor += (headCamera.transform.position - anchor).normalized * Mathf.Max(0.002f, screenGap);
             m_Panel.SetPositionAndRotation(anchor, rotation);
             m_Panel.localScale = Vector3.one * pixelScale;
+            float canvasHeight = screenHeight / pixelScale;
+            m_Hud.anchoredPosition = new Vector2(0, -CaptionBottom * canvasHeight);
+            m_Hud.sizeDelta = new Vector2(Width, canvasHeight);
+            UpdateWaveform();
             if (headCamera)
             {
                 var heading = Vector3.ProjectOnPlane(rotation * Vector3.forward, Vector3.up).normalized;
                 if (heading.sqrMagnitude < 0.01f) return;
                 var upright = Quaternion.LookRotation(heading, Vector3.up);
-                // Face the user from arm's reach and remain below eye level when they look down.
+                // Give the fallback rail a short, downward sightline from arm's reach.
                 var pose = m_Tabletop ?? new Pose(
-                    headCamera.transform.position + heading * 0.57f - Vector3.up * 0.29f,
-                    upright * Quaternion.Euler(28, 0, 0));
+                    headCamera.transform.position + heading * 0.48f - Vector3.up * 0.18f,
+                    upright * Quaternion.Euler(18, 0, 0));
                 m_ControlPanel.SetPositionAndRotation(pose.position, pose.rotation);
-                m_ControlPanel.localScale = Vector3.one * 0.00039f;
+                m_ControlPanel.localScale = Vector3.one * 0.00040f;
             }
         }
     }
