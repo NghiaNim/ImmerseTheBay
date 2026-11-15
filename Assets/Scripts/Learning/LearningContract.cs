@@ -17,7 +17,7 @@ namespace ImmerseTheBay.Learning
     [Serializable]
     public sealed class LearningReadingGroup
     {
-        public string jp, romaji;
+        public string jp, kana, romaji;
     }
 
     [Serializable]

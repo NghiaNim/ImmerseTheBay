@@ -21,7 +21,7 @@ export const WIRE_RESPONSE_SCHEMA = { ...RESPONSE_SCHEMA, properties: { ...RESPO
   speech: { anyOf: [{ type: 'null' }, object({ ...clerkSpeechFields, romaji: text, english: text }, Object.keys(clerkSpeechFields))] },
   overlay: { anyOf: [{ type: 'null' }, object({
     ...overlayFields,
-    readingGroups: { type: 'array', items: object({ jp: text, romaji: text }) },
+    readingGroups: { type: 'array', items: object({ jp: text, kana: text, romaji: text }, ['jp', 'romaji']) },
   }, Object.keys(overlayFields))] },
   attempt: object({ id: text, targetId: text, jp: text, text,
     score: { anyOf: [{ type: 'null' }, { type: 'number' }] },

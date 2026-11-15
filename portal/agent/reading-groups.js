@@ -3,28 +3,28 @@ const demoReadings = new Map([
   ['サンドイッチはどこですか。', {
     kana: 'さんどいっちはどこですか。',
     groups: [
-      { jp: 'サンドイッチ', romaji: 'Sandoitchi' },
-      { jp: 'は', romaji: 'wa' },
-      { jp: 'どこ', romaji: 'doko' },
-      { jp: 'です', romaji: 'desu' },
-      { jp: 'か。', romaji: 'ka?' },
+      { jp: 'サンドイッチ', kana: 'サンドイッチ', romaji: 'Sandoitchi' },
+      { jp: 'は', kana: 'は', romaji: 'wa' },
+      { jp: 'どこ', kana: 'どこ', romaji: 'doko' },
+      { jp: 'です', kana: 'です', romaji: 'desu' },
+      { jp: 'か。', kana: 'か。', romaji: 'ka?' },
     ],
   }],
   ['お水をください。', {
     kana: 'おみずをください。',
     groups: [
-      { jp: 'お水', romaji: 'Omizu' },
-      { jp: 'を', romaji: 'o' },
-      { jp: 'ください。', romaji: 'kudasai.' },
+      { jp: 'お水', kana: 'おみず', romaji: 'Omizu' },
+      { jp: 'を', kana: 'を', romaji: 'o' },
+      { jp: 'ください。', kana: 'ください。', romaji: 'kudasai.' },
     ],
   }],
   ['カードで払えますか。', {
     kana: 'かーどではらえますか。',
     groups: [
-      { jp: 'カード', romaji: 'Kādo' },
-      { jp: 'で', romaji: 'de' },
-      { jp: '払えます', romaji: 'haraemasu' },
-      { jp: 'か。', romaji: 'ka?' },
+      { jp: 'カード', kana: 'カード', romaji: 'Kādo' },
+      { jp: 'で', kana: 'で', romaji: 'de' },
+      { jp: '払えます', kana: 'はらえます', romaji: 'haraemasu' },
+      { jp: 'か。', kana: 'か。', romaji: 'ka?' },
     ],
   }],
 ]);
@@ -40,6 +40,7 @@ export function readingGroupsFor({ jp, kana, romaji }) {
     return undefined;
   const { groups } = entry;
   if (groups.map((group) => group.jp).join('') !== jp
+      || foldKana(groups.map((group) => group.kana).join('')) !== entry.kana
       || foldRomaji(groups.map((group) => group.romaji).join(' ')) !== foldRomaji(romaji))
     return undefined;
   return groups.map((group) => ({ ...group }));

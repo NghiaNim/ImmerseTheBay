@@ -26,8 +26,9 @@ test('reviewed demo groups preserve each full utterance and contain its particle
     assert.equal(groups.map(({ jp }) => jp).join(''), line.jp);
     assert.equal(groups.map(({ romaji }) => romaji).join(' '), line.romaji);
   }
-  assert.deepEqual(readingGroupsFor(demoLines[0])[1], { jp: 'は', romaji: 'wa' });
-  assert.deepEqual(readingGroupsFor(demoLines[1])[1], { jp: 'を', romaji: 'o' });
+  assert.deepEqual(readingGroupsFor(demoLines[0])[1], { jp: 'は', kana: 'は', romaji: 'wa' });
+  assert.deepEqual(readingGroupsFor(demoLines[1])[0], { jp: 'お水', kana: 'おみず', romaji: 'Omizu' });
+  assert.deepEqual(readingGroupsFor(demoLines[1])[1], { jp: 'を', kana: 'を', romaji: 'o' });
   assert.deepEqual(readingGroupsFor({ ...demoLines[2], kana: 'カードではらえますか。' }), readingGroupsFor(demoLines[2]));
 });
 
