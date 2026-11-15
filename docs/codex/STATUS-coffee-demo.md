@@ -24,6 +24,14 @@ Unity Android built with zero errors. The signed `ImmerseTheBay-s25-a2835a1.apk`
 
 See [delivery plan](PLAN-coffee-demo-delivery.md), [lead-in and gesture media design](IMPLEMENT-demo-video-lookahead.md), and [actual café capture runbook](RUNBOOK-coffee-demo-capture.md).
 
+## Café menu and restart build
+
+The S25 has the signed `ImmerseTheBay-s25-railway-57ec4a6.apk` for source revision `57ec4a6b4e11493b3d131d768cc12f2312a030e7`. The APK on the phone and the signed local package both returned SHA-256 `6daa7f9ff0feb0b75345667ba47e06419f0479bad7d992ae259a0d694736c612`. Unity built successfully. The [Railway Portal deployment](https://railway.com/project/b129c2b2-a712-4be4-8179-e2e0e14f345d/service/ea7c8910-eab2-47bd-868d-0ec4a78925b6?id=a3b2ea16-b301-4018-9982-c150c78fba70) serves the same revision. Portal syntax checks and 253 automated tests passed.
+
+The second scene has a large centered menu beside the barista. A validated selection of **COFFEE** or **LATTE** prompts a clerk confirmation, then the learner says `これにします`. The phone and glasses share the result timing. Positive feedback uses a translucent background and lasts 1.4 seconds, including its fade. Both displays offer **Restart** to start a fresh run of the selected lesson.
+
+Authorized byte-range requests returned HTTP 206 for the menu, coffee serving and milk-pour clips. A captured frame from the actual Dynamic menu video was sent to live OpenAI vision twice. A COFFEE hold selected the plain-coffee serving path, and a LATTE pinch selected the milk-pour path. Their live Cartesia clerk confirmations returned two-channel WAV. Those calls verify service behavior with real media. The S25 install was verified with the phone locked and the glasses disconnected. The wearer checks for both selections, native prefetch hits, optical and audible feedback, and each Restart control are pending.
+
 ## Recorded café acceptance
 
 The S25 ran signed APK `8b09c3b` (SHA-256 `be0009349720e49b3cc90caf4284ae14a6bae5c90001e5041a4770969a0b1392`) against Portal `b09ae2a` on port 8793. The official XREAL 3.1 reference remains available as a separate baseline.
