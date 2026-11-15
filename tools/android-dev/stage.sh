@@ -15,7 +15,7 @@ fi
 integration="$dev/Assets/ImmerseIntegration"
 mkdir -p "$integration" "$dev/Assets/StreamingAssets/lessons" "$dev/Assets/Plugins/Android"
 for source in \
-  Assets/Scripts/Visko/{ViskoSession,AndroidSpeechToText}.cs \
+  Assets/Scripts/Visko/{ViskoSession,ViskoSession.Openings,AndroidSpeechToText}.cs \
   Assets/Scripts/Content/ContentLibrary.cs \
   Assets/Scripts/Tracking/HandInput.cs \
   Assets/Scripts/SensorDebug/DebugRegistry.cs \
