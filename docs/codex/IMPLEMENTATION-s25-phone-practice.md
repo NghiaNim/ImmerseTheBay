@@ -153,3 +153,44 @@ restored preferences are unaffected. Use `--no-incremental` for subsequent
 wireless deployments. Final native rendering verification is waiting for the
 user to unlock the phone. Screen timeout was temporarily extended from 30
 seconds to 10 minutes for this verification; restore it when finished.
+
+## Native rendering and official baseline checkpoint
+
+The SDK's existing application metadata `com.xreal.debug.noMultiResume=true`
+allows native rendering initialization with Samsung Mirrored enabled and DeX
+disabled. A local APK containing only this additional manifest configuration
+(relative to the display-patched APK) passed signature/alignment and content
+checks. NativeDisplay and NativeRendering report Start Finish and submit both
+eye viewports, but the user confirms black glasses output and a cropped phone
+controller. This is not a completed AR fix. The ignored test artifact is
+`Builds/controlglasses-patch/ImmerseTheBay-local-no-multiresume.apk`, SHA-256
+`ecce956d15fa86b878dbbf028655bcdf3aa5a85b25961e3daf7890ae23666206`.
+
+User requested an unmodified HelloMR baseline before further app changes. The
+XREAL developer release at
+https://github.com/dengxian-xreal/XREALSDKTemplate/releases/tag/3.0.0
+provides HelloMR.apk (SDK 3.0.0), SHA-256
+`de97c23a7eb5b9bf64b8ce6185b92a2410ecc11515e84c50f261059ccda44119`.
+Installed unchanged as `com.DefaultCompany.XREALSDKTemplate`. Its phone controller
+is complete, but glasses capture is black and runtime reports
+`NativeRendering+FrameWait` Failure after successful display/rendering startup.
+It loads the current ControlGlasses 3.1 runtime, an explicit version difference;
+no ABI mismatch has been established. The current task is to run the original
+HelloMR successfully, using a matching-version baseline if needed.
+
+## Permanent official MR reference — user requirement
+
+Keep the official MR baseline permanently available as a separate, version-pinned
+reference application. Do not change its scene structure, hierarchy, camera rig,
+controllers or rendering structure, and do not add product features to it. Record
+source commit, SDK/Unity versions, build-only compatibility adjustments, APK hash
+and package ID. A build from unchanged official scene/scripts must be described
+as a local baseline build, not a byte-identical official distributed APK.
+
+Develop product features in a separate copy through independent modules while
+preserving the official MR structure. Retain the official phone controller UI;
+add course management, phone photo capture and practice intent, vocabulary and
+scene review, then conversation/video integration incrementally. Verify actual
+S25 UI, glasses rendering and interaction at each step before advancing. The
+user's report of sky in the official 3.1 XRI sample establishes visible content,
+not complete HelloMR or interaction acceptance. Complete that baseline first.
