@@ -8,6 +8,7 @@ import android.hardware.display.DisplayManager
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.util.TypedValue
 import android.view.Display
 import android.view.Gravity
 import android.view.WindowManager
@@ -68,24 +69,38 @@ object TeninGlassesScreen {
             setContentView(eyes)
         }
 
-        private fun eye() = FrameLayout(context).apply {
-            addView(LinearLayout(context).apply {
+        private fun eye(): FrameLayout {
+            val title = TextView(context).apply {
+                text = "Tenin"
+                setTextColor(0xFFE1D6FF.toInt())
+                typeface = Tenin.font(context, 500)
+                gravity = Gravity.CENTER
+            }
+            val guidance = TextView(context).apply {
+                text = "Continue on your phone"
+                setTextColor(0xFFE3E0EB.toInt())
+                gravity = Gravity.CENTER
+            }
+            val content = LinearLayout(context).apply {
                 orientation = LinearLayout.VERTICAL
                 gravity = Gravity.CENTER_HORIZONTAL
-                addView(TextView(context).apply {
-                    text = "Tenin"
-                    textSize = 22f
-                    setTextColor(0xFF9482DE.toInt())
-                    typeface = Tenin.font(context, 500)
-                    gravity = Gravity.CENTER
-                })
-                addView(TextView(context).apply {
-                    text = "Continue on your phone"
-                    textSize = 14f
-                    setTextColor(0xFFB8B4C8.toInt())
-                    gravity = Gravity.CENTER
-                })
-            }, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
+                addView(title)
+                addView(guidance)
+            }
+            return object : FrameLayout(context) {
+                override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+                    super.onSizeChanged(w, h, oldw, oldh)
+                    if (w <= 0 || h <= 0) return
+                    // A presentation display has its own density. Size for each eye's
+                    // available image instead of inheriting a phone text size in sp.
+                    val eyeHeight = minOf(h.toFloat(), w * 9f / 16f)
+                    title.setTextSize(TypedValue.COMPLEX_UNIT_PX, eyeHeight * 0.092f)
+                    guidance.setTextSize(TypedValue.COMPLEX_UNIT_PX, eyeHeight * 0.046f)
+                }
+            }.apply {
+                addView(content, FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
+            }
         }
     }
 }
