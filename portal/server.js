@@ -1,6 +1,8 @@
 // ImmerseTheBay portal
 //  - POST /api/token   : mints a session-scoped Reactor JWT (API key never leaves this process)
 //  - GET  /api/models  : the two Visko models
+//  - /api/photos, /api/sessions : photo library, saved lesson runs, replay compilation
+//  - /api/scenarios     : generate a lesson from the learner's spoken/typed request
 //  - WS   /sync        : hub that keeps the web portal and the Unity app in sync
 //                        (current session id + model, relayed commands, state broadcasts)
 //  - static public/    : the quick-test web page
@@ -14,6 +16,11 @@ import { registerAgentRoutes } from './agent/routes.js';
 import { createAgentService } from './agent/service.js';
 import { registerVoiceRoutes } from './voice/routes.js';
 import { registerVisionRoutes } from './vision/routes.js';
+import { createLessonStore } from './agent/lessons.js';
+import { createRecordStore, withReplays } from './records/store.js';
+import { createSessionRecorder } from './records/recorder.js';
+import { registerRecordRoutes } from './records/routes.js';
+import { registerScenarioRoutes } from './scenarios/routes.js';
 
 const PORT = Number(process.env.PORT || 8790);
 const API_KEY = process.env.REACTOR_API_KEY || '';
@@ -32,6 +39,10 @@ if (!API_KEY || API_KEY.startsWith('rk_your')) {
 
 const app = express();
 registerVisionRoutes(app, { authorized });
+// Photos, saved sessions and compiled replays (portal/data/, gitignored).
+const recordStore = createRecordStore();
+const lessonStore = withReplays(createLessonStore(), recordStore);
+registerRecordRoutes(app, { authorized, store: recordStore, lessons: lessonStore });
 app.use(express.json({ limit: '64kb' }));
 
 function authorized(req) {
@@ -39,8 +50,9 @@ function authorized(req) {
   return req.get('portal_token') === PORTAL_TOKEN || req.query.portal_token === PORTAL_TOKEN;
 }
 
-const lessonService = createAgentService();
-registerAgentRoutes(app, { authorized, service: lessonService });
+const lessonService = createAgentService({ store: lessonStore, recorder: createSessionRecorder(recordStore) });
+registerAgentRoutes(app, { authorized, store: lessonStore, service: lessonService });
+registerScenarioRoutes(app, { authorized, store: recordStore });
 registerVoiceRoutes(app, { authorized, snapshot: input => lessonService.snapshot(input) });
 
 app.get('/api/models', (_req, res) => res.json(MODELS));

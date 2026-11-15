@@ -14,11 +14,13 @@ const SAMPLES = [
   { file: 'historic-japanese-interior.jpg', label: 'Historic Japanese room', caption: 'Historic Japanese room with tatami floor and sliding screens.' },
   { file: 'tokyo-garden.jpg', label: 'Tokyo garden', caption: 'Japanese garden with a pine tree, stone lantern and pond.' },
 ];
-const token = new URLSearchParams(location.search).get('portal_token') || '';
+const params = new URLSearchParams(location.search);
+const token = params.get('portal_token') || '';
+const USER_PHOTO_CAPTION = 'Learner photo of their own surroundings; its visual contents have not been captioned.';
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 let sdkPromise, reactor, sessionId, model, sharedSession, hub, hubRetry, recognition;
 let lesson, catalog = [], beat = 0, busy = false, active = false, finished = false, preview = false;
-let closing = false, epoch = 0, apiAbort, photoFile, photoCaption = '', previewUrl, imageRef;
+let closing = false, epoch = 0, apiAbort, photoFile, photoCaption = '', photoRef = null, previewUrl, imageRef, cameraStream = null, cameraBlob = null;
 let lastSdkError = null, lastPromptAt = 0, latestDecision = null;
 let availableResolutions = [], webResolution = 'native';
 let nextAllowedConnectAt = 0, lastRateLimitReason = 'rate_limit';
@@ -27,6 +29,8 @@ let mediaStream = new MediaStream();
 let recording = null, micStarting = false, transcribing = false, speechAttempt = 0;
 let clerkSpeech = null, ttsBusy = false, voiceActive = false, voiceReconciling = false, voiceUnsafe = false, voiceCheckRunning = false;
 let lastMediaTime = 0, lastMediaProgressAt = -Infinity;
+let setupTab = 'create', scenarioBusy = false, describing = null;
+let passthroughStream = null, cameraWanted = false, talk = null, quickRunning = false;
 const agentMachine = createAgentMachine({ onChange: (state) => { document.body.dataset.agentState = state; $('runtimeTrace').dataset.agentState = state; idleInvitation.sync(latestDecision?.route?.nodeId || null); } });
 const idleInvitation = createIdleInvitation({
   eligible: () => active && !voiceActive && !voiceReconciling && !voiceUnsafe && !busy && !finished && agentMachine.state === 'waiting'
@@ -41,10 +45,10 @@ const lessonSpeech = createLessonSpeech({
   onState: ({ state, role, message }) => {
     ttsBusy = state === 'loading' || state === 'playing';
     idleInvitation.sync(latestDecision?.route?.nodeId || null);
-    const label = role === 'clerk' ? '店员' : 'Your line';
+    const label = role === 'clerk' ? partnerLabel() : 'Your line';
     $('ttsStatus').textContent = state === 'loading' ? `${label} · preparing audio…`
       : state === 'playing' ? `${label} · speaking…`
-      : state === 'error' ? `${label} · ${message} ${role === 'clerk' ? 'Press 店员重播 to retry.' : 'Press Listen to retry.'}` : '';
+      : state === 'error' ? `${label} · ${message} ${role === 'clerk' ? 'Press ${partnerLabel()}重播 to retry.' : 'Press Listen to retry.'}` : '';
     $('ttsStatus').classList.toggle('error', state === 'error');
   },
 });
@@ -66,7 +70,7 @@ const lineVoice = createLineVoice({
     $('conversationStatus').textContent = message || ({ off: '', connecting: 'Connecting voice…', listening: 'Listening · 日本語 / English', speaking: '店员 speaking · you can interrupt' })[state];
     refresh();
   },
-  onText: (text, role) => { if (role === 'user') $('transcript').textContent = text; else { $('clerkCaption').textContent = `店员 · ${text}`; $('clerkCaption').hidden = false; } },
+  onText: (text, role) => { if (role === 'user') $('transcript').textContent = text; else { $('clerkCaption').textContent = `${partnerLabel()} · ${text}`; $('clerkCaption').hidden = false; } },
   onTool: async (call, current) => {
     if (!current() || !active || finished) throw new Error('The lesson is not active.');
     const parameters = call.parameters || {};
@@ -99,7 +103,7 @@ async function reconcileVoice() {
   }
 }
 
-if (token) $('homeLink').href = `/?portal_token=${encodeURIComponent(token)}`;
+if (token) { $('homeLink').href = `/?portal_token=${encodeURIComponent(token)}`; $('sessionsLink').href = `/sessions.html?portal_token=${encodeURIComponent(token)}`; }
 
 function emptyRuntimeState() {
   return { lastChunkIndex: null, acceptedPrompt: null, activePrompt: null, currentPrompt: null, hasAppliedPromptTelemetry: false, framesEmitted: null, audioSamples: null, delivered: null };
@@ -115,13 +119,32 @@ function recordRuntime(kind, data = {}) {
 }
 function notify(text, error = false) { $('notice').textContent = text; $('notice').classList.toggle('error', error); }
 function refresh() {
-  $('conversation').disabled = !voiceActive && (!active || finished || busy || voiceReconciling || voiceUnsafe);
+  $('conversation').disabled = !voiceActive && (!active || finished || busy || voiceReconciling || voiceUnsafe || generated());
+  $('conversation').title = generated() ? 'Live voice conversation is set up for the convenience-store clerk only. Use Speak for your scenario.' : '';
   $('conversation').textContent = voiceActive ? '结束对话' : '与店员对话';
   $('conversation').setAttribute('aria-pressed', String(voiceActive));
-  $('begin').disabled = busy || active || !lesson;
-  $('begin').textContent = $('previewOnly').checked ? 'Start practice' : 'Start live lesson';
+  $('quickStart').hidden = active;
+  $('quickLive').checked = !$('previewOnly').checked;
+  document.querySelector('.lesson-controls').hidden = !active;
+  document.querySelector('.screen').classList.toggle('in-lesson', active);
+  const quickLocked = busy || active || quickRunning || !!describing;
+  $('holdTalk').disabled = !talk && quickLocked;
+  $('holdTalk').textContent = talk ? (talk.latched ? 'Tap to finish' : 'Release to finish') : quickRunning || busy ? 'Working…' : 'Hold to talk';
+  $('holdTalk').classList.toggle('recording', !!talk);
+  for (const id of ['quickLanguage', 'quickLevel', 'quickLive']) $(id).disabled = quickLocked || !!talk;
+  $('cameraToggle').disabled = !!talk || quickRunning;
+  $('cameraToggle').textContent = passthroughStream ? 'Camera off' : 'Camera on';
+  const needsScenario = setupTab === 'create' && !generated();
+  $('begin').disabled = busy || active || !lesson || needsScenario || scenarioBusy || !!describing;
+  $('begin').textContent = needsScenario ? 'Write a scenario first' : $('previewOnly').checked ? 'Start practice' : 'Start live lesson';
+  for (const id of ['tabCreate', 'tabLessons', 'level', 'scenarioRequest', 'describeLanguage']) $(id).disabled = busy || active || scenarioBusy || !!describing;
+  $('createScenario').disabled = busy || active || scenarioBusy || !!describing || $('scenarioRequest').value.trim().length < 3;
+  $('createScenario').textContent = scenarioBusy && !describing ? 'Writing…' : 'Write my scenario';
+  $('regenerate').disabled = busy || active || scenarioBusy || !!describing || !lesson?.scenario?.request;
+  $('describe').disabled = busy || active || (scenarioBusy && !describing) || !window.MediaRecorder || !navigator.mediaDevices?.getUserMedia;
+  $('describe').textContent = describing ? 'Stop' : 'Describe by voice'; $('describe').setAttribute('aria-pressed', String(!!describing));
   $('leave').disabled = !active && !busy && !reactor;
-  for (const id of ['lesson', 'sample', 'photo', 'model', 'sessionId', 'previewOnly']) $(id).disabled = busy || active;
+  for (const id of ['lesson', 'sample', 'photo', 'takePhoto', 'model', 'sessionId', 'previewOnly']) $(id).disabled = busy || active;
   $('useShared').disabled = busy || active || !sharedSession;
   const speechInUse = voiceActive || voiceReconciling || voiceUnsafe || !!recognition || !!recording || micStarting || transcribing;
   for (const id of ['pinch', 'longPinch', 'point', 'sendContext']) $(id).disabled = !active || busy || finished || speechInUse;
@@ -179,39 +202,245 @@ async function loadCatalog() {
   try {
     const data = await api('/api/agent/lessons'); catalog = data.lessons;
     if (!Array.isArray(catalog) || !catalog.length) throw new Error('No lessons are available yet.');
-    $('lesson').replaceChildren(...catalog.map((item) => new Option(item.title, item.id)));
+    const starters = Object.assign(document.createElement('optgroup'), { label: 'Starter lessons' });
+    starters.append(...catalog.map((item) => new Option(item.title, item.id)));
+    $('lesson').replaceChildren(starters, $('myScenarios') || Object.assign(document.createElement('optgroup'), { id: 'myScenarios', label: 'My scenarios', hidden: true }));
+    await loadScenarios();
     if (catalog.some((item) => item.id === 'ja-konbini-001')) $('lesson').value = 'ja-konbini-001';
-    await chooseLesson();
+    const requested = params.get('lesson');
+    if (requested && /^[a-z0-9][a-z0-9-]{0,79}$/.test(requested)) {
+      if (![...$('lesson').options].some((option) => option.value === requested)) {
+        const stored = await api(`/api/agent/lessons/${encodeURIComponent(requested)}`);
+        $('lesson').add(new Option(stored.title, stored.id), 0);
+      }
+      $('lesson').value = requested;
+      if (params.get('practice') === '1') $('previewOnly').checked = true;
+      await setTab(requested.startsWith('gen-') ? 'create' : 'lessons');
+    } else await setTab('create');
   } catch (error) { notify(`Could not load lessons: ${error.message}`, true); }
+}
+async function loadScenarios() {
+  try {
+    const { scenarios } = await api('/api/scenarios');
+    $('myScenarios').replaceChildren(...scenarios.map((item) => new Option(`${item.title} · ${item.level}`, item.id)));
+    $('myScenarios').hidden = !scenarios.length;
+  } catch (error) { notify(`Could not load your scenarios: ${error.message}`, true); }
+}
+const generated = (value = lesson) => Boolean(value?.partnerRole);
+const partnerLabel = () => lesson?.partnerRole?.ja || '店员';
+async function setTab(tab) {
+  setupTab = tab;
+  $('tabCreate').setAttribute('aria-selected', String(tab === 'create')); $('tabLessons').setAttribute('aria-selected', String(tab === 'lessons'));
+  $('createPane').hidden = tab !== 'create'; $('lessonsPane').hidden = tab !== 'lessons';
+  if (tab === 'lessons') await chooseLesson();
+  else if (/^gen-/.test($('lesson').value)) await chooseLesson();
+  else { lesson = null; showIntro(); renderReview(); refresh(); }
+}
+function showIntro() {
+  $('lessonLabel').textContent = 'YOUR OWN SCENARIO'; $('progress').textContent = 'YOUR OWN SCENARIO';
+  $('jp').textContent = 'どこで、だれと話しますか。'; $('en').textContent = 'Take a photo, say what you want to practise, and a conversation is written for you.';
+  for (const field of ['kana', 'romaji', 'zh', 'feedback']) $(field).textContent = '';
+  $('alternatives').hidden = true;
+  $('scenePlaceholder').querySelector('span').textContent = '話してみよう。';
+  $('scenePlaceholder').querySelector('p').textContent = 'Your place. Your conversation.';
+}
+function renderReview() {
+  $('scenarioReview').hidden = !generated();
+  if (!generated()) return;
+  const lines = lesson.beats.flatMap((beat) => beat.lines);
+  $('reviewTitle').textContent = lesson.title;
+  $('reviewMeta').textContent = `${lesson.level} · with the ${lesson.partnerRole.en} (${lesson.partnerRole.ja}) · ${lines.length} exchanges${lesson.scenario?.request ? ` · “${lesson.scenario.request}”` : ''}`;
+  const el = (tag, className, text, lang) => Object.assign(document.createElement(tag), { className, textContent: text, ...(lang ? { lang } : {}) });
+  $('reviewLines').replaceChildren(...lines.map((line) => {
+    const item = document.createElement('li');
+    if (line.partner) item.append(el('p', 'partner', `${lesson.partnerRole.ja} · ${line.partner.jp}`, 'ja'), el('p', 'gloss', line.partner.en));
+    item.append(el('p', 'you', `You · ${line.jp}`, 'ja'), el('p', 'gloss', `${line.romaji} — ${line.en}`));
+    for (const alt of line.alternatives || []) item.append(el('p', 'alt', `or · ${alt.jp}`, 'ja'));
+    return item;
+  }));
 }
 async function chooseLesson() {
   lessonSpeech.cancel(); clerkSpeech = null; $('clerkCaption').hidden = true; $('clerkReplay').hidden = true;
   busy = true; refresh();
   try {
     lesson = await api(`/api/agent/lessons/${encodeURIComponent($('lesson').value)}`);
-    const count = lesson.beats.reduce((n, b) => n + b.lines.length, 0);
-    $('lessonInfo').textContent = `${lesson.level} · ${lesson.beats.length} moments · ${count} spoken lines`;
-    const shopping = lesson.id === 'ja-konbini-001';
-    $('lessonLabel').textContent = shopping ? 'CONVENIENCE-STORE JAPANESE' : lesson.id === 'ja-home-001' ? 'JAPANESE AT HOME' : 'JAPANESE PRACTICE';
-    document.title = `${shopping ? 'Convenience-store Japanese' : lesson.title} · ImmerseTheBay`;
-    $('progress').textContent = $('lessonLabel').textContent;
-    $('jp').textContent = shopping ? '買い物のひとこまから。' : '日常のひとこまから。';
-    $('en').textContent = shopping ? 'Step into the shop. Practice a real conversation.' : 'Step into the scene. Practice a real conversation.';
-    for (const field of ['kana', 'romaji', 'zh', 'feedback']) $(field).textContent = '';
-    const filename = String(lesson.startImage || '').split('/').pop();
+    const shopping = presentLesson();
+    const startImage = String(lesson.startImage || '');
+    const filename = startImage.startsWith('lessons/images/') ? startImage.split('/').pop() : '';
     if (filename && !SAMPLES.some((sample) => sample.file === filename)) {
       SAMPLES.push({ file: filename, label: shopping ? 'Convenience-store shopping' : `${lesson.title} · start photo`, caption: `Start photo for ${lesson.title}; visual contents have not been analyzed.` });
-      $('sample').add(new Option(SAMPLES.at(-1).label, filename));
+      $('samplePhotos').append(new Option(SAMPLES.at(-1).label, filename));
     }
     clearPhoto();
-    if (filename) { $('sample').value = filename; await chooseSample(); } else $('sample').value = '';
-    $('scenePlaceholder').querySelector('span').textContent = shopping ? 'いらっしゃいませ。' : '日本語で話そう。';
-    $('scenePlaceholder').querySelector('p').textContent = shopping ? 'A small shop. An everyday conversation.' : 'Your next conversation starts here.';
+    const savedPhoto = /^photos\/(ph_[a-f0-9]{16})$/.exec(startImage)?.[1];
+    if (savedPhoto) { if (![...$('myPhotos').options].some((o) => o.value === `photo:${savedPhoto}`)) await loadPhotos(); $('sample').value = `photo:${savedPhoto}`; await chooseSample(); }
+    else if (filename) { $('sample').value = filename; await chooseSample(); } else $('sample').value = '';
   } catch (error) { lesson = null; notify(error.message, true); }
-  finally { busy = false; refresh(); }
+  finally { renderReview(); busy = false; refresh(); }
+}
+/** Lesson labels and intro text only; never touches the selected photo. Returns whether it is the store lesson. */
+function presentLesson() {
+  const count = lesson.beats.reduce((n, b) => n + b.lines.length, 0);
+  $('lessonInfo').textContent = `${lesson.level} · ${lesson.beats.length} moments · ${count} spoken lines`;
+  const baseLesson = lesson.replay?.sourceLessonId || lesson.id; // replays keep their source lesson's framing
+  const shopping = baseLesson === 'ja-konbini-001';
+  $('lessonLabel').textContent = generated() ? `PRACTISE WITH THE ${lesson.partnerRole.en.toUpperCase()}` : shopping ? 'CONVENIENCE-STORE JAPANESE' : baseLesson === 'ja-home-001' ? 'JAPANESE AT HOME' : 'JAPANESE PRACTICE';
+  document.title = `${shopping ? 'Convenience-store Japanese' : lesson.title} · ImmerseTheBay`;
+  $('progress').textContent = $('lessonLabel').textContent;
+  $('jp').textContent = generated() ? '会話を始めましょう。' : shopping ? '買い物のひとこまから。' : '日常のひとこまから。';
+  $('en').textContent = generated() ? `Your conversation with the ${lesson.partnerRole.en} is ready.` : shopping ? 'Step into the shop. Practice a real conversation.' : 'Step into the scene. Practice a real conversation.';
+  for (const field of ['kana', 'romaji', 'zh', 'feedback']) $(field).textContent = '';
+  $('alternatives').hidden = true;
+  $('clerkReplay').textContent = `${partnerLabel()}重播`;
+  $('scenePlaceholder').querySelector('span').textContent = generated() ? '話してみよう。' : shopping ? 'いらっしゃいませ。' : '日本語で話そう。';
+  $('scenePlaceholder').querySelector('p').textContent = generated() ? lesson.title : shopping ? 'A small shop. An everyday conversation.' : 'Your next conversation starts here.';
+  return shopping;
+}
+// ---------------------------------------------------------------- see-through + one-trigger start
+// The stage shows the camera at full brightness (the web stand-in for the glasses'
+// see-through view) until generated video frames arrive.
+function flowStatus(text, error = false) {
+  $('flowStatus').textContent = text; $('flowStatus').hidden = !text; $('flowStatus').classList.toggle('error', error);
+}
+function showPassthrough(on) {
+  $('passthrough').hidden = !on; document.querySelector('.screen').classList.toggle('seeing', on);
+}
+async function startPassthrough() {
+  if (passthroughStream || !window.isSecureContext || !navigator.mediaDevices?.getUserMedia) return !!passthroughStream;
+  try {
+    passthroughStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false });
+  } catch (error) {
+    flowStatus(error?.name === 'NotAllowedError' ? 'Camera blocked · allow it for this site, or pick a photo in Lesson setup.' : 'No camera found · pick a photo in Lesson setup.', true);
+    refresh(); return false;
+  }
+  $('passthrough').srcObject = passthroughStream; showPassthrough(true); refresh();
+  return true;
+}
+function stopPassthrough() {
+  for (const track of passthroughStream?.getTracks() || []) track.stop();
+  passthroughStream = null; $('passthrough').srcObject = null; showPassthrough(false); refresh();
+}
+async function captureFromPassthrough() {
+  const view = $('passthrough');
+  for (let i = 0; i < 20 && passthroughStream && !view.videoWidth; i++) await new Promise((resolve) => setTimeout(resolve, 100));
+  return view.videoWidth ? drawCover(view, view.videoWidth, view.videoHeight, 1920, 1080, 0.92) : null;
+}
+async function startTalk() {
+  if (talk || quickRunning || busy || active) return;
+  if (!window.MediaRecorder || !navigator.mediaDevices?.getUserMedia) { flowStatus('Recording needs a supported browser on HTTPS or localhost.', true); return; }
+  talk = { startedAt: Date.now(), latched: false, chunks: [], frame: null, stopRequested: false };
+  const own = talk; refresh();
+  // The photo is what the camera sees at the moment you press.
+  own.frame = passthroughStream ? captureFromPassthrough() : Promise.resolve(null);
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    if (talk !== own) { stream.getTracks().forEach((track) => track.stop()); return; }
+    const mimeType = ['audio/webm;codecs=opus', 'audio/mp4', 'audio/ogg;codecs=opus'].find((type) => MediaRecorder.isTypeSupported(type));
+    own.stream = stream; own.recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+    own.recorder.ondataavailable = (event) => { if (event.data.size) own.chunks.push(event.data); };
+    own.recorder.onstop = () => { stream.getTracks().forEach((track) => track.stop()); clearTimeout(own.timer); if (talk === own) talk = null; void runQuickStart(own); };
+    own.recorder.start(250);
+    own.timer = setTimeout(() => stopTalk(true), 30000);
+    flowStatus('Listening… say where you are and what you want to practise.');
+    if (own.stopRequested) stopTalk(true);
+  } catch (error) {
+    if (talk === own) talk = null;
+    flowStatus(microphoneError(error), true);
+  }
+  refresh();
+}
+// Hold and release, or tap to start and tap again to finish.
+function stopTalk(force = false) {
+  const own = talk; if (!own) return;
+  if (!force && !own.latched && Date.now() - own.startedAt < 350) { own.latched = true; flowStatus('Listening… tap again when you are done.'); refresh(); return; }
+  if (!own.recorder) { own.stopRequested = true; return; }
+  if (own.recorder.state === 'recording') own.recorder.stop();
+}
+async function runQuickStart(own) {
+  const audio = new Blob(own.chunks, { type: own.recorder?.mimeType || 'audio/webm' });
+  if (!audio.size) { flowStatus('Nothing was recorded. Hold the button while you speak.', true); return; }
+  quickRunning = true; setSetupOpen(false); refresh();
+  try {
+    flowStatus('Got it · understanding you…');
+    const frame = await own.frame;
+    const transcribe = fetch('/api/agent/transcribe', { method: 'POST', headers: { ...authHeaders(), 'Content-Type': audio.type, 'x-audio-language': $('quickLanguage').value }, body: audio })
+      .then(async (response) => {
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(result.error || 'Could not transcribe your request.');
+        const text = String(result.text || '').trim();
+        if (text.length < 3) throw new Error('I did not catch that. Hold the button and describe the situation again.');
+        return text;
+      });
+    const [request] = await Promise.all([transcribe, frame ? savePhoto(frame) : Promise.resolve()]);
+    $('scenarioRequest').value = request.slice(0, 500);
+    flowStatus(`“${request.slice(0, 80)}${request.length > 80 ? '…' : ''}” · writing your conversation${$('quickLive').checked ? ' and connecting video' : ''}…`);
+    const image = /^(photo|sample):/.test(photoRef || '') ? photoRef : undefined;
+    const pendingLesson = api('/api/scenarios', { request: request.slice(0, 500), level: $('quickLevel').value, language: $('quickLanguage').value, ...(image ? { image } : {}) })
+      .then((created) => {
+        $('myScenarios').prepend(new Option(`${created.title} · ${created.level}`, created.id)); $('myScenarios').hidden = false;
+        $('lesson').value = created.id; setupTab = 'create';
+        return created;
+      });
+    pendingLesson.catch(() => {}); // awaited inside begin(); avoid an unhandled rejection while video connects
+    $('previewOnly').checked = !$('quickLive').checked;
+    quickRunning = false;
+    await begin({ pendingLesson });
+    if (!active) flowStatus(`Could not start: ${$('notice').textContent.replace(/^Could not start: /, '') || 'please try again.'}`, true);
+  } catch (error) {
+    flowStatus(error.message || 'Something went wrong. Please try again.', true);
+  } finally { quickRunning = false; refresh(); }
+}
+
+// ---------------------------------------------------------------- scenario writer
+async function createScenario({ request = $('scenarioRequest').value.trim(), level = $('level').value } = {}) {
+  if (scenarioBusy || busy || active) return;
+  if (request.length < 3) { $('scenarioStatus').textContent = 'Describe the situation first, by voice or by typing.'; $('scenarioRequest').focus(); return; }
+  scenarioBusy = true; refresh();
+  $('scenarioStatus').classList.remove('error'); $('scenarioStatus').textContent = 'Writing your conversation… this takes about 10–30 seconds.';
+  try {
+    const image = /^(photo|sample):/.test(photoRef || '') ? photoRef : undefined;
+    const created = await api('/api/scenarios', { request, level, language: $('describeLanguage').value, ...(image ? { image } : {}) });
+    $('myScenarios').prepend(new Option(`${created.title} · ${created.level}`, created.id)); $('myScenarios').hidden = false;
+    $('lesson').value = created.id;
+    await chooseLesson();
+    $('scenarioStatus').textContent = 'Ready. Review the conversation below, then start.';
+    $('scenarioReview').scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  } catch (error) { $('scenarioStatus').textContent = error.message; $('scenarioStatus').classList.add('error'); }
+  finally { scenarioBusy = false; refresh(); }
+}
+// Voice → text for the scenario request; the same server transcription as practice.
+async function toggleDescribe() {
+  if (describing) { if (describing.recorder.state === 'recording') describing.recorder.stop(); return; }
+  let stream;
+  try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
+  catch (error) { $('scenarioStatus').textContent = microphoneError(error); $('scenarioStatus').classList.add('error'); return; }
+  const mimeType = ['audio/webm;codecs=opus', 'audio/mp4', 'audio/ogg;codecs=opus'].find((type) => MediaRecorder.isTypeSupported(type));
+  const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+  const chunks = [];
+  describing = { recorder, timer: setTimeout(() => { if (recorder.state === 'recording') recorder.stop(); }, 30000) };
+  recorder.ondataavailable = (event) => { if (event.data.size) chunks.push(event.data); };
+  recorder.onstop = async () => {
+    clearTimeout(describing?.timer); describing = null; stream.getTracks().forEach((track) => track.stop());
+    const audio = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' });
+    $('scenarioStatus').classList.remove('error'); $('scenarioStatus').textContent = 'Transcribing…'; scenarioBusy = true; refresh();
+    try {
+      const response = await fetch('/api/agent/transcribe', { method: 'POST', headers: { ...authHeaders(), 'Content-Type': audio.type, 'x-audio-language': $('describeLanguage').value }, body: audio });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || 'Transcription failed. Try again or type it instead.');
+      const text = String(result.text || '').trim();
+      if (!text) throw new Error('No speech was detected. Try again or type it instead.');
+      const current = $('scenarioRequest').value.trim();
+      $('scenarioRequest').value = `${current ? `${current} ` : ''}${text}`.slice(0, 500);
+      $('scenarioStatus').textContent = 'Check the text, choose a level, then write your scenario.';
+    } catch (error) { $('scenarioStatus').textContent = error.message; $('scenarioStatus').classList.add('error'); }
+    finally { scenarioBusy = false; refresh(); }
+  };
+  recorder.start(250);
+  $('scenarioStatus').classList.remove('error'); $('scenarioStatus').textContent = 'Listening… describe where you are and what you want to do. Press Stop when finished (30 s max).';
+  refresh();
 }
 function clearPhoto() {
-  photoFile = null; photoCaption = '';
+  photoFile = null; photoCaption = ''; photoRef = null;
   if (previewUrl) URL.revokeObjectURL(previewUrl); previewUrl = null;
   $('photoPreview').hidden = true; $('sceneFocus').hidden = true; $('scenePlaceholder').hidden = false; $('photo').value = '';
 }
@@ -223,13 +452,82 @@ function setPhoto(file, caption) {
   refresh();
 }
 async function chooseSample() {
-  const sample = SAMPLES.find((item) => item.file === $('sample').value);
+  const value = $('sample').value;
+  if (value.startsWith('photo:')) {
+    const response = await fetch(`/api/photos/${encodeURIComponent(value.slice(6))}/image`, { headers: authHeaders() });
+    if (!response.ok) throw new Error('This saved photo is unavailable. Take or upload another photo.');
+    const blob = await response.blob();
+    setPhoto(new File([blob], 'lesson-start.jpg', { type: 'image/jpeg' }), USER_PHOTO_CAPTION); photoRef = value;
+    $('photo').value = ''; return;
+  }
+  const sample = SAMPLES.find((item) => item.file === value);
   if (!sample) { clearPhoto(); return; }
   const response = await fetch(`/lessons/images/${encodeURIComponent(sample.file)}`, { headers: authHeaders() });
   if (!response.ok) throw new Error('This sample is unavailable. Upload your own photo to continue.');
   const blob = await response.blob();
-  setPhoto(new File([blob], sample.file, { type: blob.type || 'image/jpeg' }), sample.caption);
+  setPhoto(new File([blob], sample.file, { type: blob.type || 'image/jpeg' }), sample.caption); photoRef = `sample:${sample.file}`;
   $('photo').value = '';
+}
+// ---------------------------------------------------------------- photo library + camera
+function photoLabel(photo) {
+  return `My photo · ${new Date(photo.createdAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`;
+}
+async function loadPhotos() {
+  try {
+    const { photos } = await api('/api/photos');
+    $('myPhotos').replaceChildren(...photos.map((photo) => new Option(photoLabel(photo), `photo:${photo.id}`)));
+    $('myPhotos').hidden = !photos.length;
+  } catch (error) { notify(`Could not load your photos: ${error.message}`, true); }
+}
+function drawCover(source, width, height, outWidth, outHeight, quality) {
+  const canvas = document.createElement('canvas'); canvas.width = outWidth; canvas.height = outHeight;
+  const ratio = outWidth / outHeight; const w = Math.min(width, height * ratio); const h = w / ratio;
+  canvas.getContext('2d').drawImage(source, (width - w) / 2, (height - h) / 2, w, h, 0, 0, outWidth, outHeight);
+  return new Promise((resolve, reject) => canvas.toBlob((b) => b ? resolve(b) : reject(new Error('Could not prepare photo.')), 'image/jpeg', quality));
+}
+const dataUrl = (blob) => new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = () => reject(reader.error); reader.readAsDataURL(blob); });
+// Re-encoding on a canvas also drops EXIF/GPS; the server strips metadata again.
+async function savePhoto(file) {
+  const bitmap = await createImageBitmap(file);
+  let image, thumb;
+  try { image = await drawCover(bitmap, bitmap.width, bitmap.height, 1280, 720, 0.9); thumb = await drawCover(bitmap, bitmap.width, bitmap.height, 320, 180, 0.8); }
+  finally { bitmap.close(); }
+  const response = await fetch('/api/photos', { method: 'POST', headers: { ...authHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify({ image: await dataUrl(image), thumb: await dataUrl(thumb) }) });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || `Photo upload failed (${response.status})`);
+  $('myPhotos').prepend(new Option(photoLabel(data), `photo:${data.id}`)); $('myPhotos').hidden = false;
+  $('sample').value = `photo:${data.id}`;
+  setPhoto(new File([image], 'lesson-start.jpg', { type: 'image/jpeg' }), USER_PHOTO_CAPTION); photoRef = `photo:${data.id}`;
+}
+async function usePhoto(file) {
+  busy = true; refresh(); notify('Saving your photo…');
+  try { await savePhoto(file); notify('Photo saved to My photos and ready as your start image.'); }
+  catch (error) { notify(error.message, true); }
+  finally { busy = false; $('photo').value = ''; $('cameraInput').value = ''; refresh(); }
+}
+function stopCamera() { for (const track of cameraStream?.getTracks() || []) track.stop(); cameraStream = null; $('cameraView').srcObject = null; }
+function showCameraStill(blob) {
+  cameraBlob = blob;
+  if ($('cameraStill').src) URL.revokeObjectURL($('cameraStill').src);
+  $('cameraStill').src = blob ? URL.createObjectURL(blob) : ''; $('cameraStill').hidden = !blob; $('cameraView').hidden = !!blob;
+  $('cameraCapture').hidden = !!blob; $('cameraRetake').hidden = !blob; $('cameraUse').hidden = !blob;
+}
+async function openCamera() {
+  // Live viewfinder needs HTTPS or localhost; otherwise hand off to the phone's own camera app.
+  if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) { $('cameraInput').click(); return; }
+  try {
+    cameraStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false });
+  } catch (error) {
+    notify(error?.name === 'NotAllowedError' ? 'Camera access was blocked. Allow the camera for this site, or upload an image instead.' : 'No camera is available. Upload an image instead.', true);
+    return;
+  }
+  showCameraStill(null); $('cameraStatus').textContent = '';
+  $('cameraView').srcObject = cameraStream; $('cameraDialog').showModal();
+}
+async function captureFrame() {
+  const view = $('cameraView');
+  if (!view.videoWidth) { $('cameraStatus').textContent = 'The camera is still starting. Try again in a moment.'; return; }
+  showCameraStill(await drawCover(view, view.videoWidth, view.videoHeight, 1920, 1080, 0.92));
 }
 // Center crop rather than allowing Reactor to squash a 4:3 phone photo.
 async function preparePhoto(file) {
@@ -312,8 +610,10 @@ async function connectReactor(targetModel, joinId, run) {
   hubSend({ type: 'session', model: targetModel, sessionId, owner: joinId ? sharedSession?.owner || 'unity' : 'web' });
   return client;
 }
-async function begin() {
-  if (busy || active || !lesson) return;
+// pendingLesson: a scenario still being written. The video session connects and
+// takes the start photo in parallel, so the wait overlaps instead of adding up.
+async function begin({ pendingLesson = null } = {}) {
+  if (busy || active || (!lesson && !pendingLesson)) return;
   voiceReconciling = voiceUnsafe = voiceCheckRunning = false;
   lessonOperations.reset(); idleInvitation.reset(); agentMachine.send('begin');
   lastMediaTime = 0; lastMediaProgressAt = -Infinity;
@@ -324,7 +624,7 @@ async function begin() {
     const photo = photoFile ? await preparePhoto(photoFile) : null; assertCurrent(run);
     if (preview) {
       sessionId = `practice-${crypto.randomUUID()}`; model = null;
-      imageRef = photoFile ? { id: photoFile.name, caption: photoCaption } : null;
+      imageRef = photoFile ? { id: photoRef || photoFile.name, caption: photoCaption } : null;
       $('sceneStatus').textContent = 'Practice · no live video';
     } else {
       const joinId = $('sessionId').value.trim();
@@ -345,13 +645,20 @@ async function begin() {
       assertCurrent(run);
       // Joining for a new lesson explicitly resets the model before applying its start photo.
       if (joinId) await command('reset', {}, client);
-      await api('/api/agent/reset', { sessionId, lessonId: lesson.id }, apiAbort.signal); assertCurrent(run);
       if (photo) {
+        if (pendingLesson) flowStatus('Video connected · placing your photo…');
         const ref = await client.uploadFile(photo); assertCurrent(run);
         await command('set_image', { image: ref }, client); assertCurrent(run);
-        imageRef = { id: ref.uploadId, caption: photoCaption };
+        imageRef = { id: photoRef || ref.uploadId, caption: photoCaption };
       }
     }
+    if (pendingLesson) {
+      if (!preview) flowStatus('Video ready · finishing your conversation…');
+      lesson = await pendingLesson; assertCurrent(run);
+      presentLesson(); renderReview();
+    }
+    if (!preview) { await api('/api/agent/reset', { sessionId, lessonId: lesson.id }, apiAbort.signal); assertCurrent(run); }
+    flowStatus('');
     active = true; busy = false; setSetupOpen(false); refresh();
     if (!await turn({}, run)) throw new Error('The lesson guide could not start. Please try again.');
   } catch (error) {
@@ -400,10 +707,13 @@ async function executeDecision(decision, run) {
 function renderDecision(decision, hasSpeech = false) {
   clerkSpeech = decision.speech?.role === 'clerk' && decision.speech.language === 'ja' && typeof decision.speech.text === 'string' && decision.speech.text.trim()
     ? { text: decision.speech.text, language: 'ja', role: 'clerk' } : null;
-  $('clerkCaption').textContent = clerkSpeech ? `店员 · ${clerkSpeech.text}` : '';
+  $('clerkCaption').textContent = clerkSpeech ? `${partnerLabel()} · ${clerkSpeech.text}` : '';
   $('clerkCaption').hidden = !clerkSpeech; $('clerkReplay').hidden = !clerkSpeech;
   const overlay = decision.overlay;
   for (const field of ['jp', 'kana', 'romaji', 'zh', 'en']) $(field).textContent = overlay?.[field] || '';
+  const alternatives = overlay ? lesson?.beats.flatMap((b) => b.lines).find((line) => line.jp === overlay.jp)?.alternatives || [] : [];
+  $('alternatives').textContent = alternatives.length ? `Also fine · ${alternatives.map((alt) => alt.jp).join('　/　')}` : '';
+  $('alternatives').hidden = !alternatives.length;
   if (!overlay && decision.advance === 'scene_done') { $('jp').textContent = 'お疲れさまでした。'; $('en').textContent = 'Scene complete. Leave the session when you are ready.'; }
   $('hintLevel').hidden = !overlay?.hintLevel;
   $('hintLevel').textContent = overlay?.hintLevel ? `HINT ${overlay.hintLevel}` : '';
@@ -586,6 +896,7 @@ async function leave(message = 'You have left the lesson.') {
   for (const track of mediaStream.getTracks()) track.stop(); mediaStream = new MediaStream(); $('video').srcObject = null;
   $('video').muted = true; $('sound').textContent = 'Unmute scene'; $('photoPreview').hidden = !photoFile; $('sceneFocus').hidden = !photoFile;
   $('sceneStatus').textContent = 'Session ended'; $('speechStatus').textContent = 'Microphone stopped.';
+  if (cameraWanted && !passthroughStream) void startPassthrough();
   refresh(); notify(message);
   if (client) {
     try { await client.disconnect(); }
@@ -602,14 +913,40 @@ function unload() {
   void leave(); hub?.close(); if (previewUrl) URL.revokeObjectURL(previewUrl);
 }
 
-$('sample').append(...SAMPLES.map((sample) => new Option(sample.label, sample.file)));
+$('samplePhotos').append(...SAMPLES.map((sample) => new Option(sample.label, sample.file)));
 $('lesson').onchange = () => void chooseLesson();
+const holdDown = (event) => { if (event.type === 'keydown' && (event.repeat || ![' ', 'Enter'].includes(event.key))) return; event.preventDefault(); if (talk?.latched) stopTalk(true); else void startTalk(); };
+const holdUp = (event) => { if (event.type === 'keyup' && ![' ', 'Enter'].includes(event.key)) return; if (talk && !talk.latched) stopTalk(); };
+$('holdTalk').addEventListener('pointerdown', holdDown); $('holdTalk').addEventListener('keydown', holdDown);
+for (const type of ['pointerup', 'pointercancel', 'pointerleave', 'keyup']) $('holdTalk').addEventListener(type, holdUp);
+$('holdTalk').addEventListener('click', (event) => event.preventDefault());
+$('cameraToggle').onclick = async () => { cameraWanted = !passthroughStream; if (cameraWanted) await startPassthrough(); else stopPassthrough(); };
+// Keep the quick bar and the setup drawer in agreement.
+const mirror = (a, b, map = (v) => v) => { $(a).addEventListener('change', () => { $(b).value = map($(a).value); refresh(); }); $(b).addEventListener('change', () => { $(a).value = map($(b).value); refresh(); }); };
+mirror('quickLanguage', 'describeLanguage'); mirror('quickLevel', 'level');
+$('quickLive').addEventListener('change', () => { $('previewOnly').checked = !$('quickLive').checked; refresh(); });
+$('previewOnly').addEventListener('change', () => { $('quickLive').checked = !$('previewOnly').checked; });
+// Generated frames replace the camera view; free the camera while video plays.
+$('video').addEventListener('playing', () => { if (reactor && passthroughStream) stopPassthrough(); });
+$('tabCreate').onclick = () => void setTab('create');
+$('tabLessons').onclick = () => void setTab('lessons');
+$('describe').onclick = () => void toggleDescribe();
+$('scenarioRequest').oninput = refresh;
+$('createScenario').onclick = () => void createScenario();
+$('regenerate').onclick = () => { if (lesson?.scenario) void createScenario({ request: lesson.scenario.request, level: lesson.level }); };
 $('sample').onchange = async () => { busy = true; refresh(); try { await chooseSample(); notify('Start image selected.'); } catch (error) { notify(error.message, true); } finally { busy = false; refresh(); } };
 $('photo').onchange = () => {
   const file = $('photo').files[0]; if (!file) return;
   if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 10 * 1024 * 1024) { notify('Choose a JPEG, PNG or WebP photo under 10 MB.', true); $('photo').value = ''; return; }
-  setPhoto(file, 'Learner-selected start photo; its visual contents have not been captioned.'); $('sample').value = ''; notify('Your photo is ready.');
+  void usePhoto(file);
 };
+$('cameraInput').onchange = () => { const file = $('cameraInput').files[0]; if (file) void usePhoto(file); };
+$('takePhoto').onclick = () => void openCamera();
+$('cameraCapture').onclick = () => void captureFrame();
+$('cameraRetake').onclick = () => showCameraStill(null);
+$('cameraUse').onclick = () => { const blob = cameraBlob; $('cameraDialog').close(); if (blob) void usePhoto(blob); };
+$('cameraClose').onclick = () => $('cameraDialog').close();
+$('cameraDialog').addEventListener('close', () => { stopCamera(); showCameraStill(null); });
 $('setupToggle').onclick = () => setSetupOpen($('setupPanel').hidden);
 $('setupClose').onclick = () => { setSetupOpen(false); $('setupToggle').focus(); };
 $('previewOnly').onchange = refresh;
@@ -650,7 +987,9 @@ const scenePoint = installScenePoint({
   onIntent: intent => turn({ intent }),
   notify,
 });
-connectHub(); void loadCatalog(); refresh();
+connectHub(); void loadPhotos().then(loadCatalog); refresh();
+if (params.get('lesson')) setSetupOpen(true);
+navigator.permissions?.query({ name: 'camera' }).then((status) => { if (status.state === 'granted') { cameraWanted = true; void startPassthrough(); } }).catch(() => {});
 
 // Deliberate user activity postpones help; passive viewing can receive one invitation.
 for (const event of ['pointerdown', 'keydown', 'input']) document.addEventListener(event, () => idleInvitation.activity(), { passive: true });

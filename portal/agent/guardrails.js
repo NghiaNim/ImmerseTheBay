@@ -35,5 +35,7 @@ function similarity(a, b) {
 }
 export function scoreTranscript(transcript, line) {
   const actual = normalizeKana(transcript);
-  return Math.max(similarity(actual, normalizeKana(line.kana)), similarity(actual, normalizeKana(line.jp)));
+  // Generated scenarios list alternative proposed answers; any of them is a valid reply.
+  const answers = [line, ...(Array.isArray(line.alternatives) ? line.alternatives : [])];
+  return Math.max(...answers.map((answer) => Math.max(similarity(actual, normalizeKana(answer.kana)), similarity(actual, normalizeKana(answer.jp)))));
 }

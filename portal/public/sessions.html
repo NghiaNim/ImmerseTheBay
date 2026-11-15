@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>My sessions · ImmerseTheBay</title>
+  <link rel="stylesheet" href="learn.css"><link rel="stylesheet" href="sessions.css"><script type="module" src="sessions.js"></script>
+</head>
+<body class="sessions-page">
+  <header><a id="homeLink" href="/learn.html">ImmerseTheBay</a><span class="lesson-label">MY SESSIONS</span><a id="lessonLink" class="nav-link back-link" href="/learn.html">← Back to lessons</a></header>
+  <main class="library">
+    <section class="session-list" aria-labelledby="listTitle">
+      <div class="section-heading"><h2 id="listTitle">Past sessions</h2><span id="sessionCount" class="badge"></span></div>
+      <p id="listNotice" class="muted" role="status">Loading…</p>
+      <ol id="sessions"></ol>
+      <div class="section-heading photos-heading"><h2>My photos</h2><span id="photoCount" class="badge"></span></div>
+      <p id="photoNotice" class="muted">Photos you take or upload on the lesson page appear here.</p>
+      <ul id="photos" class="photo-grid"></ul>
+    </section>
+    <section id="detail" class="session-detail" aria-live="polite">
+      <div id="emptyDetail" class="empty-detail"><span lang="ja">ふりかえり</span><p>Choose a session to review it and practice it again.</p></div>
+      <article id="detailBody" hidden>
+        <div class="detail-hero"><img id="detailPhoto" alt="Start photo for this session" hidden><div class="detail-title"><p id="detailMeta" class="eyebrow"></p><h1 id="detailTitle"></h1><p id="detailStats" class="muted"></p></div></div>
+        <div class="practice-again">
+          <div><h2>Practice again</h2><p class="muted">Runs these exact lines, including your side trips, from the same photo.</p></div>
+          <div class="practice-options">
+            <label class="check"><input id="replayLive" type="checkbox">Live video <small>(billed by Reactor)</small></label>
+            <button id="replayMissed" type="button">Missed lines only</button>
+            <button id="replayAll" class="primary" type="button">All lines</button>
+          </div>
+        </div>
+        <p id="detailNotice" class="muted" role="status"></p>
+        <ol id="lines" class="line-list"></ol>
+        <div class="danger-zone"><button id="deleteSession" class="danger" type="button">Delete this session</button><span id="confirmDelete" hidden>Delete permanently? <button id="confirmDeleteYes" class="danger" type="button">Delete</button><button id="confirmDeleteNo" type="button">Keep</button></span></div>
+      </article>
+    </section>
+  </main>
+</body>
+</html>

@@ -12,3 +12,40 @@ header .signals{position:static;margin:0;z-index:11}header .signals>summary{font
 #scenePoint{white-space:nowrap}#scenePoint[aria-pressed=true]{border-color:var(--green);color:var(--green)}.screen.pointing{cursor:crosshair;touch-action:none}#sceneObject{position:absolute;z-index:4;pointer-events:none;border:2px solid var(--green);border-radius:6px;color:#102016;background:#c7e6b718;font-size:12px;text-shadow:none;overflow:visible}#sceneObject>span{position:absolute;bottom:100%;left:-2px;padding:3px 7px;white-space:nowrap;border-radius:4px;background:var(--green);color:#102016}
 
 .status-line .retry-status{flex-basis:100%;color:#dfc79c;font-size:11px;margin-top:5px}
+
+/* Photo capture and saved sessions. */
+.nav-link{font-size:11px!important;font-weight:550!important;letter-spacing:0!important;color:var(--muted)!important;padding:8px 4px;white-space:nowrap}.nav-link:hover{color:var(--ink)!important}
+.photo-actions{display:flex;gap:8px;margin-top:9px}.photo-actions>*{flex:1;text-align:center}.upload-button{position:relative;margin:0;border:1px solid #ffffff1c;border-radius:6px;background:#ffffff05;padding:9px 13px;font-size:11px;cursor:pointer}.upload-button:hover{background:#ffffff12}.upload-button input{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%}.upload-button:has(input:disabled){opacity:.35;cursor:not-allowed}.upload-button:focus-within{outline:2px solid #d8c08a;outline-offset:3px}
+#cameraDialog{width:min(760px,calc(100vw - 32px));border:1px solid #ffffff22;border-radius:12px;background:var(--panel);color:var(--ink);padding:20px;box-shadow:0 20px 80px #000a}#cameraDialog::backdrop{background:#050a08cc;backdrop-filter:blur(6px)}
+.camera-frame{position:relative;aspect-ratio:16/9;border-radius:8px;overflow:hidden;background:#0b120e}.camera-frame video,.camera-frame img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.camera-controls{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}#cameraStatus:empty{display:none}
+@media(max-width:480px) and (orientation:portrait){.nav-link{font-size:10px!important}#cameraDialog{padding:14px}}
+
+/* Scenario creation: photo → describe → review → start. */
+.setup{width:390px}
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.mode-tabs{display:grid;grid-template-columns:1fr 1fr;gap:4px;margin:16px 0 4px;padding:3px;border:1px solid #ffffff18;border-radius:8px;background:#121c16}.mode-tabs button{border:0;background:transparent;color:var(--muted);padding:8px}.mode-tabs button[aria-selected=true]{background:#ffffff12;color:var(--ink)}
+.step-label{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:600;margin:18px 0 8px}.step-label span{display:inline-grid;place-items:center;width:18px;height:18px;border-radius:50%;background:var(--green);color:#203522;font-size:10px;font-weight:700}
+.describe{display:flex;gap:8px}.describe button{flex:1}.describe button[aria-pressed=true]{border-color:#f4a992;color:#f4c3a8;background:#f4a99214}.describe select{width:auto!important;flex:none}
+textarea{display:block;width:100%;margin-top:8px;border:1px solid #ffffff25;border-radius:6px;background:#152019;padding:10px 11px;color:var(--ink);font:inherit;font-size:12px;line-height:1.5;resize:vertical}textarea:focus-visible{outline:2px solid #d8c08a;outline-offset:3px}textarea:disabled{opacity:.6}
+.level-row{display:flex;align-items:center;gap:10px;margin-top:10px}.level-row label{margin:0;flex:none}.level-row select{flex:1}
+#createScenario{width:100%;margin-top:10px;padding:11px;border-color:var(--green);color:var(--green)}#createScenario:hover:enabled{background:#c7e6b714}
+#scenarioStatus:empty{display:none}
+.scenario-review{margin-top:14px;padding-top:2px;border-top:1px solid var(--line)}.review-heading{display:flex;align-items:center;justify-content:space-between}.review-heading button{padding:5px 10px;font-size:10px}
+.scenario-review h3{font-size:14px;font-weight:600;margin:4px 0 0}.scenario-review .muted{margin:4px 0 8px}
+#reviewLines{list-style:none;margin:0;padding:0;display:grid;gap:8px;max-height:min(42vh,420px);overflow-y:auto}#reviewLines li{padding:9px 10px;border-radius:7px;background:#ffffff06;border:1px solid #ffffff0e}#reviewLines p{margin:0;font-size:12px;line-height:1.5}#reviewLines .partner{color:#d9e2d4}#reviewLines .you{color:var(--green);font-weight:600;margin-top:5px}#reviewLines .gloss{font-size:10px;color:var(--muted)}#reviewLines .alt{font-size:11px;color:#cfdcc6;margin-top:2px}
+.overlay .alternatives{font-size:12px;color:#d9ead0;opacity:.9}
+@media(max-width:480px) and (orientation:portrait){.setup{width:calc(100vw - 28px)}}
+.setup #begin{position:sticky;bottom:0;box-shadow:0 -14px 16px 4px #202b26f5}
+
+/* See-through stage and one-trigger start. The camera view stays at full brightness. */
+.screen .passthrough{z-index:1;filter:none;mask-image:none;-webkit-mask-image:none}
+.screen.seeing #photoPreview,.screen.seeing #sceneFocus,.screen.seeing #scenePlaceholder{display:none}
+.screen.seeing::after{background:linear-gradient(transparent 70%,#06150d40)}
+.screen.seeing:not(.in-lesson) .overlay{display:none}
+.flow-status{position:absolute;z-index:5;top:16px;left:50%;transform:translateX(-50%);max-width:min(80%,640px);margin:0;padding:8px 14px;border-radius:20px;background:#0c1c16cc;border:1px solid #ffffff26;color:#eef2e9;font-size:12px;line-height:1.4;text-align:center;backdrop-filter:blur(8px)}.flow-status.error{color:#f4c3a8!important;border-color:#f4a99266}
+.quick-start{display:flex;flex-direction:column;align-items:center;gap:8px;padding-top:16px;max-width:78%;margin:0 auto;text-align:center}
+.hold-talk{min-width:230px;padding:15px 26px!important;border-radius:999px!important;font-size:14px!important;touch-action:none;user-select:none;-webkit-user-select:none}.hold-talk.recording{background:#f4a992!important;border-color:#f4a992!important;color:#3a1a10!important;box-shadow:0 0 0 6px #f4a99230}
+#quickHint{margin:0;font-size:11px;color:var(--muted);max-width:520px}
+.quick-options{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:center}.quick-options select{width:auto;padding:7px 9px;font-size:11px}.quick-options .check{margin:0;font-size:11px}.quick-options button{padding:7px 11px;font-size:11px}
+@media(max-width:650px){.quick-start{max-width:94%}.hold-talk{min-width:0;width:100%}}

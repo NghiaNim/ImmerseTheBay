@@ -91,10 +91,10 @@ function repairOutput(candidate, fallback) {
     command.data.prompt = safePrompt(proposed?.data?.prompt, command.data.prompt);
   }
   const notes = candidate.feedback?.notes.filter((s) => s.trim() && !hasBannedTerm(s)).slice(0, 3).map((s) => s.slice(0, 300)) || [];
-  if (notes.length) result.feedback = { score: result.feedback?.score ?? 0, notes: [...(result.feedback?.notes || []), ...notes].slice(0, 10) };
+  if (notes.length) result.feedback = { score: result.feedback?.score ?? 0, notes: [...new Set([...(result.feedback?.notes || []), ...notes])].slice(0, 10) };
   return result;
 }
-export function createAgentService({ store = createLessonStore(), llm = createLessonClient(), planner = createLessonPlanner(), log = writeDecision, now = Date.now, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)), promptIntervalMs = 2000, maxSessions = 500 } = {}) {
+export function createAgentService({ store = createLessonStore(), llm = createLessonClient(), planner = createLessonPlanner(), log = writeDecision, now = Date.now, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)), promptIntervalMs = 2000, maxSessions = 500, recorder = null } = {}) {
   const sessions = new Map();
   async function turn(input) {
     const request = validateRequest(input);
@@ -149,9 +149,11 @@ export function createAgentService({ store = createLessonStore(), llm = createLe
 
       const previousNodeId = state.flow.current.nodeId;
       const activeTarget = state.flow.active?.nodes[state.flow.active.index] || mainTarget.line;
+      const practicedSegment = state.flow.active ? { kind: 'detour', label: state.flow.active.label } : { kind: 'main', label: null };
       const intent = request.action ? null : detectedIntent(request, activeTarget);
       let entered = false;
       let intentNote = null;
+      let enteredPlan = null;
       let source = 'scripted';
       let failure = null;
       const sameIntent = intent && state.flow.active?.intent === intent;
@@ -173,6 +175,7 @@ export function createAgentService({ store = createLessonStore(), llm = createLe
             if (state.flow.active) state.sceneContext.recentActions = [];
             startDetour(state, plan); state.flow.active.intent = intent; entered = true;
             if (source !== 'llm-detour') source = 'scripted-detour';
+            enteredPlan = { label: plan.label, returnBeat: plan.returnBeat, nodes: plan.nodes, source };
           } else intentNote = 'That side interaction is unavailable right now. Try a sandwich, a product shelf, or the checkout counter; your lesson is saved.';
         }
       }
@@ -225,8 +228,15 @@ export function createAgentService({ store = createLessonStore(), llm = createLe
           source = 'llm';
         } catch (e) { failure = e.message === 'LLM JSON schema mismatch' ? e.message : 'LLM unavailable or invalid response'; }
       }
-      if (request.action !== 'idle_hint') response.speech = !state.started || previousNodeId !== response.route.nodeId
-        ? clerkSpeech({ first: !state.started, route: response.route, cue: fallback.visko.find((item) => item.name === 'set_prompt')?.data.prompt, store: /konbini|convenience/iu.test(lesson.id + lesson.title) }) : null;
+      const presented = state.complete ? null : state.flow.active ? state.flow.active.nodes[state.flow.active.index] : lines[state.flow.mainBeat]?.line || null;
+      if (request.action !== 'idle_hint') {
+        const entering = !state.started || previousNodeId !== response.route.nodeId;
+        // Generated scenarios script the partner's prompt before each learner answer.
+        const partnerLine = entering && response.route.kind !== 'detour' && presented?.partner?.jp ? presented.partner.jp : null;
+        response.speech = !entering ? null : partnerLine ? { role: 'clerk', text: partnerLine, language: 'ja' }
+          : lesson.partnerRole && response.route.kind === 'main' ? null // the learner opens this exchange
+          : clerkSpeech({ first: !state.started, route: response.route, cue: fallback.visko.find((item) => item.name === 'set_prompt')?.data.prompt, store: /konbini|convenience/iu.test(lesson.id + lesson.title) });
+      }
       for (const command of response.visko) {
         if (command.name === 'set_audio_prompt') command.data.prompt = composeAmbientPrompt(command.data.prompt);
         if (command.name !== 'set_prompt') continue;
@@ -242,6 +252,11 @@ export function createAgentService({ store = createLessonStore(), llm = createLe
       state.revision = (state.revision || 0) + 1;
       if (request.operation) response.operation = { requestId: request.operation.requestId, runId: state.flow.runId, revision: state.revision, replayed: false };
       await log({ at: new Date(now()).toISOString(), sessionId: request.sessionId, lessonId: request.lessonId, beat: request.beat, transcript: request.transcript || '', intent: intent || null, context: request.context, photoCaption: plain(request.imageRef) ? request.imageRef.caption || '' : '', source, failure, route: response.route, graph: { nodes: state.flow.nodes, edges: state.flow.edges }, response });
+      if (recorder) {
+        // Recording is best-effort: a disk problem must never block the lesson.
+        try { await recorder({ runId: state.flow.runId, sessionId: request.sessionId, lesson, imageReference: state.sceneContext.referenceId, request, intent, practiced: request.action ? null : activeTarget, practicedSegment, presented, response, plan: enteredPlan }); }
+        catch (e) { console.warn(`[records] could not record turn: ${e.message}`); }
+      }
       const visual = response.visko.find((command) => command.name === 'set_prompt');
       if (visual) {
         // Issued decisions are not proof of provider acceptance or visual adoption.
