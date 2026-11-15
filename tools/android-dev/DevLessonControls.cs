@@ -215,10 +215,10 @@ namespace ImmerseTheBay.Learning
         /// <summary>End lesson on the phone: stop the lesson and go back to Tenin, which shows the summary.</summary>
         void EndLessonAndReturn()
         {
-            bool wasRunning = lesson.HasActiveLesson;
+            string runId = lesson.ActiveRunId;
             EndPractice();
             video.PrepareScenePreview(null);
-            ShowPhone(lessonEnded: wasRunning);
+            ShowPhone(runId);
         }
 
         void SpeakOrRetry()
@@ -256,7 +256,11 @@ namespace ImmerseTheBay.Learning
             if (status && Time.unscaledTime >= nextLaunchPoll)
             {
                 nextLaunchPoll = Time.unscaledTime + 0.5f;
-                if (ConsumePhoneRequest("consumeEndRequest") && (practiceVisible || starting)) EndPractice();
+                if (ConsumePhoneRequest("consumeEndRequest") && (practiceVisible || starting))
+                {
+                    EndLessonAndReturn();
+                    return;
+                }
                 if (ConsumePhoneRequest("consumeLaunchRequest"))
                 {
                     // A new choice on the phone replaces whatever is running.
@@ -444,7 +448,7 @@ namespace ImmerseTheBay.Learning
         static void OpenPhonePractice() => ShowPhone();
 
         /// <summary>Brings the existing Tenin screen (same task, same instance) back to the front.</summary>
-        static void ShowPhone(bool lessonEnded = false)
+        static void ShowPhone(string runId = null)
         {
 #if UNITY_ANDROID && !UNITY_EDITOR
             const int ReorderToFront = 0x00020000; // Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
@@ -454,7 +458,10 @@ namespace ImmerseTheBay.Learning
             using var target = intent.Call<AndroidJavaObject>("setClassName",
                 activity.Call<string>("getPackageName"), "com.immersethebay.phone.TeninActivity");
             using var flagged = intent.Call<AndroidJavaObject>("addFlags", ReorderToFront);
-            using var extra = intent.Call<AndroidJavaObject>("putExtra", "lessonEnded", lessonEnded);
+            if (!string.IsNullOrEmpty(runId))
+            {
+                using var extra = intent.Call<AndroidJavaObject>("putExtra", "completedRunId", runId);
+            }
             activity.Call("startActivity", intent);
 #endif
         }

@@ -374,17 +374,25 @@ class TeninScreens(private val context: Context) {
         ).toTypedArray()).fillWidth()), fill = Tenin.PRIMARY)
     }
 
+    fun completionStatus(onRetry: (() -> Unit)? = null, onDone: () -> Unit) = ui.run {
+        val loading = onRetry == null
+        screen(listOf(header(), title(if (loading) "Getting your summary…" else "Summary unavailable").margins(top = 24f),
+            body(if (loading) "Loading your lesson result." else "Check your connection and try again.").margins(top = 12f)),
+            footer = listOfNotNull(if (onRetry == null) busyButton("Loading…") else primaryButton("Retry", null, onRetry),
+                secondaryButton("Done", null, onDone).margins(top = 10f)))
+    }
+
     // 8 · Lesson complete
-    fun complete(summary: String, saved: Int, review: Int, tip: String, onPhrases: () -> Unit, onDone: () -> Unit) = ui.run {
+    fun complete(summary: String, saved: Int, review: Int, tip: String, onPhrases: () -> Unit, onDone: () -> Unit, completed: Boolean = true) = ui.run {
         fun stat(value: Int, label: String, color: Int) = card(text(value.toString(), 38f, color, 500), text(label, 16f, Tenin.MUTED), padding = 16f)
         screen(listOfNotNull(
             header(),
             FrameLayout(context).apply {
-                background = rounded(Tenin.GREEN_BG, dp(92f).toFloat())
+                background = rounded(if (completed) Tenin.GREEN_BG else 0xFFF1EBFF.toInt(), dp(92f).toFloat())
                 layoutParams = LinearLayout.LayoutParams(dp(92f), dp(92f)).apply { gravity = Gravity.CENTER_HORIZONTAL; topMargin = dp(26f) }
-                addView(ImageView(context).apply { setImageDrawable(TeninIconDrawable(TeninIcon.CHECK, Tenin.GREEN, 2.4f)) }, FrameLayout.LayoutParams(dp(46f), dp(46f), Gravity.CENTER))
+                addView(ImageView(context).apply { setImageDrawable(TeninIconDrawable(if (completed) TeninIcon.CHECK else TeninIcon.BOOK, if (completed) Tenin.GREEN else Tenin.PRIMARY, 2.4f)) }, FrameLayout.LayoutParams(dp(46f), dp(46f), Gravity.CENTER))
             },
-            text("You did it!", 38f).margins(top = 14f).apply { gravity = Gravity.CENTER }.fillWidth(),
+            text(if (completed) "You did it!" else "Lesson ended", 38f).margins(top = 14f).apply { gravity = Gravity.CENTER }.fillWidth(),
             body(summary).margins(top = 8f).apply { gravity = Gravity.CENTER }.fillWidth(),
             row(stat(saved, if (saved == 1) "phrase saved" else "phrases saved", Tenin.PRIMARY).weighted().margins(right = 6f),
                 stat(review, "to review later", Tenin.AMBER).weighted().margins(left = 6f)).fillWidth().margins(top = 18f),

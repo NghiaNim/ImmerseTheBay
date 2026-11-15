@@ -109,6 +109,7 @@ class TeninActivity : Activity() {
         reset(::startScreen)
         // `adb shell am start … --es screen <name>` opens one screen directly for design review.
         intent.getStringExtra("screen")?.let(::openForReview)
+        if (!demo) consumeCompletion(intent)
     }
 
     // --- navigation -------------------------------------------------------------------------
@@ -225,7 +226,16 @@ class TeninActivity : Activity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        if (intent.getBooleanExtra("lessonEnded", false) && running != null) { inGlasses = false; endLesson(stopGlasses = false) }
+        if (!demo) consumeCompletion(intent)
+    }
+
+    private fun consumeCompletion(intent: Intent) {
+        val runId = intent.getStringExtra("completedRunId") ?: return
+        intent.removeExtra("completedRunId")
+        if (!runId.matches(runIdPattern)) return
+        inGlasses = false
+        running = null
+        loadCompletion(runId)
     }
 
     private fun showStopped(scenario: TeninScenario) {
@@ -240,16 +250,39 @@ class TeninActivity : Activity() {
             onAgain = { prepare(scenario) }, onDone = { running = null; reset(::startScreen) }) }
     }
 
-    private fun endLesson(stopGlasses: Boolean = true) {
-        if (stopGlasses) TeninHooks.endLesson?.invoke(this)
-        val title = running?.title.orEmpty()
-        running = null
-        if (demo) { showComplete("You ordered food and asked about shrimp, for real.", 3, 1, "lead with the allergy, then point at the dish."); return }
-        // The newest saved session is the one that just ran, if the portal recorded it.
-        refreshSessions(force = true) {
-            val latest = sessions.firstOrNull()?.takeIf { it.title == title && it.day == "Today" }
-            if (latest == null) reset(::startScreen)
-            else showComplete(latest.note, latest.phrases.count { it.mine && it.passed }, latest.phrases.count { it.mine && !it.passed }, latest.tip)
+    private val runIdPattern = Regex("[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}")
+
+    private fun endLesson() {
+        if (demo) {
+            running = null
+            showComplete("You ordered food and asked about shrimp, for real.", 3, 1, "lead with the allergy, then point at the dish.")
+        } else {
+            TeninHooks.endLesson?.invoke(this)
+        }
+    }
+
+    private fun loadCompletion(runId: String) {
+        val goHome: () -> Unit = { reset(::startScreen) }
+        val loading: () -> View = { screens.completionStatus(onDone = goHome) }
+        reset(loading)
+        worker.execute {
+            val result = runCatching {
+                val detail = request("/api/sessions/$runId")
+                val record = detail.getJSONObject("record")
+                check(record.getString("id") == runId) { "Unexpected session record" }
+                parseSession(record, detail) to (record.optString("status") == "complete")
+            }
+            main.post {
+                if (closed || stack.lastOrNull() !== loading) return@post
+                result.onSuccess { (session, completed) ->
+                    sessions = listOf(session) + sessions.filterNot { it.id == runId }
+                    loadedAt = 0
+                    showComplete(session.note, session.phrases.count { it.mine && it.passed },
+                        session.phrases.count { it.mine && !it.passed }, session.tip, completed)
+                }.onFailure {
+                    reset { screens.completionStatus(onRetry = { loadCompletion(runId) }, onDone = goHome) }
+                }
+            }
         }
     }
 
@@ -285,8 +318,9 @@ class TeninActivity : Activity() {
     fun showPutOnGlasses(lessonId: String, startImage: String, title: String, photo: Bitmap? = null) =
         prepare(TeninScenario(lessonId, title, "", "", "", TeninIcon.CAMERA, emptyList(), startImage), photo)
 
-    fun showComplete(summary: String, saved: Int, review: Int, tip: String) = reset {
-        screens.complete(summary, saved, review, tip, onPhrases = { reset(::vocabularyScreen); refreshSessions() }, onDone = { reset(::startScreen) })
+    fun showComplete(summary: String, saved: Int, review: Int, tip: String, completed: Boolean = true) = reset {
+        screens.complete(summary, saved, review, tip, onPhrases = { reset(::vocabularyScreen); refreshSessions() },
+            onDone = { reset(::startScreen) }, completed = completed)
     }
 
     // --- Review and vocabularies -----------------------------------------------------------------
