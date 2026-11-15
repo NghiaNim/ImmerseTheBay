@@ -68,3 +68,35 @@ Physical device currently reports SM-S931U1, Android16/API36, arm64,4KiB pages. 
   exists in ControlGlasses; next verify with glasses attached and launching via
   ControlGlasses, including the required overlay permission. Do not copy random
   runtime libraries into the app as a workaround.
+
+## Native startup blocker confirmed on S25
+
+The updated 268 MB APK was reinstalled successfully using wireless ADB while
+USB was disconnected from the Mac. After attaching Air 2 Ultra, Android reports
+an external 1920x1080 display named `Air 2 Ultra`. ControlGlasses has Camera,
+Microphone and USB-device access, but its own initialization fails before the
+Unity application can start XR.
+
+Read-only inspection of the official ControlGlasses 3.1 APK confirms that the
+non-Beam path in `DisplayModel._isHdmi()` checks whether the display name contains
+`HDMI`. The actual name does not; device logs show `not HDMI`, `hasHdmi=false`,
+then `sdkFailed` after retries. Replugging reproduces it. The Samsung DeX setting
+was changed to 0 as a reversible diagnostic, but the system reset it to 1 on
+reconnection. Do not report DeX as permanently disabled or AR as working.
+
+This is a vendor display-detection compatibility blocker with this device/OS
+combination. Keep proprietary disassembly and full device logs local; do not
+commit vendor binaries, patch/re-sign ControlGlasses, or change OS/firmware.
+The official XREAL docs still warn about Android 16 compatibility:
+https://docs.xreal.com/Getting%20Started%20with%20XREAL%20SDK
+
+Wireless deployment remains usable with the glasses connected:
+
+```sh
+adb connect PHONE_IP:DEBUG_PORT
+adb -s PHONE_IP:DEBUG_PORT install -r Builds/ImmerseTheBay.apk
+```
+
+The connection port comes from Wireless debugging's main page, not its pairing
+popup, and may change after restarting debugging or reconnecting Wi-Fi. Installing
+an update stops the running app; launch it again afterwards.
