@@ -12,8 +12,6 @@ import android.text.SpannableStringBuilder
 import android.text.Spanned
 import android.text.TextWatcher
 import android.text.style.ForegroundColorSpan
-import android.text.style.RelativeSizeSpan
-import android.text.style.TypefaceSpan
 import android.text.style.StyleSpan
 import android.util.TypedValue
 import android.view.Gravity
@@ -124,7 +122,7 @@ class TeninScreens(private val context: Context, private val bindPreview: (Strin
             selected = selected, fill = if (selected) Tenin.TINT else Tenin.BG, padding = 16f).onTap(action)
 
     // 1 · Start
-    fun start(connected: Boolean, onLive: () -> Unit, onPremade: () -> Unit, defaultPremadeTitle: String?, nav: View) = ui.run {
+    fun start(connected: Boolean, onLive: () -> Unit, onCourses: () -> Unit, nav: View, defaultCourseTitle: String? = null) = ui.run {
         val headline = text("What would you like to practice?", 26f, weight = 600).apply {
             if (resources.configuration.fontScale <= 1.1f) {
                 maxLines = 1
@@ -136,8 +134,8 @@ class TeninScreens(private val context: Context, private val bindPreview: (Strin
             header(connected = connected),
             headline.fillWidth().margins(top = 18f),
             entryCard(TeninIcon.CAMERA, "Live Lesson", "Add a photo or say what you want to rehearse.", selected = true, action = onLive).margins(top = 18f),
-            entryCard(TeninIcon.PLAY, "Pre-made Lesson", defaultPremadeTitle?.let { "Start with $it or choose another scene." }
-                ?: "Choose a scene and practice in your glasses.", action = onPremade).margins(top = 12f),
+            entryCard(TeninIcon.PLAY, "Courses", defaultCourseTitle?.let { "Start with $it or choose another scene." }
+                ?: "Choose a scene and practice in your glasses.", action = onCourses).margins(top = 12f),
         ), nav = nav)
     }
 
@@ -148,14 +146,10 @@ class TeninScreens(private val context: Context, private val bindPreview: (Strin
             card(row(
                 catalogPreview(s, 96f).margins(right = 12f),
                 column(
-                    text(SpannableStringBuilder(s.title).apply {
-                        if (s.jpTitle.isNotEmpty()) {
-                            val from = length
-                            append("  ${s.jpTitle}")
-                            listOf(ForegroundColorSpan(Tenin.MUTED), RelativeSizeSpan(0.74f), TypefaceSpan(Tenin.font(context)))
-                                .forEach { setSpan(it, from, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE) }
-                        }
-                    }, 19f, Tenin.INK, 600),
+                    text(s.title, 19f, Tenin.INK, 600),
+                    text(s.jpTitle, 15f, Tenin.MUTED).margins(top = 2f).apply {
+                        if (s.jpTitle.isBlank()) visibility = View.GONE
+                    },
                     text(s.blurb, 16f, Tenin.MUTED).margins(top = 3f).apply { maxLines = 2 },
                 ).weighted(),
                 FrameLayout(context).apply {
@@ -167,7 +161,7 @@ class TeninScreens(private val context: Context, private val bindPreview: (Strin
             ).fillWidth(), selected = on, padding = 16f).margins(top = 11f).onTap { if (on) onOpen(i) else onSelect(i) }
         }
         screen(listOf(header(onBack, connected = connected), title("Choose a scenario").margins(top = 18f, bottom = 9f)) + items +
-            listOfNotNull(if (scenarios.isEmpty()) body("No lessons are installed yet.").margins(top = 12f) else text("Tap the selected lesson to see its scene and key phrases.", 15f, Tenin.FAINT).margins(top = 14f)),
+            listOfNotNull(if (scenarios.isEmpty()) body("No courses are installed yet.").margins(top = 12f) else text("Tap the selected course to see its scene and key phrases.", 15f, Tenin.FAINT).margins(top = 14f)),
             footer = listOf(primaryButton("Start in glasses", TeninIcon.GLASSES, if (scenarios.isEmpty()) null else onStart)), nav = nav)
     }
 
@@ -518,7 +512,7 @@ class TeninScreens(private val context: Context, private val bindPreview: (Strin
     fun review(due: Int, sessions: List<TeninSession>, status: String, onReview: () -> Unit, onOpen: (TeninSession) -> Unit, nav: View) = ui.run {
         val items = sessions.map { s ->
             card(row(column(
-                row(text(s.day, 15f, Tenin.MUTED).margins(right = 8f), pill(if (s.live) "Live" else "Pre-made", size = 13f)),
+                row(text(s.day, 15f, Tenin.MUTED).margins(right = 8f), pill(if (s.live) "Live" else "Course", size = 13f)),
                 text(s.title, 26f).margins(top = 6f),
                 text(s.note, 16f, Tenin.MUTED).margins(top = 4f),
             ).weighted(), icon(TeninIcon.CHEVRON, 22f, Tenin.PRIMARY, 2f)).fillWidth(), padding = 18f).margins(top = 11f).onTap { onOpen(s) }
@@ -556,7 +550,7 @@ class TeninScreens(private val context: Context, private val bindPreview: (Strin
         }
         screen(listOfNotNull(
             header(onBack),
-            eyebrow("${s.day} · ${if (s.live) "Live lesson" else "Pre-made lesson"}").margins(top = 18f),
+            eyebrow("${s.day} · ${if (s.live) "Live lesson" else "Course"}").margins(top = 18f),
             title(s.title).margins(top = 2f),
             if (s.headline.isEmpty() && s.tip.isEmpty()) null else card(row(icon(TeninIcon.SPARKLE, 22f, Tenin.AMBER).margins(right = 12f, top = 4f), column(
                 *listOfNotNull(if (s.headline.isEmpty()) null else text(s.headline, 23f, Tenin.PRIMARY_DARK), if (s.tip.isEmpty()) null else text("Tip: ${s.tip}", 16f, Tenin.MUTED).margins(top = 4f)).toTypedArray(),

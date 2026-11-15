@@ -50,7 +50,7 @@ object TeninHooks {
     @Volatile var progress: (() -> Pair<Int, Int>?)? = null
 }
 
-/** Tenin phone UI: Start, Pre-made lessons, Review and Vocabularies. Live Lesson screens are driven through TeninHooks. */
+/** Tenin phone UI: Start, Courses, Review and Vocabularies. Live Lesson screens are driven through TeninHooks. */
 class TeninActivity : Activity() {
     companion object {
         private const val DEFAULT_SCENARIO = "ja-cafe-demo-001"
@@ -170,16 +170,16 @@ class TeninActivity : Activity() {
         }
     }
 
-    // --- Start and pre-made lessons ------------------------------------------------------------
+    // --- Start and courses ---------------------------------------------------------------------
 
     private fun startScreen(): View = screens.start(connected,
         onLive = { go(::liveScreen) },
-        onPremade = {
+        onCourses = {
             chosen = 0
             go(::chooseScreen)
         },
-        defaultPremadeTitle = scenarios.firstOrNull()?.takeIf { it.id == DEFAULT_SCENARIO }?.title,
-        nav = nav(TeninUi.Tab.START))
+        nav = nav(TeninUi.Tab.START),
+        defaultCourseTitle = scenarios.firstOrNull()?.takeIf { it.id == DEFAULT_SCENARIO }?.title)
 
     private fun chooseScreen(): View = screens.chooseScenario(connected, scenarios, chosen,
         onSelect = { chosen = it; render() }, onOpen = { chosen = it; go(::detailScreen) },
@@ -548,7 +548,7 @@ class TeninActivity : Activity() {
         mine = mine,
     )
 
-    /** Pre-made lessons are the lesson files bundled with the app. */
+    /** Courses are the published lesson files bundled with the app. */
     private fun loadScenarios(): List<TeninScenario> = runCatching { assets.list("lessons").orEmpty().filter { it.endsWith(".json") }.sorted().mapNotNull { name ->
         runCatching {
             val lesson = JSONObject(assets.open("lessons/$name").bufferedReader().use { it.readText() })
@@ -574,9 +574,9 @@ class TeninActivity : Activity() {
                 partnerVoice = lesson.optString("partnerVoice"))
         }.getOrNull()
     }.let { catalog ->
-        val visible = if (catalog.any { it.id == "ja-konbini-demo-001" }) catalog.filterNot { it.id == "ja-konbini-001" }
-        else catalog
-        visible.sortedBy { it.id != DEFAULT_SCENARIO }
+        val hasStoreDemo = catalog.any { it.id == "ja-konbini-demo-001" }
+        catalog.filterNot { it.id == "ja-home-001" || (hasStoreDemo && it.id == "ja-konbini-001") }
+            .sortedBy { it.id != DEFAULT_SCENARIO }
     } }.getOrDefault(emptyList())
 
     /** GET, or POST when `body` is given, against the portal named in the bundled visko.json. */

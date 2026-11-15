@@ -82,6 +82,8 @@ export function createLessonStore(root = LESSON_ROOT, { now = Date.now, maxEphem
     try { files = await readdir(root); } catch (e) { if (e.code === 'ENOENT') return []; throw e; }
     const lessons = [];
     for (const file of files.sort().filter((name) => /^[a-z0-9][a-z0-9-]*\.json$/.test(name))) {
+      // Keep the retired lesson addressable for older saved runs.
+      if (file === 'ja-home-001.json') continue;
       const lesson = await load(file.slice(0, -5));
       lessons.push({ id: lesson.id, title: lesson.title, level: lesson.level, startImage: lesson.startImage, lineCount: flattenLesson(lesson).length });
     }
