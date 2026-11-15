@@ -54,13 +54,14 @@ export function registerAgentRoutes(app, { authorized = () => true, store = crea
   app.post('/api/agent/clerk-speech', protect, route(async (req, res) => {
     const input = req.body;
     if (!input || typeof input !== 'object' || Array.isArray(input)
-        || Object.keys(input).some((key) => !['sessionId', 'lessonId', 'runId', 'revision'].includes(key))
-        || typeof input.runId !== 'string' || !Number.isSafeInteger(input.revision) || input.revision < 1)
+        || Object.keys(input).some((key) => !['sessionId', 'lessonId', 'runId', 'revision', 'part'].includes(key))
+        || typeof input.runId !== 'string' || !Number.isSafeInteger(input.revision) || input.revision < 1
+        || (input.part !== undefined && !['prompt', 'reaction'].includes(input.part)))
       return res.status(400).json({ error: 'Invalid clerk speech request' });
     const state = service.snapshot({ sessionId: input.sessionId, lessonId: input.lessonId });
     if (!state || state.runId !== input.runId || state.revision !== input.revision)
       return res.status(409).json({ error: 'Lesson changed before clerk playback' });
-    const speech = state.response?.speech;
+    const speech = input.part === 'reaction' ? state.response?.reaction : state.response?.speech;
     if (speech?.role !== 'clerk' || !speech.text)
       return res.status(404).json({ error: 'There is no clerk line for this turn' });
     await sendSpeech(req, res, { text: speech.text, language: speech.language, partnerVoice: state.lessonContext?.partnerVoice });

@@ -40,7 +40,10 @@ test('clerk audio reads text and style from the exact committed run and revision
   const service = { snapshot: (input) => {
     assert.deepEqual(input, ids);
     return { runId: 'run-1', revision: 2,
-      response: { speech: { role: 'clerk', text: 'いらっしゃいませ。', language: 'ja' } },
+      response: {
+        speech: { role: 'clerk', text: 'いらっしゃいませ。', language: 'ja' },
+        reaction: { role: 'clerk', text: 'かしこまりました。', language: 'ja' },
+      },
       lessonContext: { partnerVoice: 'male' } };
   } };
   registerAgentRoutes(app, { service, synthesize: async ({ signal, ...voice }) => {
@@ -57,11 +60,18 @@ test('clerk audio reads text and style from the exact committed run and revision
   const exact = { ...ids, runId: 'run-1', revision: 2 };
   assert.equal((await request({ ...exact, partnerVoice: 'female' })).status, 400);
   assert.equal((await request({ ...exact, runId: 'another-run' })).status, 409);
-  assert.equal((await request({ ...exact, revision: 1 })).status, 409);
+  assert.equal((await request({ ...exact, part: 'reaction', revision: 1 })).status, 409);
+  assert.equal((await request({ ...exact, part: 'unsupported' })).status, 400);
   const response = await request(exact);
   assert.equal(response.status, 200);
   assert.match(response.headers.get('content-type'), /audio\/wav/);
-  assert.deepEqual(spoken, [{ text: 'いらっしゃいませ。', language: 'ja', partnerVoice: 'male' }]);
+  assert.equal((await request({ ...exact, part: 'prompt' })).status, 200);
+  assert.equal((await request({ ...exact, part: 'reaction' })).status, 200);
+  assert.deepEqual(spoken, [
+    { text: 'いらっしゃいませ。', language: 'ja', partnerVoice: 'male' },
+    { text: 'いらっしゃいませ。', language: 'ja', partnerVoice: 'male' },
+    { text: 'かしこまりました。', language: 'ja', partnerVoice: 'male' },
+  ]);
 });
 
 test('translation keeps the existing response and opts into romaji with one provider request', async (t) => {

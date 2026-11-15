@@ -19,8 +19,13 @@ export const RESPONSE_SCHEMA = object({
   route: object({ kind: { type: 'string', enum: ['main', 'detour', 'rejoin'] }, nodeId: text, label: text, returnBeat: { type: 'number' }, step: { type: 'number' }, total: { type: 'number' } }),
 }, ['visko', 'overlay', 'feedback', 'advance']);
 // Transport metadata is server-owned and deliberately excluded from model schemas.
+const captionedClerkSpeechFields = { ...clerkSpeechFields, romaji: text, english: text };
+const wireClerkSpeech = { anyOf: [
+  { type: 'null' }, object(captionedClerkSpeechFields, Object.keys(clerkSpeechFields)),
+] };
 export const WIRE_RESPONSE_SCHEMA = { ...RESPONSE_SCHEMA, properties: { ...RESPONSE_SCHEMA.properties,
-  speech: { anyOf: [{ type: 'null' }, object({ ...clerkSpeechFields, romaji: text, english: text }, Object.keys(clerkSpeechFields))] },
+  speech: wireClerkSpeech,
+  reaction: object(captionedClerkSpeechFields),
   overlay: { anyOf: [{ type: 'null' }, object({
     ...overlayFields,
     readingGroups: { type: 'array', items: object({ jp: text, kana: text, romaji: text }, ['jp', 'romaji']) },

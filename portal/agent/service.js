@@ -7,7 +7,7 @@ import { validateSchema, WIRE_RESPONSE_SCHEMA } from './schema.js';
 import { validateOperation, createOperationCache, replayOperation, checkOperationState, rememberOperation, invalidateOperations } from './operations.js';
 import { PRESET_SET, DEMO_LESSON, DEMO_ORDER, CHECKOUT_IDENTITY, presetDrinkPlan, updatePreset, presetEnvironmentPrompt } from './scene-presets.js';
 import { recordSummary, summarize, targetId } from './summary.js';
-import { clerkSpeech, clerkInvitation } from './clerk-speech.js';
+import { clerkSpeech, clerkInvitation, clerkReaction } from './clerk-speech.js';
 import { readingGroupsFor } from './reading-groups.js';
 import { composeVisualPrompt, composeAmbientPrompt, CHARACTER_ANCHOR, SCENE_ANCHOR } from './continuity.js';
 import { createLessonClient, createLessonPlanner } from './llm.js';
@@ -205,7 +205,7 @@ export function createAgentService({ store = createLessonStore(), llm = createLe
         state.idleInvitedNode = state.flow.current.nodeId;
         current = { line: activeTarget, beat: mainTarget.beat };
         fallback = { visko: [], overlay: makeOverlay(activeTarget, state.hintLevel), feedback: null, advance: 'stay',
-          speech: invite ? clerkInvitation(Boolean(state.flow.active)) : null };
+          speech: invite ? clerkInvitation(Boolean(state.flow.active), lesson.id === 'ja-cafe-demo-001') : null };
         source = invite ? 'idle-invitation' : 'idle-suppressed';
       } else if (request.action === 'return_to_main') {
         current = mainTarget;
@@ -279,7 +279,6 @@ export function createAgentService({ store = createLessonStore(), llm = createLe
         const readingGroups = readingGroupsFor(response.overlay);
         if (readingGroups) response.overlay.readingGroups = readingGroups;
       }
-      if (!validateSchema(response, WIRE_RESPONSE_SCHEMA)) throw new Error('Internal response validation failed');
       if (response.overlay) {
         const words = [...new Set(lesson.beats.flatMap(beat => beat.vocab.map(word => word.jp)))]
           .filter(word => word && response.overlay.jp.includes(word))
@@ -299,6 +298,9 @@ export function createAgentService({ store = createLessonStore(), llm = createLe
         if (nextSceneId) response.nextSceneId = nextSceneId;
       }
       recordSummary(state, { request, lesson, before: summaryBefore, intent, response, mainTotal: lines.length });
+      const reaction = clerkReaction(response.attempt, summaryBefore.line, state.complete);
+      if (reaction) response.reaction = reaction;
+      if (!validateSchema(response, WIRE_RESPONSE_SCHEMA)) throw new Error('Internal response validation failed');
       await log({ at: new Date(now()).toISOString(), sessionId: request.sessionId, lessonId: request.lessonId, beat: request.beat, transcript: request.transcript || '', intent: intent || null, context: request.context, photoCaption: plain(request.imageRef) ? request.imageRef.caption || '' : '', source, failure, route: response.route, graph: { nodes: state.flow.nodes, edges: state.flow.edges }, response });
       if (recorder) {
         // Recording is best-effort: a disk problem must never block the lesson.

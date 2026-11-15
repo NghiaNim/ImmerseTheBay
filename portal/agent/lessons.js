@@ -24,6 +24,9 @@ export function validateLesson(lesson) {
   for (const beat of lesson.beats) {
     if (!plain(beat) || !text(beat.goal) || !Array.isArray(beat.lines) || !beat.lines.length || beat.lines.length > 50 || !Array.isArray(beat.vocab)) throw new AgentError(422, 'Invalid lesson beat');
     if (beat.lines.some((line) => !plain(line) || !['jp', 'kana', 'romaji', 'zh', 'en', 'cue'].every((k) => text(line[k])))) throw new AgentError(422, 'Invalid lesson line');
+    if (beat.lines.some(({ reaction }) => reaction !== undefined && (!plain(reaction) ||
+        Object.keys(reaction).length !== 3 || !['jp', 'romaji', 'en'].every(key => text(reaction[key])))))
+      throw new AgentError(422, 'Invalid lesson reaction');
     if (beat.vocab.some((v) => !plain(v) || !['jp', 'kana', 'en', 'objectHint'].every((k) => text(v[k])))) throw new AgentError(422, 'Invalid lesson vocabulary');
     if (beat.scene !== undefined && (!plain(beat.scene) || !authoredSceneId.test(beat.scene.id) ||
         !['label', 'prompt', 'identity'].every((k) => text(beat.scene[k])))) throw new AgentError(422, 'Invalid authored lesson scene');

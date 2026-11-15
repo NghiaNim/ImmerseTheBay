@@ -45,6 +45,31 @@ const lines = {
     romaji: 'Betsu no shōhin o goran ni narimasu ka? Soretomo, moto no ohanashi ni modorimashō ka?',
     english: 'Would you like to see another item, or shall we return to what we were discussing?',
   },
+  cafeIdle: {
+    text: 'お決まりですか。',
+    romaji: 'Okimari desu ka?',
+    english: 'Have you decided?',
+  },
+  cafeIdleDetour: {
+    text: 'ほかに何かありますか。',
+    romaji: 'Hoka ni nanika arimasu ka?',
+    english: 'Anything else?',
+  },
+  retry: {
+    text: 'すみません。もう一度お願いします。',
+    romaji: 'Sumimasen. Mō ichido onegaishimasu.',
+    english: 'Sorry. Could you say that again?',
+  },
+  received: {
+    text: 'はい、わかりました。',
+    romaji: 'Hai, wakarimashita.',
+    english: 'Yes, I understand.',
+  },
+  farewell: {
+    text: 'ありがとうございました。',
+    romaji: 'Arigatō gozaimashita.',
+    english: 'Thank you.',
+  },
   acknowledge: {
     text: '承知しました。ご不明な点がございましたら、お声がけください。',
     romaji: 'Shōchi shimashita. Gofumei na ten ga gozaimashitara, okoegake kudasai.',
@@ -64,6 +89,16 @@ export function clerkSpeech({ first, route, cue = '', store = true }) {
   return { role: 'clerk', language: 'ja', ...line };
 }
 
-export function clerkInvitation(isDetour) {
-  return { role: 'clerk', language: 'ja', ...(isDetour ? lines.idleDetour : lines.idleMain) };
+export function clerkInvitation(isDetour, cafe = false) {
+  const line = cafe ? (isDetour ? lines.cafeIdleDetour : lines.cafeIdle) : (isDetour ? lines.idleDetour : lines.idleMain);
+  return { role: 'clerk', language: 'ja', ...line };
+}
+
+export function clerkReaction(attempt, practicedLine, complete) {
+  if (!attempt || attempt.outcome === 'skip') return null;
+  const authored = practicedLine?.reaction;
+  const line = attempt.outcome === 'retry' ? lines.retry
+    : authored ? { text: authored.jp, romaji: authored.romaji, english: authored.en }
+    : complete ? lines.farewell : lines.received;
+  return { role: 'clerk', language: 'ja', ...line };
 }
