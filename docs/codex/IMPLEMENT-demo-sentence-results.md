@@ -1,3 +1,5 @@
 # Shared sentence results and main lesson progress
 
 Issue #25 with scoring evidence for #23–26. Base `99ae5df`, branch `codex/demo-sentence-results`. Own Portal agent summary/schema/service and their tests, record event projection, and Unity LearningContract, LearningAgentClient, LearningOverlay and DevLessonControls. This slice carries server-owned attempt identity and main lesson progress into both views. Keep the legacy feedback contract for older consumers.
+
+Device follow-up. Publish the committed attempt before issuing video commands, keep the result on both displays and play distinct short success and retry tones without pausing progression. Play a Cartesia pronunciation example once per new target, after the clerk and before automatic microphone capture. Tenin's **Voice example** switch defaults to on and persists across sessions. This slice also owns read-only microphone capture and RMS access in `Assets/Scripts/Learning/PortalSpeechToText.cs` for the in-glasses listening indicator.

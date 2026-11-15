@@ -32,6 +32,7 @@ namespace ImmerseTheBay.Learning
         bool sceneSound = true;
         const float QuietSceneGain = 0.18f;
         const float SpeakingSceneGain = 0.04f;
+        const string VoiceExampleSetting = "tenin.voiceExample";
         float connectDeadline;
         static readonly int SceneOpacity = Shader.PropertyToID("_SceneOpacity");
         MaterialPropertyBlock sceneProperties;
@@ -57,6 +58,7 @@ namespace ImmerseTheBay.Learning
         {
             presetLessonId = lesson.lessonId;
             presetStartImage = lesson.startImage;
+            lesson.SetPlayExamples(PlayerPrefs.GetInt(VoiceExampleSetting, 1) == 1);
             XREALVirtualController controller;
             while (!(controller = FindFirstObjectByType<XREALVirtualController>()))
                 yield return null;
@@ -81,12 +83,18 @@ namespace ImmerseTheBay.Learning
             Place(Label(t, 66, Color.white, "Tenin", font: serif), 0.06f, 0.905f, 0.5f, 0.965f);
             var pill = Box(t, new Color(1f, 1f, 1f, 0.16f), 0.52f, 0.91f, 0.94f, 0.955f, rounded: true);
             Place(Label(pill.transform, 32, Color.white, "●  Glasses connected", TextAnchor.MiddleCenter, font: serif), 0f, 0f, 1f, 1f);
-            var sceneAudio = Box(t, new Color(1f, 1f, 1f, 0.16f), 0.58f, 0.85f, 0.94f, 0.895f, rounded: true);
+            var sceneAudio = Box(t, new Color(1f, 1f, 1f, 0.16f), 0.52f, 0.85f, 0.94f, 0.895f, rounded: true);
             sceneAudioButton = sceneAudio.AddComponent<Button>();
             sceneAudioButton.targetGraphic = sceneAudio.GetComponent<Image>();
             sceneAudioButton.onClick.AddListener(ToggleSceneSound);
             sceneAudioLabel = Place(Label(sceneAudio.transform, 32, Color.white, "Scene sound: On", TextAnchor.MiddleCenter), 0f, 0f, 1f, 1f);
             sceneAudio.SetActive(false);
+            var example = Box(t, new Color(1f, 1f, 1f, 0.16f), 0.06f, 0.85f, 0.48f, 0.895f, rounded: true);
+            exampleButton = example.AddComponent<Button>();
+            exampleButton.targetGraphic = example.GetComponent<Image>();
+            exampleButton.onClick.AddListener(ToggleVoiceExample);
+            exampleLabel = Place(Label(example.transform, 32, Color.white, VoiceExampleLabel, TextAnchor.MiddleCenter), 0f, 0f, 1f, 1f);
+            example.SetActive(false);
             UpdateSceneGain();
 
             // The big circle is the microphone: it listens on its own after each line, and can be tapped any time.
@@ -112,6 +120,11 @@ namespace ImmerseTheBay.Learning
 
             heading = Place(Label(t, 74, Color.white, "Lesson running\nin your glasses", TextAnchor.MiddleCenter, font: serif), 0.05f, 0.415f, 0.95f, 0.51f);
             status = Place(Label(t, 38, new Color(1f, 1f, 1f, 0.92f), "", TextAnchor.MiddleCenter, font: serif), 0.08f, 0.345f, 0.92f, 0.41f);
+            var result = Box(t, Color.white, 0.08f, 0.346f, 0.92f, 0.41f, rounded: true);
+            resultBadge = result.GetComponent<Image>();
+            resultBadge.raycastTarget = false;
+            resultLabel = Place(Label(result.transform, 38, TeninInk, "", TextAnchor.MiddleCenter, FontStyle.Bold, serif), 0.03f, 0f, 0.97f, 1f);
+            result.SetActive(false);
 
             var retry = Box(t, Color.white, 0.34f, 0.276f, 0.66f, 0.333f, rounded: true);
             retryButton = retry.AddComponent<Button>();
@@ -134,8 +147,9 @@ namespace ImmerseTheBay.Learning
         }
 
         Font serif;
-        Button speakButton, retryButton, sceneAudioButton;
-        Text speakLabel, step, endLabel, sceneAudioLabel;
+        Button speakButton, retryButton, sceneAudioButton, exampleButton;
+        Text speakLabel, step, endLabel, sceneAudioLabel, exampleLabel, resultLabel;
+        Image resultBadge;
         RectTransform speakRing, progressFill, loadingFill;
         RawImage startPreview;
         static readonly Color TeninYellow = new Color32(0xFF, 0xE2, 0x99, 0xFF);
@@ -205,7 +219,7 @@ namespace ImmerseTheBay.Learning
         {
             if (!speakButton) return;
             float time = Time.unscaledTime;
-            bool listening = lesson.IsListening, waiting = lesson.IsBusy || lesson.IsClerkSpeaking;
+            bool listening = lesson.IsListening, waiting = lesson.IsBusy || WaitingForAudio;
             float scale = listening ? 1f + 0.07f * Mathf.Sin(time * 6f) : waiting ? 0.94f : 1f + 0.02f * Mathf.Sin(time * 2f);
             speakButton.transform.localScale = Vector3.one * scale;
             speakRing.localScale = Vector3.one * (listening ? 1f + 0.12f * (0.5f + 0.5f * Mathf.Sin(time * 6f)) : 1f);
@@ -240,8 +254,19 @@ namespace ImmerseTheBay.Learning
 
         void UpdateSceneGain()
         {
-            bool speaking = lesson.IsClerkSpeaking || lesson.IsConversationActive;
+            bool speaking = lesson.IsClerkSpeaking || lesson.IsConversationActive || lesson.IsExamplePlaying || lesson.IsFeedbackPlaying;
             video.SetSceneGain(sceneSound ? (speaking ? SpeakingSceneGain : QuietSceneGain) : 0f);
+        }
+
+        bool WaitingForAudio => lesson.IsClerkSpeaking || lesson.IsExamplePending || lesson.IsFeedbackPlaying;
+        string VoiceExampleLabel => lesson.PlayExamples ? "Voice example: On" : "Voice example: Off";
+
+        void ToggleVoiceExample()
+        {
+            lesson.SetPlayExamples(!lesson.PlayExamples);
+            PlayerPrefs.SetInt(VoiceExampleSetting, lesson.PlayExamples ? 1 : 0);
+            PlayerPrefs.Save();
+            exampleLabel.text = VoiceExampleLabel;
         }
 
         void SpeakOrRetry()
@@ -297,7 +322,7 @@ namespace ImmerseTheBay.Learning
                 StartLive();
             }
 
-            // Listen after every finished step, once the clerk's line has finished.
+            // Listen after the clerk, the optional example and the score cue have finished.
             if (wasBusy && !lesson.IsBusy && practiceVisible && !lesson.IsDone)
             { autoListenArmed = true; autoListenAt = 0; silentRetries = 0; Debug.Log("[Flow] step finished; auto-listen armed"); }
             // Recognition that ended without starting a turn was silence: listen again a few times.
@@ -309,7 +334,7 @@ namespace ImmerseTheBay.Learning
             if (!autoListenArmed) return;
             if (!practiceVisible || lesson.IsDone || lesson.IsConversationActive || lesson.IsListening)
             { autoListenArmed = false; Debug.Log($"[Flow] auto-listen skipped visible={practiceVisible} done={lesson.IsDone} talk={lesson.IsConversationActive} listening={lesson.IsListening}"); return; }
-            if (starting || !lesson.HasActiveLesson || lesson.IsBusy || lesson.IsClerkSpeaking) { autoListenAt = 0; return; }
+            if (starting || !lesson.HasActiveLesson || lesson.IsBusy || WaitingForAudio) { autoListenAt = 0; return; }
             if (autoListenAt == 0) { autoListenAt = Time.unscaledTime + 0.6f; return; }
             if (Time.unscaledTime < autoListenAt) return;
             autoListenArmed = false;
@@ -501,17 +526,22 @@ namespace ImmerseTheBay.Learning
             {
                 UpdateSceneGain();
                 sceneAudioButton.gameObject.SetActive(practiceVisible);
-                bool waiting = starting || lesson.IsBusy || lesson.IsClerkSpeaking;
+                exampleButton.gameObject.SetActive(practiceVisible);
+                bool waiting = starting || lesson.IsBusy || WaitingForAudio;
                 heading.text = startupError.Length > 0 ? "Could not start the lesson"
                     : !practiceVisible ? "Ready when\nyou are" : starting ? "Starting in\nyour glasses…"
                     : lesson.IsDone ? "Lesson\ncomplete" : "Lesson running\nin your glasses";
                 status.text = startupError.Length > 0 ? startupError
                     : !practiceVisible ? "Choose a lesson on your phone." : starting ? "Getting the scene ready…"
                     : lesson.IsDone ? "Well done. End the lesson to see your summary."
-                    : lesson.IsListening ? "Listening… say the line." : waiting ? "Listen to the other person…"
+                    : lesson.IsListening ? "Listening… say the line."
+                    : lesson.IsClerkSpeaking ? "Listen to the other person…"
+                    : lesson.IsExamplePlaying ? "Listen, then repeat."
+                    : lesson.IsExamplePending ? "Preparing the voice example…"
+                    : waiting ? "One moment…"
                     : "Say the line, or tap the circle.";
                 speakLabel.text = lesson.IsListening ? "Listening…" : waiting ? "…" : "Tap to\nspeak";
-                speakButton.interactable = practiceVisible && !starting && !lesson.IsBusy && !lesson.IsDone && lesson.HasActiveLesson;
+                speakButton.interactable = practiceVisible && !waiting && !lesson.IsDone && lesson.HasActiveLesson;
                 speakButton.gameObject.SetActive(practiceVisible && !starting);
                 retryButton.gameObject.SetActive(retryAvailable);
                 speakRing.gameObject.SetActive(speakButton.gameObject.activeSelf);
@@ -534,11 +564,17 @@ namespace ImmerseTheBay.Learning
                 title.text = practiceVisible ? currentTitle : "";
                 var progress = practiceVisible && !starting ? lesson.Progress : null;
                 var route = lesson.CurrentRoute;
-                var attempt = lesson.VisibleAttempt;
-                if (progress != null)
+                if (progress != null && route?.kind == "detour" && !waiting && !lesson.IsListening)
+                    status.text = $"Side trip {route.step}/{route.total} · main lesson saved";
+                var attempt = practiceVisible && !starting ? lesson.VisibleAttempt : null;
+                resultBadge.gameObject.SetActive(attempt != null);
+                status.enabled = attempt == null;
+                if (attempt != null)
                 {
-                    if (attempt != null) status.text = attempt.jp + "\n" + LearningContract.AttemptLabel(attempt);
-                    else if (route?.kind == "detour") status.text = $"Side trip {route.step}/{route.total} · main lesson saved";
+                    bool retry = attempt.outcome == "retry", skipped = attempt.outcome == "skip";
+                    string icon = skipped ? "–" : retry ? "↻" : "✓";
+                    resultLabel.text = icon + " " + LearningContract.AttemptLabel(attempt);
+                    resultBadge.color = skipped ? Color.white : retry ? TeninYellow : new Color32(0xD6, 0xF2, 0xE3, 0xFF);
                 }
                 step.text = progress == null ? "" : $"Main {progress.mainStep}/{progress.mainTotal}";
                 float completed = progress == null ? 0f : (float)progress.mainCompleted / progress.mainTotal;

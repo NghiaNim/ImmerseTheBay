@@ -10,7 +10,14 @@ namespace ImmerseTheBay.Learning
     public sealed class LearningOverlayData
     {
         public string jp, kana, romaji, zh, en;
+        public LearningReadingGroup[] readingGroups;
         public int hintLevel;
+    }
+
+    [Serializable]
+    public sealed class LearningReadingGroup
+    {
+        public string jp, romaji;
     }
 
     [Serializable]
@@ -58,7 +65,7 @@ namespace ImmerseTheBay.Learning
     [Serializable] public sealed class LearningProgress
     { public int mainTotal, mainStep, mainCompleted; }
     [Serializable] public sealed class LearningSpeech
-    { public string role, language, text; }
+    { public string role, language, text, english, romaji; }
     [Serializable] public sealed class LearningSnapshot
     { public string runId; public int revision, beat; public LearningResponse response; }
     [Serializable] public sealed class LearningVoiceSession
@@ -200,9 +207,9 @@ namespace ImmerseTheBay.Learning
             switch (attempt.outcome)
             {
                 case "skip": return "Skipped";
-                case "assisted": return $"Matched with a hint · Sentence match {attempt.score}%";
-                case "pass": return $"Matched · Sentence match {attempt.score}%";
-                default: return $"Try again · Sentence match {attempt.score}%";
+                case "assisted": return $"Good job with a hint · {attempt.score}% match";
+                case "pass": return $"Good job · {attempt.score}% match";
+                default: return $"Please try again · {attempt.score}% match";
             }
         }
 

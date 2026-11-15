@@ -32,6 +32,10 @@ namespace ImmerseTheBay.Learning
         public event Action<string> Error;
         /// <summary>True from StartListening until the final result or error, including transcription.</summary>
         public bool IsListening { get; private set; }
+        public bool IsCapturing => IsListening && !m_Transcribing && m_Microphone && m_Microphone.IsRecording;
+        public float InputLevel => IsCapturing
+            ? Mathf.InverseLerp(Mathf.Max(0.008f, m_Floor), 0.16f, m_Microphone.Rms)
+            : 0f;
         public string Status { get; private set; } = "idle";
 
         const int SampleRate = 16000;
