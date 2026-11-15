@@ -1,0 +1,28 @@
+import { LOCAL_USER } from './store.js';
+const PHOTO_REF = /^photo:(ph_[a-f0-9]{16})$/;
+const SAMPLE_REF = /^sample:([a-zA-Z0-9][a-zA-Z0-9_-]*\.(?:jpg|jpeg|png|webp))$/i;
+
+/** Hook for agent/service.js: persists each committed turn of a lesson run. */
+export function createSessionRecorder(store, { userId = LOCAL_USER } = {}) {
+  return async function record({ runId, sessionId, lesson, imageReference = '', request, intent, practiced, practicedSegment, presented, response, plan }) {
+    await store.ensureRecord({
+      id: runId, userId, lessonId: lesson.id, lessonTitle: lesson.title, sessionId,
+      mode: sessionId.startsWith('practice-') ? 'practice' : 'live',
+      photoId: PHOTO_REF.exec(imageReference)?.[1] || null,
+      sampleImage: SAMPLE_REF.exec(imageReference)?.[1] || null,
+      sourceRecordId: lesson.replay?.sourceRecordId || null,
+      partnerRole: lesson.partnerRole || null,
+    });
+    if (plan) await store.appendEvent(runId, { type: 'detour_plan', label: plan.label, returnBeat: plan.returnBeat, nodes: plan.nodes, source: plan.source });
+    const scored = Boolean(request.transcript?.trim()) && !intent;
+    await store.appendEvent(runId, {
+      type: 'turn',
+      transcript: request.transcript || '', intent: intent || null, action: request.action || null, gesture: request.context?.gesture || null,
+      practiced, practicedSegment, score: scored && typeof response.feedback?.score === 'number' ? response.feedback.score : null,
+      advance: response.advance, route: response.route, presented,
+      clerk: response.speech?.text || null,
+      prompt: response.visko.find((command) => command.name === 'set_prompt')?.data.prompt || null,
+    });
+    if (response.advance === 'scene_done') await store.updateRecord(runId, { status: 'complete', endedAt: new Date().toISOString() });
+  };
+}

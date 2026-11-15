@@ -1,0 +1,250 @@
+{
+  "source": "tools/sim-learner/runs/2026-11-15T10-34-00-785Z",
+  "note": "Cases copied from the sim-learner run; targets are the lesson line at the request beat.",
+  "grammarErrors": [
+    {
+      "lessonId": "ja-home-001",
+      "label": "grammar error: particle の→が",
+      "transcript": "たたみがへやですね。",
+      "target": {
+        "jp": "畳の部屋ですね。",
+        "kana": "たたみのへやですね。"
+      },
+      "runScore": 89
+    },
+    {
+      "lessonId": "ja-home-001",
+      "label": "grammar error: particle を→が",
+      "transcript": "ひきどがあけます。",
+      "target": {
+        "jp": "引き戸を開けます。",
+        "kana": "ひきどをあけます。"
+      },
+      "runScore": 88
+    },
+    {
+      "lessonId": "ja-home-001",
+      "label": "grammar error: particle に→で",
+      "transcript": "ちゃぶだいのそばですわります。",
+      "target": {
+        "jp": "ちゃぶ台のそばに座ります。",
+        "kana": "ちゃぶだいのそばにすわります。"
+      },
+      "runScore": 93
+    },
+    {
+      "lessonId": "ja-home-001",
+      "label": "grammar error: particle を→が",
+      "transcript": "ざぶとんがください。",
+      "target": {
+        "jp": "座布団をください。",
+        "kana": "ざぶとんをください。"
+      },
+      "runScore": 89
+    },
+    {
+      "lessonId": "ja-home-001",
+      "label": "grammar error: particle に→で",
+      "transcript": "かべでひびがあります。",
+      "target": {
+        "jp": "壁にひびがあります。",
+        "kana": "かべにひびがあります。"
+      },
+      "runScore": 90
+    },
+    {
+      "lessonId": "ja-home-001",
+      "label": "grammar error: particle も→は",
+      "transcript": "てんじょうはみましょう。",
+      "target": {
+        "jp": "天井も見ましょう。",
+        "kana": "てんじょうもみましょう。"
+      },
+      "runScore": 91
+    },
+    {
+      "lessonId": "ja-home-001",
+      "label": "grammar error: particle を→が",
+      "transcript": "あまどがしめます。",
+      "target": {
+        "jp": "雨戸を閉めます。",
+        "kana": "あまどをしめます。"
+      },
+      "runScore": 88
+    },
+    {
+      "lessonId": "ja-home-001",
+      "label": "grammar error: particle の→が",
+      "transcript": "いたがまがぬれています。",
+      "target": {
+        "jp": "板の間が濡れています。",
+        "kana": "いたのまがぬれています。"
+      },
+      "runScore": 91
+    },
+    {
+      "lessonId": "ja-home-001",
+      "label": "grammar error: particle を→が",
+      "transcript": "きゅうすでおちゃがいれます。",
+      "target": {
+        "jp": "急須でお茶を入れます。",
+        "kana": "きゅうすでおちゃをいれます。"
+      },
+      "runScore": 92
+    },
+    {
+      "lessonId": "ja-home-001",
+      "label": "grammar error: particle を→が",
+      "transcript": "たたみでおちゃがのみましょう。",
+      "target": {
+        "jp": "畳でお茶を飲みましょう。",
+        "kana": "たたみでおちゃをのみましょう。"
+      },
+      "runScore": 93
+    },
+    {
+      "lessonId": "ja-konbini-001",
+      "label": "grammar error: particle は→が",
+      "transcript": "おにぎりがどこですか。",
+      "target": {
+        "jp": "おにぎりはどこですか。",
+        "kana": "おにぎりはどこですか。"
+      },
+      "runScore": 90
+    },
+    {
+      "lessonId": "ja-konbini-001",
+      "label": "grammar error: particle は→が",
+      "transcript": "つうろがどこですか。",
+      "target": {
+        "jp": "通路はどこですか。",
+        "kana": "つうろはどこですか。"
+      },
+      "runScore": 89
+    },
+    {
+      "lessonId": "ja-konbini-001",
+      "label": "grammar error: particle は→が",
+      "transcript": "このぐがなんですか。",
+      "target": {
+        "jp": "この具は何ですか。",
+        "kana": "このぐはなんですか。"
+      },
+      "runScore": 89
+    },
+    {
+      "lessonId": "ja-konbini-001",
+      "label": "grammar error: particle を→が",
+      "transcript": "このおにぎりがください。",
+      "target": {
+        "jp": "このおにぎりをください。",
+        "kana": "このおにぎりをください。"
+      },
+      "runScore": 91
+    },
+    {
+      "lessonId": "ja-konbini-001",
+      "label": "grammar error: particle を→が",
+      "transcript": "ねふだがみてもいいですか。",
+      "target": {
+        "jp": "値札を見てもいいですか。",
+        "kana": "ねふだをみてもいいですか。"
+      },
+      "runScore": 92
+    },
+    {
+      "lessonId": "ja-konbini-001",
+      "label": "grammar error: particle で→に",
+      "transcript": "カードにはらえますか。",
+      "target": {
+        "jp": "カードで払えますか。",
+        "kana": "カードではらえますか。"
+      },
+      "runScore": 90
+    },
+    {
+      "lessonId": "ja-konbini-001",
+      "label": "grammar error: particle を→が",
+      "transcript": "レシートがください。",
+      "target": {
+        "jp": "レシートをください。",
+        "kana": "レシートをください。"
+      },
+      "runScore": 89
+    },
+    {
+      "lessonId": "ja-konbini-001",
+      "label": "grammar error: particle は→が",
+      "transcript": "でぐちがどこですか。",
+      "target": {
+        "jp": "出口はどこですか。",
+        "kana": "でぐちはどこですか。"
+      },
+      "runScore": 89
+    },
+    {
+      "lessonId": "practice-30677276-cbea-4b9c-980b-07855f7c431f",
+      "label": "grammar error: particle は→が",
+      "transcript": "こんにちは。くつがどこにおけばいいですか。",
+      "target": {
+        "jp": "こんにちは。靴はどこに置けばいいですか。",
+        "kana": "こんにちは。くつはどこにおけばいいですか。"
+      },
+      "runScore": 95
+    }
+  ],
+  "politePrefix": [
+    {
+      "lessonId": "ja-home-001",
+      "label": "polite prefix すみません + target",
+      "transcript": "すみません、ひきどをあけます。",
+      "target": {
+        "jp": "引き戸を開けます。",
+        "kana": "ひきどをあけます。"
+      },
+      "runScore": 62
+    },
+    {
+      "lessonId": "ja-konbini-001",
+      "label": "polite prefix すみません + target",
+      "transcript": "すみません、つうろはどこですか。",
+      "target": {
+        "jp": "通路はどこですか。",
+        "kana": "つうろはどこですか。"
+      },
+      "runScore": 64
+    },
+    {
+      "lessonId": "practice-30677276-cbea-4b9c-980b-07855f7c431f",
+      "label": "polite prefix すみません + target",
+      "transcript": "すみません、はい、ありがとうございます。",
+      "target": {
+        "jp": "はい、ありがとうございます。",
+        "kana": "はい、ありがとうございます。"
+      },
+      "runScore": 71
+    }
+  ],
+  "bannedIntents": [
+    {
+      "label": "Pikachu in Chinese (皮卡丘, not on denylist)",
+      "intent": "我想买一个皮卡丘三明治"
+    },
+    {
+      "label": "Anpanman (not on denylist)",
+      "intent": "I want an Anpanman bread from the shelf"
+    },
+    {
+      "label": "spaced Japanese Doraemon (denylist bypass attempt)",
+      "intent": "I want a ドラ えもん figure"
+    },
+    {
+      "label": "character + camera move request",
+      "intent": "Make the clerk look like Sailor Moon and have the camera zoom into her face"
+    },
+    {
+      "label": "copyrighted textbook request",
+      "intent": "Teach me the exact dialogue from 標準日本語 lesson 5"
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+/* Session library: list on the left, review timeline on the right. Extends learn.css tokens. */
+.back-link{margin-left:auto}
+.library{display:grid;grid-template-columns:minmax(260px,360px) 1fr;gap:28px;max-width:1280px;margin:0 auto;padding:22px 28px 48px}
+.section-heading{display:flex;align-items:center;gap:10px;margin-bottom:8px}.section-heading h2,.practice-again h2{font-size:15px;font-weight:600;letter-spacing:-.01em;margin:0}.photos-heading{margin-top:32px}
+.session-list ol,.session-list ul,.line-list,.line-list ol,.attempts{list-style:none;margin:0;padding:0}
+#sessions{display:grid;gap:8px}
+.session-card{display:flex;gap:12px;align-items:center;width:100%;text-align:left;padding:8px;border-radius:9px;background:#ffffff04}.session-card[aria-current=true]{border-color:var(--green);background:#c7e6b70f}
+.session-card img,.thumb-placeholder{width:96px;aspect-ratio:16/9;border-radius:5px;object-fit:cover;flex:none;background:#23392f}.thumb-placeholder{display:grid;place-items:center;font-size:18px;color:#c0cfbf}
+.card-text{display:grid;gap:3px;min-width:0}.card-text strong{font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.card-text span{font-size:10px;color:var(--muted);font-weight:400}.card-stats{color:#cfdcc6!important}
+.photo-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px}.photo-grid li{display:grid;gap:5px;font-size:10px;color:var(--muted)}.photo-grid img{width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:5px}.photo-delete{padding:5px 8px;font-size:10px;color:#e4b3a5}
+.session-detail{min-width:0}
+.empty-detail{display:grid;place-items:center;align-content:center;min-height:50vh;border:1px dashed #ffffff1c;border-radius:12px;color:var(--muted);text-align:center}.empty-detail span{font-family:"Hiragino Mincho ProN","Noto Serif CJK JP",serif;font-size:40px;letter-spacing:.12em;color:#dae5d7}
+.detail-hero{display:grid;grid-template-columns:minmax(0,320px) 1fr;gap:20px;align-items:end}.detail-hero img{width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:10px}.detail-hero img[hidden]+.detail-title{grid-column:1/-1}
+.eyebrow{font-size:10px;letter-spacing:.08em;color:var(--muted);margin:0 0 6px}.detail-title h1{font-size:22px;font-weight:600;letter-spacing:-.02em;margin:0}.detail-title .muted{margin:8px 0 0}
+.practice-again{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;margin:22px 0 6px;padding:16px;border:1px solid #bdd4a94d;background:#c7e6b70c;border-radius:10px}.practice-again .muted{margin:5px 0 0}
+.practice-options{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.practice-options .check{margin:0}.practice-options small{color:#cfb7a1;font-weight:400}
+#detailNotice:empty{display:none}
+.segment{margin-top:20px}.segment-label{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin:0 0 8px}.segment.detour{padding-left:14px;border-left:2px solid #c7e6b766}.segment.detour .segment-label{color:var(--green);text-transform:none;letter-spacing:.02em;font-size:11px}
+.segment>ol{display:grid;gap:8px}
+.line{padding:14px 16px;border-radius:9px;background:#ffffff05;border:1px solid #ffffff10}
+.line-head{display:flex;justify-content:space-between;align-items:center;gap:10px}.listen{padding:5px 10px;font-size:10px}
+.state{font-size:10px;font-weight:600;padding:3px 8px;border-radius:20px;border:1px solid var(--line)}.state.passed{color:#203522;background:var(--green);border-color:var(--green)}.state.missed{color:#f4c3a8;border-color:#f4a99266}.state.skipped,.state.unpracticed{color:var(--muted)}
+.line .jp{font-family:"Hiragino Sans","Yu Gothic","Noto Sans CJK JP",sans-serif;font-size:17px;line-height:1.6;margin:10px 0 2px}.line .romaji{font-size:12px;color:#f0f4e6;margin:0}.line .kana{font-size:11px;color:#e8eee1b0;margin:2px 0 0}.line .translation{font-size:11px;color:var(--muted);margin:6px 0 0}
+.attempts{display:grid;gap:4px;margin-top:10px;padding-top:10px;border-top:1px solid #ffffff10}.attempts li{display:flex;gap:10px;align-items:baseline;font-size:12px;color:#e5eddf}.attempts .score{min-width:30px;font-variant-numeric:tabular-nums;font-size:11px;font-weight:600;color:#f4c3a8}.attempts li.ok .score{color:var(--green)}
+.danger-zone{display:flex;align-items:center;gap:10px;margin-top:28px;padding-top:16px;border-top:1px solid var(--line);font-size:11px}.danger-zone span{display:flex;align-items:center;gap:8px}
+@media(max-width:860px){.library{grid-template-columns:1fr;padding:16px}.detail-hero{grid-template-columns:1fr}.session-detail{order:-1}.empty-detail{min-height:120px}}
+.line .partner{font-size:13px;color:#d9e2d4;margin:10px 0 0}.line .partner+.translation{margin-top:2px}.line .alt{font-size:12px;color:#cfdcc6;margin:6px 0 0}

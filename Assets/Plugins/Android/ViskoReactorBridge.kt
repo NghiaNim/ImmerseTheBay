@@ -60,7 +60,19 @@ class ViskoReactorBridge(private val listener: Listener) {
     @Volatile private var height = 0
     private var frame: ByteArray = ByteArray(0)
 
+    /**
+     * Plays or mutes main_audio on this device only; the Reactor session is unchanged. Muting also drops audio
+     * already queued in the AudioTrack, so the glasses go quiet at once (used while the learner speaks, so the
+     * glasses' microphone does not hear the scene).
+     */
     @Volatile var audioEnabled: Boolean = true
+        set(value) {
+            field = value
+            synchronized(audioLock) {
+                val track = audio ?: return@synchronized
+                try { if (value) track.play() else { track.pause(); track.flush() } } catch (_: Exception) {}
+            }
+        }
 
     /** Creates a new session on [model] (sessionId empty) or joins an existing one. [jwt] must be bound to it. */
     fun connect(jwt: String, model: String, sessionId: String?) {

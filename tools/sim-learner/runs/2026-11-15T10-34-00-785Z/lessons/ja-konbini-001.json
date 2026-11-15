@@ -1,0 +1,263 @@
+{
+  "id": "ja-konbini-001",
+  "title": "コンビニで買い物 — Convenience-store Shopping",
+  "level": "N5–N4",
+  "scenePrompt": "The same young adult woman: oval face, dark brown eyes, dark brown low ponytail with wispy bangs, white collared shirt, beige apron; her gender, age, face, hair and clothing stay unchanged. The clerk behind the convenience-store checkout gives a small welcoming gesture. Keep the supplied store layout, lighting and fixed first-person eye-level camera composition consistent.",
+  "audioPrompt": "Quiet refrigeration, light packaging rustle, soft footsteps and occasional checkout beeps.",
+  "startImage": "lessons/images/konbini-checkout-original.png",
+  "beats": [
+    {
+      "goal": "Find rice balls and the aisle.",
+      "lines": [
+        {
+          "jp": "おにぎりはどこですか。",
+          "kana": "おにぎりはどこですか。",
+          "romaji": "Onigiri wa doko desu ka?",
+          "zh": "饭团在哪里？",
+          "en": "Where are the rice balls?",
+          "cue": "The shop assistant points along the aisle toward the rice-ball shelf."
+        },
+        {
+          "jp": "通路はどこですか。",
+          "kana": "つうろはどこですか。",
+          "romaji": "Tsūro wa doko desu ka?",
+          "zh": "过道在哪里？",
+          "en": "Where is the aisle?",
+          "cue": "The assistant draws a small shopping basket closer to the visitor."
+        }
+      ],
+      "vocab": [
+        {
+          "jp": "入口",
+          "kana": "いりぐち",
+          "en": "entrance",
+          "objectHint": "door"
+        },
+        {
+          "jp": "通路",
+          "kana": "つうろ",
+          "en": "aisle",
+          "objectHint": "floor"
+        },
+        {
+          "jp": "商品棚",
+          "kana": "しょうひんだな",
+          "en": "product shelf along the wall",
+          "objectHint": "wall"
+        },
+        {
+          "jp": "おにぎり",
+          "kana": "おにぎり",
+          "en": "rice ball",
+          "objectHint": "rice ball"
+        }
+      ]
+    },
+    {
+      "goal": "Ask about the filling and choose a rice ball.",
+      "lines": [
+        {
+          "jp": "この具は何ですか。",
+          "kana": "このぐはなんですか。",
+          "romaji": "Kono gu wa nan desu ka?",
+          "zh": "这个是什么馅？",
+          "en": "What’s the filling?",
+          "cue": "The assistant turns a plain rice-ball wrapper toward the visitor."
+        },
+        {
+          "jp": "このおにぎりをください。",
+          "kana": "このおにぎりをください。",
+          "romaji": "Kono onigiri o kudasai.",
+          "zh": "请给我这个饭团。",
+          "en": "This rice ball, please.",
+          "cue": "The assistant lifts one rice ball from the display tray."
+        }
+      ],
+      "vocab": [
+        {
+          "jp": "おにぎり",
+          "kana": "おにぎり",
+          "en": "rice ball displayed on the counter",
+          "objectHint": "table"
+        },
+        {
+          "jp": "具",
+          "kana": "ぐ",
+          "en": "filling of a displayed food item",
+          "objectHint": "table"
+        },
+        {
+          "jp": "商品棚",
+          "kana": "しょうひんだな",
+          "en": "product shelf along the wall",
+          "objectHint": "wall"
+        }
+      ]
+    },
+    {
+      "goal": "Read the price tag and check whether tax is included.",
+      "lines": [
+        {
+          "jp": "値札を見てもいいですか。",
+          "kana": "ねふだをみてもいいですか。",
+          "romaji": "Nefuda o mite mo ii desu ka?",
+          "zh": "我可以看一下价签吗？",
+          "en": "May I look at the price tag?",
+          "cue": "The assistant places two rice balls side by side on the counter."
+        },
+        {
+          "jp": "税込みですか。",
+          "kana": "ぜいこみですか。",
+          "romaji": "Zeikomi desu ka?",
+          "zh": "含税吗？",
+          "en": "Is tax included?",
+          "cue": "The assistant indicates the small price card beside the items."
+        }
+      ],
+      "vocab": [
+        {
+          "jp": "値札",
+          "kana": "ねふだ",
+          "en": "price card beside the items",
+          "objectHint": "table"
+        },
+        {
+          "jp": "税込み",
+          "kana": "ぜいこみ",
+          "en": "tax included, as shown on a price card",
+          "objectHint": "table"
+        },
+        {
+          "jp": "カウンター",
+          "kana": "かうんたー",
+          "en": "checkout counter",
+          "objectHint": "table"
+        }
+      ]
+    },
+    {
+      "goal": "Decline a bag and ask about paying by card.",
+      "lines": [
+        {
+          "jp": "袋はいりません。",
+          "kana": "ふくろはいりません。",
+          "romaji": "Fukuro wa irimasen.",
+          "zh": "不需要袋子。",
+          "en": "No bag, thanks.",
+          "cue": "The assistant moves the warm food parcel to a separate part of the counter."
+        },
+        {
+          "jp": "カードで払えますか。",
+          "kana": "カードではらえますか。",
+          "romaji": "Kādo de haraemasu ka?",
+          "zh": "可以刷卡吗？",
+          "en": "Can I pay by card?",
+          "cue": "The assistant turns the plain payment terminal toward the visitor."
+        }
+      ],
+      "vocab": [
+        {
+          "jp": "レジ",
+          "kana": "れじ",
+          "en": "cash register on the counter",
+          "objectHint": "table"
+        },
+        {
+          "jp": "買い物袋",
+          "kana": "かいものぶくろ",
+          "en": "shopping bag placed on the counter",
+          "objectHint": "table"
+        },
+        {
+          "jp": "決済端末",
+          "kana": "けっさいたんまつ",
+          "en": "payment terminal on the counter",
+          "objectHint": "table"
+        },
+        {
+          "jp": "袋",
+          "kana": "ふくろ",
+          "en": "bag",
+          "objectHint": "bag"
+        },
+        {
+          "jp": "カード",
+          "kana": "カード",
+          "en": "card",
+          "objectHint": "card"
+        }
+      ]
+    },
+    {
+      "goal": "Ask for the receipt and find the exit.",
+      "lines": [
+        {
+          "jp": "レシートをください。",
+          "kana": "レシートをください。",
+          "romaji": "Reshīto o kudasai.",
+          "zh": "请给我收据。",
+          "en": "A receipt, please.",
+          "cue": "The assistant holds out the receipt across the counter."
+        },
+        {
+          "jp": "出口はどこですか。",
+          "kana": "でぐちはどこですか。",
+          "romaji": "Deguchi wa doko desu ka?",
+          "zh": "出口在哪里？",
+          "en": "Where is the exit?",
+          "cue": "The assistant gives a small farewell bow toward the glass entrance door."
+        }
+      ],
+      "vocab": [
+        {
+          "jp": "レシート",
+          "kana": "れしーと",
+          "en": "receipt handed across the counter",
+          "objectHint": "table"
+        },
+        {
+          "jp": "出口",
+          "kana": "でぐち",
+          "en": "exit",
+          "objectHint": "door"
+        },
+        {
+          "jp": "通路",
+          "kana": "つうろ",
+          "en": "aisle leading to the exit",
+          "objectHint": "floor"
+        }
+      ]
+    }
+  ],
+  "graph": {
+    "checkpoints": [
+      {
+        "id": "find-items",
+        "label": "Find items",
+        "beat": 0
+      },
+      {
+        "id": "ask-details",
+        "label": "Ask about products",
+        "beat": 2
+      },
+      {
+        "id": "compare-price",
+        "label": "Compare prices",
+        "beat": 4
+      },
+      {
+        "id": "checkout",
+        "label": "Check out and pack",
+        "beat": 6
+      },
+      {
+        "id": "farewell",
+        "label": "Thank the assistant and leave",
+        "beat": 8
+      }
+    ],
+    "detourReturnPolicy": "pending-checkpoint"
+  }
+}

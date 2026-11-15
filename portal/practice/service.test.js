@@ -6,7 +6,9 @@ import { createPracticeService, buildPracticeLesson, parsePracticeInput } from '
 import { registerPracticeRoutes } from './routes.js';
 const photo = 'data:image/png;base64,iVBORw0KGgo=';
 const line = { jp: '水をください。', kana: 'みずをください。', romaji: 'Mizu o kudasai.', en: 'Water, please.', zh: '请给我水。', cue: 'The visible partner nods slightly.' };
-const output = { visiblePartner: false, title: 'Ask for water', scenePrompt: 'The photographed room remains stationary at eye level.', audioPrompt: 'Quiet room ambience.', goal: 'Ask for water politely', lines: [line, line], vocab: [{ jp: '水', kana: 'みず', en: 'water', objectHint: 'water' }] };
+const partner = { jp: 'いらっしゃいませ。', kana: 'いらっしゃいませ。', romaji: 'Irasshaimase.', en: 'Welcome.', zh: '欢迎光临。' };
+const opener = { jp: '', kana: '', romaji: '', en: '', zh: '' };
+const output = { visiblePartner: false, partnerRole: { ja: '店員', en: 'shop clerk' }, title: 'Ask for water', scenePrompt: 'The photographed room remains stationary at eye level.', audioPrompt: 'Quiet room ambience.', goal: 'Ask for water politely', lines: [{ ...line, partner: opener }, { ...line, partner }], vocab: [{ jp: '水', kana: 'みず', en: 'water', objectHint: 'water' }] };
 const generated = () => ({ ok: true, json: async () => ({ status: 'completed', output: [{ type: 'message', content: [{ type: 'output_text', text: JSON.stringify(output) }] }] }) });
 test('real image and goal are separate structured multimodal inputs; lesson remains photo-free', async () => {
   const store = createLessonStore(); let request;
@@ -39,7 +41,11 @@ test('input and provider output bounds reject malformed, excessive and incomplet
   assert.throws(() => buildPracticeLesson({ ...output, visiblePartner: 'false' }), { status: 502 });
   assert.throws(() => buildPracticeLesson({ ...output, visiblePartner: undefined }), { status: 502 });
   assert.throws(() => buildPracticeLesson({ ...output, lines: [line] }), { status: 502 });
-  assert.throws(() => buildPracticeLesson({ ...output, lines: [{ ...line, romaji: '' }, line] }), { status: 502 });
+  assert.throws(() => buildPracticeLesson({ ...output, partnerRole: { ja: '', en: 'clerk' } }), { status: 502 });
+  assert.throws(() => buildPracticeLesson({ ...output, lines: [{ ...line, partner: opener }, { ...line, partner: opener }] }), { status: 502 });
+  const built = buildPracticeLesson(output).beats[0].lines;
+  assert.equal(built[0].partner, null); assert.equal(built[1].partner.jp, partner.jp);
+  assert.throws(() => buildPracticeLesson({ ...output, lines: [{ ...line, romaji: '', partner: opener }, { ...line, partner }] }), { status: 502 });
   const service = createPracticeService({ store: createLessonStore(), apiKey: 'test', fetchImpl: async () => ({ ok: false }) });
   await assert.rejects(service.generate({ image: photo, goal: 'hello' }), { status: 502 });
   await assert.rejects(service.generate({ image: photo, goal: 'hello' }), { status: 429 });
@@ -69,4 +75,14 @@ test('route authenticates before large parser and serves transient photo without
   const response = await fetch(url + '/api/practice/generate', { method: 'POST', headers: { 'content-type': 'application/json', portal_token: 'test' }, body: JSON.stringify({ image: photo, goal: 'hello' }) });
   assert.equal(response.status, 200); const { lesson } = await response.json();
   const image = await fetch(url + lesson.startImage, { headers: { portal_token: 'test' } }); assert.equal(image.status, 200); assert.equal(image.headers.get('cache-control'), 'no-store');
+});
+test('generated partner lines drive lesson speech and the live voice opening', async () => {
+  const { createAgentService } = await import('../agent/service.js');
+  const lesson = buildPracticeLesson({ ...output, lines: [{ ...line, partner }, { ...line, jp: 'ありがとうございます。', kana: 'ありがとうございます。', romaji: 'Arigatou gozaimasu.', partner: { ...partner, jp: 'どうぞ。', kana: 'どうぞ。', romaji: 'Douzo.' } }] });
+  const service = createAgentService({ store: { load: async () => structuredClone(lesson) }, llm: null, planner: null, promptIntervalMs: 0, log: async () => {} });
+  const first = await service.turn({ sessionId: 'partner-test', lessonId: lesson.id, beat: 0, context: {} });
+  assert.equal(first.speech.text, partner.jp);
+  const context = service.snapshot({ sessionId: 'partner-test', lessonId: lesson.id }).lessonContext;
+  assert.equal(context.partnerRole, '店員 / shop clerk');
+  assert.equal(context.partnerLine, partner.jp);
 });

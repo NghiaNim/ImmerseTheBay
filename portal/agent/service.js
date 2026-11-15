@@ -2,7 +2,7 @@ import { mkdir, appendFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { AgentError, createLessonStore, flattenLesson } from './lessons.js';
-import { hasBannedTerm, safePrompt, scoreTranscript } from './guardrails.js';
+import { hasBannedTerm, safePrompt, scoreTranscript, PASS_SCORE } from './guardrails.js';
 import { validateSchema } from './schema.js';
 import { validateOperation, createOperationCache, replayOperation, checkOperationState, rememberOperation, invalidateOperations } from './operations.js';
 import { PRESET_SET, CHECKOUT_IDENTITY, presetDrinkPlan, updatePreset, presetEnvironmentPrompt } from './scene-presets.js';
@@ -58,14 +58,14 @@ function scriptTurn(request, lesson, state) {
   const hint = c.gesture === 'long_pinch' || /repeat|hint/i.test(c.glassesKey || '');
   const point = c.gesture === 'point' && c.pointedAt;
   const score = transcript ? scoreTranscript(transcript, current.line) : null;
-  const advance = !first && !hint && !point && (c.gesture === 'pinch' || /^next$/i.test(c.glassesKey || '') || score >= 75 && score !== null);
+  const advance = !first && !hint && !point && (c.gesture === 'pinch' || /^next$/i.test(c.glassesKey || '') || score >= PASS_SCORE && score !== null);
   const cursor = request.beat + Number(advance);
   const done = cursor >= all.length;
   const target = all[cursor] || current;
-  if (hint || c.gaze === 'room' || (transcript && score < 75)) state.hintLevel = Math.min(3, state.hintLevel + 1);
+  if (hint || c.gaze === 'room' || (transcript && score < PASS_SCORE)) state.hintLevel = Math.min(3, state.hintLevel + 1);
   else if (advance) state.hintLevel = 0;
   const notes = [];
-  if (transcript) notes.push('Text similarity only; this does not measure pronunciation.', score >= 75 ? 'The wording matches well. Continue with the next line.' : 'Try the target wording again; use the kana as a reading guide.');
+  if (transcript) notes.push('Text similarity only; this does not measure pronunciation.', score >= PASS_SCORE ? 'The wording matches well. Continue with the next line.' : 'Try the target wording again; use the kana as a reading guide.');
   if (hint) notes.push(`Cue: ${current.line.cue}`);
   const vocab = point ? lesson.beats.flatMap((b) => b.vocab).find((v) => v.objectHint === c.pointedAt) : null;
   if (point) notes.push(vocab ? `${vocab.jp}（${vocab.kana}）: ${vocab.en}` : `No lesson vocabulary is assigned to ${c.pointedAt}.`);
@@ -94,10 +94,10 @@ function repairOutput(candidate, fallback) {
     command.data.prompt = safePrompt(proposed?.data?.prompt, command.data.prompt);
   }
   const notes = candidate.feedback?.notes.filter((s) => s.trim() && !hasBannedTerm(s)).slice(0, 3).map((s) => s.slice(0, 300)) || [];
-  if (notes.length) result.feedback = { score: result.feedback?.score ?? 0, notes: [...(result.feedback?.notes || []), ...notes].slice(0, 10) };
+  if (notes.length) result.feedback = { score: result.feedback?.score ?? 0, notes: [...new Set([...(result.feedback?.notes || []), ...notes])].slice(0, 10) };
   return result;
 }
-export function createAgentService({ store = createLessonStore(), llm = createLessonClient(), planner = createLessonPlanner(), log = writeDecision, now = Date.now, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)), promptIntervalMs = 2000, maxSessions = 500 } = {}) {
+export function createAgentService({ store = createLessonStore(), llm = createLessonClient(), planner = createLessonPlanner(), log = writeDecision, now = Date.now, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)), promptIntervalMs = 2000, maxSessions = 500, recorder = null } = {}) {
   const sessions = new Map();
   async function turn(input) {
     const request = validateRequest(input);
@@ -158,9 +158,11 @@ export function createAgentService({ store = createLessonStore(), llm = createLe
       const previousNodeId = state.flow.current.nodeId;
       const activeTarget = state.flow.active?.nodes[state.flow.active.index] || mainTarget.line;
       const summaryBefore = { started: state.started, id: targetId(state.flow), nodeId: previousNodeId, line: structuredClone(activeTarget) };
+      const practicedSegment = state.flow.active ? { kind: 'detour', label: state.flow.active.label } : { kind: 'main', label: null };
       const intent = request.action ? null : detectedIntent(request, activeTarget);
       let entered = false;
       let intentNote = null;
+      let enteredPlan = null;
       let source = 'scripted';
       let failure = null;
       const sameIntent = intent && state.flow.active?.intent === intent;
@@ -182,6 +184,7 @@ export function createAgentService({ store = createLessonStore(), llm = createLe
             if (state.flow.active) state.sceneContext.recentActions = [];
             startDetour(state, plan); state.flow.active.intent = intent; entered = true;
             if (source !== 'llm-detour') source = 'scripted-detour';
+            enteredPlan = { label: plan.label, returnBeat: plan.returnBeat, nodes: plan.nodes, source };
           } else intentNote = 'That side interaction is unavailable right now. Try a sandwich, a product shelf, or the checkout counter; your lesson is saved.';
         }
       }
@@ -236,8 +239,17 @@ export function createAgentService({ store = createLessonStore(), llm = createLe
           source = 'llm';
         } catch (e) { failure = e.message === 'LLM JSON schema mismatch' ? e.message : 'LLM unavailable or invalid response'; }
       }
-      if (request.action !== 'idle_hint') response.speech = !state.started || previousNodeId !== response.route.nodeId
-        ? clerkSpeech({ first: !state.started, route: response.route, cue: fallback.visko.find((item) => item.name === 'set_prompt')?.data.prompt, store: /konbini|convenience/iu.test(lesson.id + lesson.title) }) : null;
+      const presented = state.complete ? null : state.flow.active ? state.flow.active.nodes[state.flow.active.index] : lines[state.flow.mainBeat]?.line || null;
+      // Live voice sessions read the partner's role and current prompt from the snapshot.
+      state.partner = lesson.partnerRole ? { role: lesson.partnerRole, line: state.flow.active ? '' : presented?.partner?.jp || '' } : null;
+      if (request.action !== 'idle_hint') {
+        const entering = !state.started || previousNodeId !== response.route.nodeId;
+        // Generated scenarios script the partner's prompt before each learner answer.
+        const partnerLine = entering && response.route.kind !== 'detour' && presented?.partner?.jp ? presented.partner.jp : null;
+        response.speech = !entering ? null : partnerLine ? { role: 'clerk', text: partnerLine, language: 'ja' }
+          : lesson.partnerRole && response.route.kind === 'main' ? null // the learner opens this exchange
+          : clerkSpeech({ first: !state.started, route: response.route, cue: fallback.visko.find((item) => item.name === 'set_prompt')?.data.prompt, store: /konbini|convenience/iu.test(lesson.id + lesson.title) });
+      }
       for (const command of response.visko) {
         if (command.name === 'set_audio_prompt') command.data.prompt = composeAmbientPrompt(command.data.prompt);
         if (command.name !== 'set_prompt') continue;
@@ -267,6 +279,11 @@ export function createAgentService({ store = createLessonStore(), llm = createLe
       if (state.scene) response.scene = structuredClone(state.scene);
       recordSummary(state, { request, lesson, before: summaryBefore, intent, response });
       await log({ at: new Date(now()).toISOString(), sessionId: request.sessionId, lessonId: request.lessonId, beat: request.beat, transcript: request.transcript || '', intent: intent || null, context: request.context, photoCaption: plain(request.imageRef) ? request.imageRef.caption || '' : '', source, failure, route: response.route, graph: { nodes: state.flow.nodes, edges: state.flow.edges }, response });
+      if (recorder) {
+        // Recording is best-effort: a disk problem must never block the lesson.
+        try { await recorder({ runId: state.flow.runId, sessionId: request.sessionId, lesson, imageReference: state.sceneContext.referenceId, request, intent, practiced: request.action ? null : activeTarget, practicedSegment, presented, response, plan: enteredPlan }); }
+        catch (e) { console.warn(`[records] could not record turn: ${e.message}`); }
+      }
       const visual = response.visko.find((command) => command.name === 'set_prompt');
       if (visual) {
         // Issued decisions are not proof of provider acceptance or visual adoption.
@@ -303,7 +320,7 @@ export function createAgentService({ store = createLessonStore(), llm = createLe
     const state = session?.lessons.get(request.lessonId);
     if (!state) return null;
     session.touched = now();
-    return structuredClone({ runId: state.flow.runId, revision: state.revision, beat: state.flow.mainBeat, response: state.lastResponse, lessonContext: { scene: state.sceneContext.sceneAnchor.slice(0, 1000), goal: state.sceneContext.mainCheckpoint.goal.slice(0, 1000), ...(state.scene ? { visiblePartner: state.scene.visiblePartner, partnerLocation: state.sceneContext.partnerLocation } : {}) } });
+    return structuredClone({ runId: state.flow.runId, revision: state.revision, beat: state.flow.mainBeat, response: state.lastResponse, lessonContext: { scene: state.sceneContext.sceneAnchor.slice(0, 1000), goal: state.sceneContext.mainCheckpoint.goal.slice(0, 1000), ...(state.scene ? { visiblePartner: state.scene.visiblePartner, partnerLocation: state.sceneContext.partnerLocation } : {}), ...(state.partner ? { partnerRole: `${state.partner.role.ja} / ${state.partner.role.en}`, partnerLine: state.partner.line } : {}) } });
   }
   function summary(input) {
     // Reuse the exact identity validation and pending-operation barrier.

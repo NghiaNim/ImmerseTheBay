@@ -28,3 +28,19 @@ process. The separate official XREAL reference does not include this screen.
 
 In the glasses, looking down gradually fades the video while keeping the
 tabletop controls available. Looking up brings the video back.
+
+## Fresh Mac setup notes (verified 2026-11-15, Unity 6000.0.85f2 on Apple Silicon)
+
+- Install Rosetta 2 (`softwareupdate --install-rosetta`); Unity 6 refuses to start without it even though the editor is arm64.
+- Copy the shared `~/.android/debug.keystore` from the previous build machine so new APKs update the installed app in place (installed signer SHA-256 `17868e3a…7c18`).
+- Copy the upstream template into `Builds/helloMR-baseline`, put `com.xreal.xr.tar.gz` at its root, set AR Foundation to 6.0.7, create `Assets/Editor`, then run `stage.sh`.
+- Set `ProjectSettings/ProjectVersion.txt` to `6000.0.85f2 (b028303d8e7d)` and pin `com.unity.xr.interaction.toolkit` to `2.6.5`. Otherwise every batch open re-runs the 2022→6000 upgrade, which bumps XRI to 3.0.11 and breaks the 2.6.5 samples.
+- Delete `Assets/TextMesh Pro/Examples & Extras` (2022 example scripts do not compile on Unity 6; nothing in the dev scene uses them).
+- Add `Assets/Plugins/Android/gradleTemplate.properties` (Unity's default template) with `android.uniquePackageNames=false`: AGP 9.1.1 rejects the XREAL `nr_loader`/`nr_common` AARs sharing the `nrsdk.pack` namespace.
+- Enable Internet permission and HTTP for the LAN Portal before building (`PlayerSettings.Android.forceInternetPermission`, `PlayerSettings.insecureHttpOption = AlwaysAllowed`).
+- After every build: `PYTHON=<python 3.11+> tools/android-dev/patch-dev-apk.sh <built.apk> <out.apk>` reapplies the Air 2 Ultra display patch (AGP 9's register layout is supported) and signs with the debug key; install with `adb install --no-incremental -r`.
+- With the glasses attached, `adb exec-out screencap` needs `-d <phone display id>` from `adb shell dumpsys SurfaceFlinger --display-id`.
+
+## Phone workflow (aligned with the web app)
+
+Take a photo, choose 中文/English/日本語 and hold **Hold to say your goal** (or tap to start, tap to finish). The recording goes to the Portal's `/api/agent/transcribe`, the same server transcription as the web app, and the practice is created automatically as soon as both a photo and a goal exist, in either order. Typing a goal and **Create practice** remain as a fallback. **Start in glasses** opens the selected session; built-in lessons are under **Or choose a session**.
