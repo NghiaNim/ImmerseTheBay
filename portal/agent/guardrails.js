@@ -1,5 +1,5 @@
 // Deliberately small, reviewable denylist; not an exhaustive copyright detector.
-export const BANNED_TERMS = ['doraemon', 'ドラえもん', '哆啦a梦', '哆啦a夢', 'pokemon', 'pokémon', 'ポケモン', 'pikachu', 'ピカチュウ', 'disney', 'ディズニー', 'mickey mouse', 'ミッキーマウス', 'totoro', 'トトロ', 'ghibli', 'ジブリ', 'hello kitty', 'ハローキティ', 'naruto', 'ナルト', 'snoopy', 'スヌーピー', 'dragon ball', 'ドラゴンボール'];
+export const BANNED_TERMS = ['doraemon', 'ドラえもん', '哆啦a梦', '哆啦a夢', 'pokemon', 'pokémon', 'ポケモン', 'pikachu', 'ピカチュウ', 'disney', 'ディズニー', 'mickey mouse', 'ミッキーマウス', 'totoro', 'トトロ', 'ghibli', 'ジブリ', 'hello kitty', 'ハローキティ', 'naruto', 'ナルト', 'snoopy', 'スヌーピー', 'dragon ball', 'ドラゴンボール', 'anpanman', 'アンパンマン', '面包超人', '麵包超人', 'sailor moon', 'セーラームーン', '美少女战士', '美少女戦士', '美少女戰士', '皮卡丘', '標準日本語', '标准日本语'];
 const canonical = (s) => String(s).normalize('NFKC').toLowerCase().replace(/\p{Cf}/gu, '');
 const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const patterns = BANNED_TERMS.map((term) => {
@@ -10,7 +10,8 @@ const patterns = BANNED_TERMS.map((term) => {
     const words = normalized.split(' ').map((word) => [...word].map(escapeRegex).join('[\\p{P}]*'));
     return new RegExp('(?<![\\p{L}\\p{N}])' + words.join('[\\s\\p{P}]+') + '(?![\\p{L}\\p{N}])', 'u');
   }
-  return new RegExp(escapeRegex(normalized), 'u');
+  // Kana/CJK names have no word spaces, so a space or punctuation inside one is a disguise.
+  return new RegExp([...normalized].map(escapeRegex).join('[\\s\\p{P}]*'), 'u');
 });
 export function hasBannedTerm(value) { const s = canonical(value); return patterns.some((pattern) => pattern.test(s)); }
 export function safePrompt(value, fallback) {
