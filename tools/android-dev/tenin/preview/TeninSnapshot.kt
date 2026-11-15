@@ -22,6 +22,14 @@ class TeninSnapshot : BroadcastReceiver() {
         val s = TeninScreens(context)
         val food = TeninDemo.scenarios.first()
         val sessions = TeninDemo.sessions
+        val sampleSession = sessions.first()
+        val reviewPhrases = sampleSession.phrases.mapIndexed { index, phrase ->
+            when (index) {
+                0 -> phrase.copy(partner = TeninPhrase("何にしますか。", "Nani ni shimasu ka?", "What would you like?", mine = false))
+                1 -> phrase.copy(romaji = "")
+                else -> phrase
+            }
+        }
         val words = sessions.flatMap { session -> session.phrases.map { it.copy(lesson = session.title) } }.distinctBy { it.jp }
         fun nav(tab: TeninUi.Tab) = s.ui.bottomNav(tab) {}
         val reading = listOf(TeninStep("Spotted a restaurant", true), TeninStep("Found the menu board", true))
@@ -39,7 +47,7 @@ class TeninSnapshot : BroadcastReceiver() {
             "running" to { s.running(true, "Ordering food", 2, 4, {}, {}) },
             "complete" to { s.complete("You ordered food and asked about shrimp, for real.", 3, 1, "lead with the allergy, then point at the dish.", {}, {}) },
             "review" to { s.review(3, sessions, "", {}, {}, nav(TeninUi.Tab.REVIEW)) },
-            "session" to { s.sessionDetail(sessions.first(), {}, {}, {}, nav(TeninUi.Tab.REVIEW)) },
+            "session" to { s.sessionDetail(sampleSession.copy(phrases = reviewPhrases), {}, {}, {}, nav(TeninUi.Tab.REVIEW)) },
             "vocabularies" to { s.vocabularies(words, words.map { it.lesson }.distinct(), "", "", "", {}, {}, {}, {}, nav(TeninUi.Tab.VOCABULARIES)) },
             "phrase" to { s.phraseDetail(words.first().copy(lesson = "Ordering food · used for real today"), {}, {}, {}, {}, nav(TeninUi.Tab.VOCABULARIES)) },
         )

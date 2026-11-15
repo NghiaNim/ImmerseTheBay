@@ -29,6 +29,7 @@ data class TeninPhrase(
     val jp: String, val romaji: String = "", val en: String = "", val mine: Boolean = true,
     val lesson: String = "", val tries: Int = 0, val passed: Boolean = true,
     val words: List<Triple<String, String, String>> = emptyList(), val swapTitle: String = "", val swap: String = "",
+    val partner: TeninPhrase? = null,
 )
 
 data class TeninScenario(
@@ -153,7 +154,8 @@ class TeninScreens(private val context: Context, private val bindPreview: (Strin
     private fun phraseRows(phrases: List<TeninPhrase>, onSpeak: (TeninPhrase) -> Unit) = ui.run {
         card(*phrases.flatMapIndexed { i, p ->
             listOfNotNull(if (i > 0) divider().margins(top = 14f, bottom = 14f) else null, row(
-                column(eyebrow(if (p.mine) "You’ll say" else "You’ll hear"), text(p.jp, 22f).margins(top = 4f), text(p.en, 16f, Tenin.MUTED).margins(top = 2f)).weighted(),
+                column(eyebrow(if (p.mine) "You’ll say" else "You’ll hear"),
+                    phraseText(p, 22f).margins(top = 4f)).weighted(),
                 roundButton(TeninIcon.SPEAKER) { onSpeak(p) }.margins(left = 10f).apply { contentDescription = "Listen" },
             ).fillWidth())
         }.toTypedArray(), padding = 18f)
@@ -448,13 +450,20 @@ class TeninScreens(private val context: Context, private val bindPreview: (Strin
 
     // Session detail
     fun sessionDetail(s: TeninSession, onPracticeTricky: (() -> Unit)?, onReplay: () -> Unit, onBack: () -> Unit, nav: View) = ui.run {
-        val rows = s.phrases.filter { it.mine }.flatMapIndexed { i, p ->
+        val phrases = s.phrases.filter { it.mine }
+        val hasDialogue = phrases.any { it.partner != null }
+        val rows = phrases.flatMapIndexed { i, p ->
             val ok = p.passed && p.tries <= 1
-            listOfNotNull(if (i > 0) divider().margins(top = 14f, bottom = 14f) else null, row(
-                icon(if (ok) TeninIcon.CHECK_CIRCLE else TeninIcon.RETRY, 22f, if (ok) Tenin.GREEN else 0xFFA34A00.toInt()).margins(right = 12f),
-                column(text(p.jp, 20f), text(p.en, 16f, Tenin.MUTED).margins(top = 2f)).weighted(),
-                (if (ok) pill("Understood", Tenin.GREEN, Tenin.GREEN_BG) else pill(if (p.tries > 1) "${p.tries} tries" else "Not yet", Tenin.BROWN, Tenin.YELLOW_BG)).margins(left = 8f),
-            ).fillWidth())
+            listOfNotNull(
+                if (i > 0) divider().margins(top = 14f, bottom = 14f) else null,
+                p.partner?.let { partner -> column(eyebrow("Partner"), phraseText(partner, 20f).margins(top = 4f)).margins(bottom = 12f) },
+                if (hasDialogue) eyebrow("You").margins(bottom = 4f) else null,
+                row(
+                    icon(if (ok) TeninIcon.CHECK_CIRCLE else TeninIcon.RETRY, 22f, if (ok) Tenin.GREEN else 0xFFA34A00.toInt()).margins(right = 12f),
+                    phraseText(p, 20f).weighted(),
+                    (if (ok) pill("Understood", Tenin.GREEN, Tenin.GREEN_BG) else pill(if (p.tries > 1) "${p.tries} tries" else "Not yet", Tenin.BROWN, Tenin.YELLOW_BG)).margins(left = 8f),
+                ).fillWidth(),
+            )
         }
         screen(listOfNotNull(
             header(onBack),
@@ -463,7 +472,7 @@ class TeninScreens(private val context: Context, private val bindPreview: (Strin
             if (s.headline.isEmpty() && s.tip.isEmpty()) null else card(row(icon(TeninIcon.SPARKLE, 22f, Tenin.AMBER).margins(right = 12f, top = 4f), column(
                 *listOfNotNull(if (s.headline.isEmpty()) null else text(s.headline, 23f, Tenin.PRIMARY_DARK), if (s.tip.isEmpty()) null else text("Tip: ${s.tip}", 16f, Tenin.MUTED).margins(top = 4f)).toTypedArray(),
             ).weighted(), gravity = Gravity.TOP).fillWidth(), fill = Tenin.YELLOW_BG, line = Tenin.YELLOW_LINE, padding = 18f).margins(top = 14f),
-            eyebrow("Phrases you used").margins(top = 22f, bottom = 12f),
+            eyebrow(if (hasDialogue) "Practice dialogue" else "Phrases you used").margins(top = 22f, bottom = 12f),
             if (rows.isEmpty()) body("No phrases were recorded in this session.") else card(*rows.toTypedArray(), padding = 18f),
             if (onPracticeTricky == null) null else primaryButton(if (s.phrases.count { it.mine && !(it.passed && it.tries <= 1) } == 1) "Practice the tricky one" else "Practice the tricky ones", TeninIcon.GLASSES, onPracticeTricky).margins(top = 20f),
             secondaryButton("Replay the scene", null, onReplay).margins(top = 10f),
@@ -473,6 +482,15 @@ class TeninScreens(private val context: Context, private val bindPreview: (Strin
     private fun romaji(value: String, size: Float) = ui.text(value, size, Tenin.BROWN, 500, italic = true).apply {
         background = rounded(Tenin.YELLOW, dp(6f).toFloat())
         setPadding(dp(7f), dp(1f), dp(7f), dp(3f))
+    }
+
+    private fun phraseText(phrase: TeninPhrase, japaneseSize: Float) = ui.run {
+        column(
+            text(phrase.jp, japaneseSize),
+            if (phrase.romaji.isBlank()) text("Reading unavailable", 15f, Tenin.MUTED).margins(top = 4f)
+            else romaji(phrase.romaji, 16f).margins(top = 4f),
+            text(phrase.en, 16f, Tenin.MUTED).margins(top = 4f),
+        )
     }
 
     // Vocabularies tab

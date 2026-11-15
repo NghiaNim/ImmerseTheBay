@@ -448,7 +448,8 @@ class TeninActivity : Activity() {
             val line = entry.optJSONObject("line") ?: return@mapNotNull null
             val tries = entry.optJSONArray("attempts")?.length() ?: 0
             if (tries == 0 && !entry.optBoolean("skipped")) null
-            else TeninPhrase(line.optString("jp"), line.optString("romaji"), line.optString("en"), tries = tries, passed = entry.optBoolean("passed"))
+            else readPhrase(line).copy(tries = tries, passed = entry.optBoolean("passed"),
+                partner = line.optJSONObject("partner")?.let { readPhrase(it, mine = false) }?.takeIf { it.jp.isNotBlank() })
         }
         val passed = phrases.count { it.passed }
         return TeninSession(item.getString("id"), dayLabel(item.optString("startedAt")), item.optString("mode") == "live",
@@ -465,6 +466,13 @@ class TeninActivity : Activity() {
 
     private fun englishTitle(title: String) = title.substringAfter(" — ", title).trim()
 
+    private fun readPhrase(line: JSONObject, mine: Boolean = true) = TeninPhrase(
+        line.optString("jp"),
+        if (line.isNull("romaji")) "" else line.optString("romaji"),
+        line.optString("en"),
+        mine = mine,
+    )
+
     /** Pre-made lessons are the lesson files bundled with the app. */
     private fun loadScenarios(): List<TeninScenario> = runCatching { assets.list("lessons").orEmpty().filter { it.endsWith(".json") }.sorted().mapNotNull { name ->
         runCatching {
@@ -474,8 +482,8 @@ class TeninActivity : Activity() {
             val first = beats.getJSONObject(0).getJSONArray("lines")
             val phrases = (0 until minOf(first.length(), 3)).flatMap { i ->
                 val line = first.getJSONObject(i)
-                listOfNotNull(line.optJSONObject("partner")?.let { TeninPhrase(it.optString("jp"), it.optString("romaji"), it.optString("en"), mine = false) },
-                    TeninPhrase(line.optString("jp"), line.optString("romaji"), line.optString("en")))
+                listOfNotNull(line.optJSONObject("partner")?.let { readPhrase(it, mine = false) }?.takeIf { it.jp.isNotBlank() },
+                    readPhrase(line))
             }.take(3)
             val id = lesson.getString("id")
             val title = lesson.getString("title")
