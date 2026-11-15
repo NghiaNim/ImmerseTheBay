@@ -23,3 +23,21 @@ Unity Android built with zero errors. The signed `ImmerseTheBay-s25-a2835a1.apk`
 | P0 release | Merge and handoff | XREAL build on integration draft PR #42 plus upstream PR #15. Quest pushed separately to main. | Complete consolidated acceptance, attach device/clip/Portal evidence, review and merge XREAL changes, update issue checklists and verify setup from a teammate's machine. | #16 |
 
 See [delivery plan](PLAN-coffee-demo-delivery.md), [lead-in and gesture media design](IMPLEMENT-demo-video-lookahead.md), and [actual café capture runbook](RUNBOOK-coffee-demo-capture.md).
+
+## First café wearer pass
+
+S25 ran the signed `a2835a1` APK against Portal `2da42f1`. The handset showed Courses, separate English and Japanese title rows, and Order Coffee selected. The wearer confirmed the milk scene was visible and sound reached both ears.
+
+| Scene | Cache selection | First cached frame | Dynamic handoff |
+|---|---|---|---|
+| Order | Cold | 0.57 s | 13.66 s |
+| Milk | Prefetched | 0.14 s | 9.08 s |
+| Handoff | Prefetched | 0.15 s | 9.40 s |
+
+These are one-run native logs, not percentile measurements. Physical attempts passed at 100 and 90 percent with several visible milk retries. The final line was skipped, which opened the original summary. This run did not confirm a gesture detour. ADB produced a decoded 100-second 2560×720 SBS clip and 1280×720 single-eye export without audio. The recording begins during the milk scene and includes retry, pass and the handoff transition. Local media and timing logs are kept in `Builds/coffee-hardware-20261115-071544/`.
+
+## Wearer feedback integration
+
+Source `1b2ece0` adds larger clerk subtitles, lower action placement, rightmost Speak/Finish, phone lesson actions, and a visible unlit hand mesh. Passing a sentence preserves the old scene for at least one second and transitions with eased fades. The scripted café clerk uses a separate, revision-bound reply before the next scene or retry, with the proactive prompt and learner example before the microphone.
+
+On completion, both surfaces present a per-attempt review. The learner can read the recognized text and match score and play the spoken recording or the target example. Recordings remain in memory on the S25 for the current review only (at most 12). Saved Review continues to store existing session data; microphone audio is not added to the Portal record. The combined native timing, hand visibility, and audio playback still require wearer acceptance.
