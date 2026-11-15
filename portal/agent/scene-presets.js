@@ -1,9 +1,11 @@
-import { SCENE_ANCHOR, CHARACTER_ANCHOR } from './continuity.js';
+import { SCENE_ANCHOR } from './continuity.js';
 import { primaryIntent } from './flow.js';
 export const PRESET_SET = 'konbini-original';
+// Authored from the approved original image, never inferred from learner text.
+export const CHECKOUT_IDENTITY = 'The same young adult woman: oval face, dark brown eyes, dark brown low ponytail with wispy bangs, white collared shirt, beige apron; her gender, age, face, hair and clothing stay unchanged.';
 const scene = (id, label, startImage, prompt, visiblePartner) => ({ id, label, startImage, prompt, visiblePartner });
 export const SCENES = Object.freeze({
- checkout: scene('checkout', 'Checkout counter', '/lessons/images/konbini-checkout-original.png', 'The original convenience-store clerk waits behind the checkout counter in the supplied starting image.', true),
+ checkout: scene('checkout', 'Checkout counter', '/lessons/images/konbini-checkout-original.png', `${CHECKOUT_IDENTITY} The clerk waits behind the convenience-store checkout counter in the supplied starting image.`, true),
  sandwiches: scene('sandwiches', 'Sandwich shelf', '/scene-presets/konbini-sandwiches.png', 'First-person eye-level view facing the convenience-store sandwich shelf in the supplied image. Plain sandwich packages fill the existing shelf. The environment and objects retain their original arrangement and lighting.', false),
  drinks: scene('drinks', 'Drinks shelf', '/scene-presets/konbini-drinks.png', 'First-person eye-level view facing the convenience-store drinks shelf in the supplied image. Plain bottles of water and tea fill the existing shelf. The environment and objects retain their original arrangement and lighting.', false),
 });
@@ -34,7 +36,7 @@ export function updatePreset(state, { entered, intent, route }) {
  state.scene = structuredClone(SCENES[id]);
  state.sceneContext.sceneAnchor = state.scene.prompt;
  state.sceneContext.visiblePartner = state.scene.visiblePartner;
- state.sceneContext.identityAnchor = state.scene.visiblePartner ? CHARACTER_ANCHOR : 'The same clerk speaks off-camera. The photographed shelf environment is the only visible subject.';
+ state.sceneContext.identityAnchor = state.scene.visiblePartner ? CHECKOUT_IDENTITY : 'The same clerk speaks off-camera. The photographed shelf environment is the only visible subject.';
  state.sceneContext.partnerLocation = state.scene.visiblePartner ? 'at the checkout counter' : 'off-camera; voice only';
  state.sceneContext.referenceId = state.scene.startImage;
 }

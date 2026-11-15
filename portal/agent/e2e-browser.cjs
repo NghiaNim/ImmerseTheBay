@@ -7,6 +7,7 @@ const path = require('node:path');
 const live = process.argv.includes('--live');
 const speech = process.argv.includes('--speech');
 const dropResponse = process.argv.includes('--drop-response');
+const slowScene = process.argv.includes('--slow-scene');
 const base = process.env.PORTAL_URL || 'http://localhost:8792';
 const artifacts = process.env.E2E_ARTIFACTS || '/tmp/il-context-e2e';
 fs.mkdirSync(artifacts, { recursive: true });
@@ -15,6 +16,11 @@ fs.mkdirSync(artifacts, { recursive: true });
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   page.setDefaultTimeout(15000);
   const errors = [], turns = [], speechResponses = [], nativeFrames = [], droppedOperations = [], started = Date.now();
+  let releaseScene;
+  if (slowScene) await page.route('**/scene-presets/konbini-sandwiches.png', async route => {
+    await new Promise(resolve => { releaseScene = resolve; });
+    await route.continue();
+  });
   const deadline = setTimeout(() => void page.locator('#leave').click({ timeout: 2000 }).finally(() => browser.close()), 110000);
   page.on('pageerror', (error) => errors.push(error.message));
   page.on('response', async (response) => {
@@ -85,6 +91,13 @@ fs.mkdirSync(artifacts, { recursive: true });
     await capture('opening');
     await page.locator('#speechMode').selectOption('intent');
     await page.locator('#speak').click();
+    if (slowScene) {
+      try {
+        await page.waitForFunction(() => document.querySelector('#ttsStatus').textContent.includes('speaking'), {}, { timeout: 20000 });
+        assert.ok(releaseScene, 'Scene photo is still pending');
+        assert.equal(await page.locator('#pinch').isDisabled(), true, 'Video transition remains busy while reply plays');
+      } finally { releaseScene?.(); }
+    }
     await page.waitForFunction(() => document.querySelector('#routeStatus').textContent.includes('1/3'), {}, { timeout: 20000 });
     await ready(); assert.equal((await decision()).route.kind, 'detour');
     await capture('detour');
@@ -97,13 +110,14 @@ fs.mkdirSync(artifacts, { recursive: true });
     if (dropResponse) { assert.equal(droppedOperations.length, 1); assert.equal(turns[2].operation.replayed, true); assert.equal(turns[2].operation.requestId, droppedOperations[0]); }
     for (const turn of turns) for (const command of turn.visko.filter((c) => c.name === 'set_prompt')) {
       if (turn.scene?.visiblePartner === false) assert.doesNotMatch(command.data.prompt, /face|hair|clerk|host|lips/);
+      else if (turn.scene?.id === 'checkout') assert.match(command.data.prompt, /same young adult woman.*gender, age, face, hair and clothing stay unchanged/);
       else assert.match(command.data.prompt, /established face, hair and clothing remain unchanged/);
       assert.ok(command.data.prompt.length <= 600);
       assert.ok(command.data.prompt.split(/\s+/u).length <= 95);
     }
     assert.deepEqual(errors, []);
     if (speech) { assert.ok(speechResponses.length >= 2); assert.ok(speechResponses.every((status) => status === 200)); }
-    const report = { mode: live ? 'real-dynamic' : 'practice-real-api', speech: 'simulated browser recognition callback', cartesia: speech ? { realPlayback: true, responses: speechResponses } : 'not asserted', turns: turns.length, routes: turns.map((t) => t.route.kind), elapsedMs: Date.now() - started, visualIdentity: 'requires human frame review', nativeFrames, droppedOperations, operationRevisions: turns.map((t) => t.operation.revision), prompts: turns.map((t) => t.visko.find((c) => c.name === 'set_prompt')?.data.prompt) };
+    const report = { mode: live ? 'real-dynamic' : 'practice-real-api', speech: 'simulated browser recognition callback', cartesia: speech ? { realPlayback: true, responses: speechResponses, repliesBeforeVideoReady: slowScene } : 'not asserted', turns: turns.length, routes: turns.map((t) => t.route.kind), elapsedMs: Date.now() - started, visualIdentity: 'requires human frame review', nativeFrames, droppedOperations, operationRevisions: turns.map((t) => t.operation.revision), prompts: turns.map((t) => t.visko.find((c) => c.name === 'set_prompt')?.data.prompt) };
     fs.writeFileSync(path.join(artifacts, `${live ? 'live' : 'practice'}-report.json`), JSON.stringify(report, null, 2));
     console.log(JSON.stringify(report));
   } catch (error) {

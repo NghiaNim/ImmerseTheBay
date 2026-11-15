@@ -150,3 +150,18 @@ test('off-camera partner keeps photo environment stable through authored and dyn
     assert.equal(composeVisualPrompt(prompt, undefined, { visiblePartner: false }), prompt);
   }
 });
+
+test('pinned identity survives bounded prompts and is not restated by action deltas', async () => {
+  const { CHECKOUT_IDENTITY } = await import('./scene-presets.js');
+  for (const speaking of [false, true]) {
+    const options = { identityAnchor: CHECKOUT_IDENTITY, speaking };
+    for (const action of ['The clerk nods', 'gently '.repeat(500), 'A male clerk smiles', 'The clerk changes gender', 'The clerk has blonde hair']) {
+      const prompt = composeVisualPrompt(action, 'The clerk nods', options);
+      assert.ok(prompt.includes(CHECKOUT_IDENTITY));
+      assert.ok(prompt.endsWith(SCENE_ANCHOR));
+      assert.ok(prompt.length <= 600); assert.ok(prompt.split(/\s+/u).length <= 95);
+      assert.doesNotMatch(prompt, /male clerk|changes gender|blonde/);
+      assert.equal(composeVisualPrompt(prompt, undefined, options), prompt);
+    }
+  }
+});

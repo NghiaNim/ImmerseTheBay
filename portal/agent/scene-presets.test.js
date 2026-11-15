@@ -53,3 +53,39 @@ test('explicit checkout branch selects counter image while preserving saved chec
  r=await service.turn(req('water',r,{intent:'water'}));assert.equal(r.scene.id,'drinks');
  r=await service.turn(req('counter',r,{intent:'Find the checkout counter'}));assert.equal(r.scene.id,'checkout');assert.equal(r.route.kind,'detour');assert.equal(r.route.returnBeat,0);
 });
+
+test('original cast persists through model refinement, branch and checkout rejoin', async () => {
+ const { CHECKOUT_IDENTITY } = await import('./scene-presets.js');
+ const contexts = [];
+ const service = setup({ llm: async input => {
+  contexts.push(input.sceneContext);
+  const output = structuredClone(input.fallback);
+  output.visko.find(c => c.name === 'set_prompt').data.prompt = 'A male clerk with a beard nods.';
+  return output;
+ }});
+ const assertCast = response => {
+  const prompt = response.visko.find(c => c.name === 'set_prompt').data.prompt;
+  assert.ok(prompt.includes(CHECKOUT_IDENTITY), prompt);
+  assert.doesNotMatch(prompt, /male clerk|beard/);
+  assert.ok(prompt.length <= 600);
+  assert.ok(prompt.split(/\s+/u).length <= 95);
+ };
+ let r = await service.turn(req('identity-open')); assertCast(r);
+ r = await service.turn(req('identity-followup', r, { transcript: r.overlay.jp })); assertCast(r);
+ assert.ok(contexts.every(context => context.identityAnchor === CHECKOUT_IDENTITY));
+ r = await service.turn(req('identity-branch', r, { intent: 'sandwich' }));
+ assert.doesNotMatch(r.visko[0].data.prompt, /woman|clerk|face|ponytail/);
+ r = await service.turn(req('identity-rejoin', r, { action: 'return_to_main' })); assertCast(r);
+ r = await service.turn(req('identity-again', r, { context: { gesture: 'pinch' } })); assertCast(r);
+});
+
+test('authored base locks original identity but custom photos do not inherit it', async () => {
+ const { CHECKOUT_IDENTITY } = await import('./scene-presets.js');
+ const authored = JSON.parse(await readFile(new URL('../../Assets/StreamingAssets/lessons/ja-konbini-001.json', import.meta.url)));
+ assert.ok(authored.scenePrompt.startsWith(CHECKOUT_IDENTITY));
+ const service = setup({ store: { load: async () => authored } });
+ const original = await service.turn(req('authored-open', null, { sessionId: 'original-base', presetSceneSet: undefined, imageRef: undefined }));
+ assert.ok(original.visko[0].data.prompt.includes(CHECKOUT_IDENTITY));
+ const custom = await service.turn(req('custom-open', null, { sessionId: 'custom-base', presetSceneSet: undefined, imageRef: {id: 'custom'} }));
+ assert.doesNotMatch(custom.visko[0].data.prompt, /woman|oval face|ponytail|beige apron/);
+});

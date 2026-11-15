@@ -2,7 +2,7 @@
   "id": "ja-konbini-001",
   "title": "コンビニで買い物 — Convenience-store Shopping",
   "level": "N1",
-  "scenePrompt": "The shop assistant behind the checkout in a small Japanese neighborhood convenience store looks toward the learner and gives a small welcoming gesture. Keep the supplied store layout, clerk, lighting and eye-level camera composition consistent.",
+  "scenePrompt": "The same young adult woman: oval face, dark brown eyes, dark brown low ponytail with wispy bangs, white collared shirt, beige apron; her gender, age, face, hair and clothing stay unchanged. The clerk behind the convenience-store checkout gives a small welcoming gesture. Keep the supplied store layout, lighting and fixed first-person eye-level camera composition consistent.",
   "audioPrompt": "A quiet refrigerator hum, soft footsteps on tile, rustling paper wrappers and occasional checkout beeps.",
   "startImage": "lessons/images/konbini-checkout-original.png",
   "beats": [

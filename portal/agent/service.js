@@ -5,7 +5,7 @@ import { AgentError, createLessonStore, flattenLesson } from './lessons.js';
 import { hasBannedTerm, safePrompt, scoreTranscript } from './guardrails.js';
 import { validateSchema } from './schema.js';
 import { validateOperation, createOperationCache, replayOperation, checkOperationState, rememberOperation, invalidateOperations } from './operations.js';
-import { PRESET_SET, presetDrinkPlan, updatePreset, presetEnvironmentPrompt } from './scene-presets.js';
+import { PRESET_SET, CHECKOUT_IDENTITY, presetDrinkPlan, updatePreset, presetEnvironmentPrompt } from './scene-presets.js';
 import { recordSummary, summarize, targetId } from './summary.js';
 import { clerkSpeech } from './clerk-speech.js';
 import { composeVisualPrompt, composeAmbientPrompt, CHARACTER_ANCHOR, SCENE_ANCHOR } from './continuity.js';
@@ -139,11 +139,13 @@ export function createAgentService({ store = createLessonStore(), llm = createLe
         throw new AgentError(409, 'Starting image changed; reset the lesson before using a new reference');
       }
       if (!state.sceneContext) {
+        const originalCast = state.presetSceneSet === PRESET_SET ||
+          (lesson.scenePrompt.startsWith(CHECKOUT_IDENTITY) && (!suppliedReference || suppliedReference === lesson.startImage));
         state.sceneContext = {
           version: 1, runId: state.flow.runId,
           referenceId: suppliedReference || lesson.startImage || '',
-          characterId: `${state.flow.runId}:cast`, identityAnchor: CHARACTER_ANCHOR,
-          sceneAnchor: safePrompt(lesson.scenePrompt, NEUTRAL_PROMPT),
+          characterId: `${state.flow.runId}:cast`, identityAnchor: originalCast ? CHECKOUT_IDENTITY : CHARACTER_ANCHOR,
+          sceneAnchor: safePrompt(originalCast ? lesson.scenePrompt : lesson.scenePrompt.replace(CHECKOUT_IDENTITY, CHARACTER_ANCHOR), NEUTRAL_PROMPT),
           mainCheckpoint: { beat: state.flow.mainBeat, goal: mainTarget.beat.goal }, recentActions: [],
         };
         state.originalReferenceId = state.sceneContext.referenceId;
@@ -240,12 +242,12 @@ export function createAgentService({ store = createLessonStore(), llm = createLe
         if (command.name === 'set_audio_prompt') command.data.prompt = composeAmbientPrompt(command.data.prompt);
         if (command.name !== 'set_prompt') continue;
         const authored = fallback.visko.find((item) => item.name === 'set_prompt')?.data.prompt;
-        command.data.prompt = composeVisualPrompt(state.started ? command.data.prompt : state.sceneContext.sceneAnchor, authored, { initial: !state.started || previousScene !== state.scene?.id, speaking: Boolean(response.speech) && (state.scene?.visiblePartner ?? lesson.visiblePartner) !== false, visiblePartner: (state.scene?.visiblePartner ?? lesson.visiblePartner) !== false });
+        command.data.prompt = composeVisualPrompt(state.started ? command.data.prompt : state.sceneContext.sceneAnchor, authored, { initial: !state.started || previousScene !== state.scene?.id, identityAnchor: state.sceneContext.identityAnchor, speaking: Boolean(response.speech) && (state.scene?.visiblePartner ?? lesson.visiblePartner) !== false, visiblePartner: (state.scene?.visiblePartner ?? lesson.visiblePartner) !== false });
       }
       if (state.scene) {
         for (const command of response.visko) if (command.name === 'set_prompt') {
           if (!state.scene.visiblePartner) command.data.prompt = presetEnvironmentPrompt(state.scene);
-          else if (previousScene !== state.scene.id) command.data.prompt = composeVisualPrompt(state.scene.prompt, state.scene.prompt, { initial: true, speaking: Boolean(response.speech) });
+          else if (previousScene !== state.scene.id) command.data.prompt = composeVisualPrompt(state.scene.prompt, state.scene.prompt, { initial: true, identityAnchor: state.sceneContext.identityAnchor, speaking: Boolean(response.speech) });
         }
       }
       if (!validateSchema(response)) throw new Error('Internal response validation failed');

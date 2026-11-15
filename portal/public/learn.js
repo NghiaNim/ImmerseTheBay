@@ -509,11 +509,14 @@ function clearSceneTransition() {
   if (transitionUrl) URL.revokeObjectURL(transitionUrl); transitionUrl = null;
 }
 
-function renderDecision(decision, hasSpeech = false) {
+function renderClerkReply(decision) {
   clerkSpeech = decision.speech?.role === 'clerk' && decision.speech.language === 'ja' && typeof decision.speech.text === 'string' && decision.speech.text.trim()
     ? { text: decision.speech.text, language: 'ja', role: 'clerk' } : null;
   $('clerkCaption').textContent = clerkSpeech ? `${partnerLabel()} · ${clerkSpeech.text}` : '';
   $('clerkCaption').hidden = !clerkSpeech; $('clerkReplay').hidden = !clerkSpeech;
+}
+function renderDecision(decision, hasSpeech = false) {
+  renderClerkReply(decision);
   const overlay = decision.overlay;
   for (const field of ['jp', 'kana', 'romaji', 'zh', 'en']) $(field).textContent = overlay?.[field] || '';
   if (!overlay && decision.advance === 'scene_done') { $('jp').textContent = 'お疲れさまでした。'; $('en').textContent = 'Scene complete. Leave the session when you are ready.'; }
@@ -542,9 +545,13 @@ async function turn({ gesture = null, transcript, intent, action, fromVoice = fa
     const decision = operation.decision;
     if (!Array.isArray(decision.visko) || !['stay', 'next_line', 'scene_done'].includes(decision.advance)) throw new Error('The lesson guide returned an invalid decision.');
     agentMachine.send('act');
-    let executed;
+    let executed, replyPlayback;
     try {
       if (!operation.claimExecution()) return false;
+      // Speech is independent of video readiness: a slow reset/reseed must not
+      // leave the clerk silent. Leave/failure/barge-in still cancel this player.
+      renderClerkReply(decision);
+      if (clerkSpeech && !voiceActive) replyPlayback = lessonSpeech.play(clerkSpeech);
       executed = await executeDecision(decision, run); assertCurrent(run);
     }
     catch (error) {
@@ -558,8 +565,9 @@ async function turn({ gesture = null, transcript, intent, action, fromVoice = fa
     hubSend({ type: 'learn', sessionId, lessonId: lesson.id, beat, context, ...(transcript ? { transcript } : {}), ...(intent ? { intent } : {}), ...decision, execution });
     notify(finished ? (preview ? 'Practice complete. Press Leave to start again.' : 'Lesson complete. Press Leave to end the billed session.') : preview ? 'Practice mode: speak a line or try the glasses signals.' : 'Your scene is ready. Speak the Japanese line, or ask for a hint.');
     agentMachine.send('done', { complete: finished });
-    if (clerkSpeech && !voiceActive && !finished) void lessonSpeech.play(clerkSpeech);
-    if (finished) setTimeout(() => { if (run === epoch && active && !ending) void endPractice(); }, 0);
+    if (finished) void Promise.resolve(replyPlayback).then(() => {
+      if (run === epoch && active && !ending) void endPractice();
+    });
     return true;
   } catch (error) {
     if (run === epoch && error.name !== 'AbortError') { agentMachine.send('fail'); notify(error.status === 409 ? 'Lesson state changed or this request expired. Leave and restart safely; no scene commands were replayed.' : `Turn failed: ${error.message}`, true); }

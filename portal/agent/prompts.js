@@ -7,7 +7,7 @@ const INPUT_LAYERS = [
 ].join(' ');
 
 const CONTINUITY_INSTRUCTIONS = [
-  "Preserve the established subject from the starting reference: same face, hair and clothing. Use only appearance details supported by baseScene; never invent a face descriptor.",
+  "Preserve the established subject from the starting reference: same face, gender, age, hair and clothing. baseScene.identityConstraint is authoritative across opening, branches and rejoin. Use only appearance details supported by baseScene; never invent a face descriptor or recast the clerk. Action cues describe movement only; the server appends the identity lock.",
   "For the opening establish WHO does WHAT at WHERE using baseScene.prompt and the approved reference, with a static eye-level medium-wide first-person view.",
   "For continuation and rejoin output one small physical delta only. Do not repeat the full character or store description: that can read as rebuilding the scene. The established face, hair, uniform, background and lighting remain unchanged.",
   "Keep the camera position, orientation, focal length and framing fixed. The learner is the invisible viewpoint. In the store, the clerk stays behind the counter at the same apparent distance and size; use small in-place hand gestures and expressions. For a shelf request, the clerk indicates the direction from the existing position. Never request a visible customer, over-the-shoulder figure, zoom, dolly, pan, tilt, tracking, reframing, close-up or cut.",

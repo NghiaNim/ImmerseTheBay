@@ -5,7 +5,7 @@ export const CHARACTER_ANCHOR = 'The established face, hair and clothing remain 
 export const SCENE_ANCHOR = 'Static eye-level medium-wide first-person POV, locked position, orientation and focal length; framing and background stay stationary, foreground clear.';
 export const SPEAKING_MOTION = '; the established speaker moves their lips naturally, with listening pauses';
 const NEUTRAL_ACTION = 'The host stays in place with a natural expression';
-const CHARACTER = '(?:clerk|assistant|host|person|character|face|facial features|identity|hairstyle|hair|skin tone|clothing|outfit|accessories)';
+const CHARACTER = '(?:clerk|assistant|host|person|character|face|facial features|identity|gender|sex|age|hairstyle|hair|skin tone|clothing|outfit|accessories)';
 const conflicts = [
   new RegExp(`\\b(?:replace|swap|recast|change|alter|transform|redesign)\\b[^.!?。！？]{0,65}\\b${CHARACTER}\\b`, 'iu'),
   new RegExp(`\\b(?:new|different|another)\\s+${CHARACTER}\\b`, 'iu'),
@@ -32,25 +32,34 @@ function usable(value) {
     .replace(/\bcloser to the (?:learner|visitor|customer)\b/giu, 'slightly toward the near counter edge');
 }
 
-/** Initial WHO/WHERE may use a trusted reference description. Subsequent turns
- * carry one physical delta, not a repeated character/world description. Positive
- * camera/identity invariants avoid the model's documented negation noun trap.
+/** Each turn carries one physical delta plus the server-owned identity lock.
+ * Initial WHO/WHERE may also use a trusted reference description. The identity
+ * lock persists through continuation and rejoin, including short action cues.
  */
-export function composeVisualPrompt(action, fallback = NEUTRAL_ACTION, { initial = false, subject = '', speaking = false, visiblePartner = true } = {}) {
+export function composeVisualPrompt(action, fallback = NEUTRAL_ACTION, { initial = false, subject = '', speaking = false, visiblePartner = true, identityAnchor = CHARACTER_ANCHOR } = {}) {
   // Without a photographed partner, dialogue may branch off-camera but visual
   // actions must not synthesize a character (including unsafe authored fallbacks).
   // Keep the reference environment itself authoritative instead of repeating
   // human nouns from an LLM cue or a default store script.
   if (visiblePartner === false) return `The photographed environment retains its original layout and lighting. Existing objects remain stationary. ${SCENE_ANCHOR}`;
+  const identity = usable(identityAnchor);
+  const anchor = identity && identity.length <= 240 ? identity : CHARACTER_ANCHOR;
+  const locked = anchor !== CHARACTER_ANCHOR;
   const strip = (value) => typeof value === 'string'
-    ? value.replace(CHARACTER_ANCHOR, '').replace(SCENE_ANCHOR, '').replace(SPEAKING_MOTION, '').trim() : value;
-  const selected = usable(strip(action)) || usable(strip(fallback)) || NEUTRAL_ACTION;
+    ? value.replaceAll(anchor, '').replaceAll(CHARACTER_ANCHOR, '').replaceAll(SCENE_ANCHOR, '').replaceAll(SPEAKING_MOTION, '').replace(/^[.;\s]+/u, '').trim() : value;
+  // With a pinned cast, action deltas cannot redefine gender or appearance.
+  // The model supplies movement, while the trusted anchor supplies appearance.
+  const deltaOnly = (value) => {
+    const clean = usable(strip(value));
+    return locked && /\b(?:male|female|man|woman|boy|girl|gender|beard|moustache|mustache|blond|blonde|redhead|hair|hairstyle|eyes|face|shirt|apron)\b|男性|女性|男店员|女店员|性别|性別/iu.test(clean) ? '' : clean;
+  };
+  const selected = deltaOnly(action) || deltaOnly(fallback) || NEUTRAL_ACTION;
   const first = (selected.match(/^[^.!?。！？]+/u)?.[0] || NEUTRAL_ACTION).trim();
   // subject is server-owned reference metadata, never the learner's caption.
-  const description = initial ? (usable(subject).match(/^[^.!?。！？]+/u)?.[0] || '').slice(0, 180).trim() : '';
+  const description = initial && !locked ? (usable(subject).match(/^[^.!?。！？]+/u)?.[0] || '').slice(0, 180).trim() : '';
   const prefix = description ? `${description}; ` : '';
   const motion = speaking ? SPEAKING_MOTION : '';
-  const overhead = `${prefix}${motion}. ${CHARACTER_ANCHOR} ${SCENE_ANCHOR}`;
+  const overhead = `${prefix}${motion}. ${anchor} ${SCENE_ANCHOR}`;
   const wordsAvailable = 95 - overhead.split(/\s+/u).length + 1;
   const charsAvailable = 600 - overhead.length;
   let delta = first.split(/\s+/u).slice(0, wordsAvailable).join(' ');
@@ -61,7 +70,7 @@ export function composeVisualPrompt(action, fallback = NEUTRAL_ACTION, { initial
     if (/[\uD800-\uDBFF]$/u.test(delta)) delta = delta.slice(0, -1);
   }
   delta = delta.trim() || NEUTRAL_ACTION;
-  return `${prefix}${delta}${motion}. ${CHARACTER_ANCHOR} ${SCENE_ANCHOR}`;
+  return `${prefix}${delta}${motion}. ${anchor} ${SCENE_ANCHOR}`;
 }
 
 
