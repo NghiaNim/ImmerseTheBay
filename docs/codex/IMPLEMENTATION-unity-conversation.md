@@ -30,4 +30,4 @@ The client now understands branch routes, clerk speech and operation run/revisio
 
 The ignored local visko.json points to the current developer portal on port 8793. Provider keys remain only in portal/.env. The APK and Logs are untracked artifacts. Current Cartesia managed configuration supports Japanese/English, not Chinese voice. Fine facial identity and shelf geometry still drift in generated video despite stable overall framing; command success is not visual fidelity proof.
 
-Final Android APK rebuild after microphone lifecycle fixes succeeded with zero errors. Actual APK size is approximately 231 MiB at Builds/ImmerseTheBay.apk. Unity/XREAL build hooks modified protected settings/assets and generated an SDK AAR; those build-only changes were restored/removed after verification and are not part of the commit.
+Final Android APK rebuild after microphone lifecycle fixes succeeded with zero errors. Actual APK size is approximately 252 MiB at Builds/ImmerseTheBay.apk. Unity/XREAL build hooks modified protected settings/assets and generated an SDK AAR; those build-only changes were restored/removed after verification and are not part of the commit.
