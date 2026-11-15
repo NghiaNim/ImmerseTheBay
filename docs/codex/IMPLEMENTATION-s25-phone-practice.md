@@ -194,3 +194,21 @@ scene review, then conversation/video integration incrementally. Verify actual
 S25 UI, glasses rendering and interaction at each step before advancing. The
 user's report of sky in the official 3.1 XRI sample establishes visible content,
 not complete HelloMR or interaction acceptance. Complete that baseline first.
+
+## Accepted baseline selection (supersedes HelloMR-first experiment)
+
+The user explicitly selected exactly two installed applications: (1) the working,
+unmodified official SDK 3.1 XRI demo as the permanent visible-scene baseline,
+and (2) ImmerseTheBay as the development app. ControlGlasses remains required
+runtime infrastructure. Remove the extra local HelloMR test application; retain
+its artifacts only as historical diagnostic evidence, not as an active baseline.
+
+Baseline package: `com.DefaultCompany.XREALSDKTemplate`, official release
+https://github.com/dengxian-xreal/XREALSDKTemplate/releases/tag/3.1.0 .
+Reference source: tag 3.1.0, commit `91806e6`; preserve a pristine source snapshot
+separately from the Unity-upgraded experimental checkout. The baseline has
+visibly rendered stereo sky and interaction panels; the user confirmed sky.
+It was restored after the local HelloMR test showed black output. Do not replace
+it with future experimental builds or change its scene/rig/controller structure.
+All product functionality belongs in `com.immersethebay.app`; compare each
+increment against the preserved baseline on the actual phone and glasses.
