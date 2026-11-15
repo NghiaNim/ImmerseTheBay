@@ -26,7 +26,7 @@ class TeninSnapshot : BroadcastReceiver() {
         fun nav(tab: TeninUi.Tab) = s.ui.bottomNav(tab) {}
         val reading = listOf(TeninStep("Spotted a restaurant", true), TeninStep("Found the menu board", true))
         val screens = linkedMapOf<String, () -> View>(
-            "start" to { s.start(true, listOf("Restaurant", "Supermarket", "Doctor"), {}, {}, nav(TeninUi.Tab.START)) },
+            "start" to { s.start(true, {}, {}, nav(TeninUi.Tab.START)) },
             "choose" to { s.chooseScenario(true, TeninDemo.scenarios, 0, {}, {}, {}, {}, nav(TeninUi.Tab.START)) },
             "detail" to { s.scenarioDetail(true, food, {}, {}, {}) },
             "live" to { s.liveLesson(true, {}, {}, {}, {}, nav(TeninUi.Tab.START)) },

@@ -67,7 +67,7 @@ private class Waveform(context: Context) : View(context) {
  * Stateless views for every Tenin screen. Each function takes the data to show and callbacks,
  * so the lesson workflow (photo, speech, portal, glasses) can be wired in without touching layout.
  */
-class TeninScreens(private val context: Context) {
+class TeninScreens(private val context: Context, private val bindPreview: (String, ImageView) -> Unit = { _, _ -> }) {
     val ui = TeninUi(context)
     private fun dp(value: Float) = context.dp(value)
     private fun wrapRow(views: List<View>) = HorizontalScrollView(context).apply {
@@ -75,21 +75,48 @@ class TeninScreens(private val context: Context) {
         addView(ui.row(*views.toTypedArray()))
     }
 
+    private fun catalogPreview(scenario: TeninScenario, width: Float? = null): View = ui.run {
+        val image = ImageView(context).apply {
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            contentDescription = "Scene preview for ${scenario.title}"
+        }
+        val frame = object : FrameLayout(context) {
+            override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+                val w = MeasureSpec.getSize(widthMeasureSpec)
+                super.onMeasure(widthMeasureSpec, MeasureSpec.makeMeasureSpec(w * 9 / 16, MeasureSpec.EXACTLY))
+            }
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(width?.let { dp(it) } ?: ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            background = rounded(Tenin.LAVENDER, dp(14f).toFloat())
+            clipToOutline = true
+            addView(icon(scenario.icon, 28f, Tenin.PRIMARY), FrameLayout.LayoutParams(dp(28f), dp(28f), Gravity.CENTER))
+            addView(image, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        }
+        bindPreview(scenario.startImage, image)
+        frame
+    }
+
+    private fun TeninUi.entryCard(kind: TeninIcon, name: String, blurb: String, selected: Boolean = false, action: () -> Unit): View =
+        card(row(tile(kind, 56f).margins(right = 14f),
+            column(text(name, 23f, Tenin.PRIMARY_DARK, 600),
+                text(blurb, 16f, Tenin.MUTED).margins(top = 3f)).weighted(),
+            icon(TeninIcon.CHEVRON, 20f, Tenin.PRIMARY)).fillWidth(),
+            selected = selected, fill = if (selected) Tenin.TINT else Tenin.BG, padding = 16f).onTap(action)
+
     // 1 · Start
-    fun start(connected: Boolean, premadeNames: List<String>, onLive: () -> Unit, onPremade: () -> Unit, nav: View) = ui.run {
-        fun option(kind: TeninIcon, default: Boolean, name: String, blurb: String, chips: List<String>, action: () -> Unit) = card(
-            row(tile(kind).margins(right = 10f), *(if (default) arrayOf<View>(pill("Default", Tenin.WHITE, Tenin.PRIMARY, 14f)) else emptyArray()),
-                gap(), icon(TeninIcon.CHEVRON, 22f, Tenin.PRIMARY, 2f)).fillWidth(),
-            text(name, 28f).margins(top = 14f),
-            body(blurb).margins(top = 8f),
-            wrapRow(chips.map { pill(it).margins(right = 8f) }).margins(top = 14f),
-            selected = default,
-        ).onTap(action)
+    fun start(connected: Boolean, onLive: () -> Unit, onPremade: () -> Unit, nav: View) = ui.run {
+        val headline = text("What would you like to practice?", 26f, weight = 600).apply {
+            if (resources.configuration.fontScale <= 1.1f) {
+                maxLines = 1
+                setAutoSizeTextTypeUniformWithConfiguration(18, 26, 1, TypedValue.COMPLEX_UNIT_SP)
+                ellipsize = android.text.TextUtils.TruncateAt.END
+            }
+        }
         screen(listOf(
             header(connected = connected),
-            title("What would you like to practice?").margins(top = 18f),
-            option(TeninIcon.CAMERA, true, "Live Lesson", "You’re somewhere real. Add a photo or say your goal, then rehearse before you speak.", listOf("Photo", "Say my goal"), onLive).margins(top = 22f),
-            option(TeninIcon.PLAY, false, "Pre-made Lesson", "Pick a scenario and practice at home. It all plays in your glasses.", premadeNames, onPremade).margins(top = 18f),
+            headline.fillWidth().margins(top = 18f),
+            entryCard(TeninIcon.CAMERA, "Live Lesson", "Add a photo or say what you want to rehearse.", selected = true, action = onLive).margins(top = 18f),
+            entryCard(TeninIcon.PLAY, "Pre-made Lesson", "Choose a scene and practice in your glasses.", action = onPremade).margins(top = 12f),
         ), nav = nav)
     }
 
@@ -98,7 +125,7 @@ class TeninScreens(private val context: Context) {
         val items = scenarios.mapIndexed { i, s ->
             val on = i == selected
             card(row(
-                tile(s.icon, 48f, if (on) Tenin.PRIMARY else Tenin.LAVENDER, if (on) Tenin.WHITE else Tenin.PRIMARY).margins(right = 14f),
+                catalogPreview(s, 96f).margins(right = 12f),
                 column(
                     text(SpannableStringBuilder(s.title).apply {
                         if (s.jpTitle.isNotEmpty()) {
@@ -119,7 +146,7 @@ class TeninScreens(private val context: Context) {
             ).fillWidth(), selected = on, padding = 16f).margins(top = 11f).onTap { if (on) onOpen(i) else onSelect(i) }
         }
         screen(listOf(header(onBack, connected = connected), title("Choose a scenario").margins(top = 18f, bottom = 9f)) + items +
-            listOfNotNull(if (scenarios.isEmpty()) body("No lessons are installed yet.").margins(top = 12f) else text("Tap the selected lesson to see its key phrases.", 15f, Tenin.FAINT).margins(top = 14f)),
+            listOfNotNull(if (scenarios.isEmpty()) body("No lessons are installed yet.").margins(top = 12f) else text("Tap the selected lesson to see its scene and key phrases.", 15f, Tenin.FAINT).margins(top = 14f)),
             footer = listOf(primaryButton("Start in glasses", TeninIcon.GLASSES, if (scenarios.isEmpty()) null else onStart)), nav = nav)
     }
 
@@ -139,6 +166,8 @@ class TeninScreens(private val context: Context) {
             row(tile(s.icon, 56f, Tenin.PRIMARY, Tenin.WHITE, 16f).margins(right = 14f),
                 column(text(s.title, 32f).apply { setLineSpacing(0f, 0.95f) }, text(s.jpTitle, 15f, Tenin.MUTED).margins(top = 2f)).weighted()).fillWidth().margins(top = 18f),
             body(s.detail).margins(top = 14f),
+            eyebrow("Scene preview").margins(top = 16f, bottom = 6f),
+            catalogPreview(s),
             eyebrow("Key phrases").margins(top = 20f, bottom = 12f),
             phraseRows(s.phrases, onSpeak),
             if (s.note.isEmpty()) null else card(row(icon(TeninIcon.SPARKLE, 20f, Tenin.AMBER).margins(right = 10f), text(s.note, 17f, Tenin.BROWN).weighted()).fillWidth(),
@@ -162,30 +191,11 @@ class TeninScreens(private val context: Context) {
                     background = rounded(if (selected) Tenin.PRIMARY else Tenin.LAVENDER, dp(16f).toFloat())
                 }.weighted().margins(right = 5f).onTap { onPartnerVoice(value) }
             }.toTypedArray()).fillWidth(),
-            card(
-                FrameLayout(context).apply {
-                    background = rounded(Tenin.PRIMARY, dp(20f).toFloat())
-                    elevation = dp(6f).toFloat()
-                    layoutParams = LinearLayout.LayoutParams(dp(64f), dp(64f)).apply { gravity = Gravity.CENTER_HORIZONTAL }
-                    addView(ImageView(context).apply { setImageDrawable(TeninIconDrawable(TeninIcon.CAMERA, Tenin.WHITE, 2f)) }, FrameLayout.LayoutParams(dp(30f), dp(30f), Gravity.CENTER))
-                },
-                text("Take a photo", 26f, Tenin.PRIMARY_DARK).margins(top = 14f).apply { gravity = Gravity.CENTER }.fillWidth(),
-                text("Restaurant, shop, counter, clinic…", 16f, Tenin.MUTED).margins(top = 6f).apply { gravity = Gravity.CENTER }.fillWidth(),
-                fill = Tenin.TINT, line = 0xFFBDB0EC.toInt(), dash = true,
-            ).margins(top = 18f).onTap(onPhoto),
-            secondaryButton("Choose from library", TeninIcon.IMAGE, onLibrary).margins(top = 14f),
-            card(row(
-                FrameLayout(context).apply {
-                    background = rounded(Tenin.PRIMARY, dp(46f).toFloat())
-                    layoutParams = LinearLayout.LayoutParams(dp(46f), dp(46f)).apply { rightMargin = dp(14f) }
-                    addView(ImageView(context).apply { setImageDrawable(TeninIconDrawable(TeninIcon.MIC, Tenin.WHITE, 2f)) }, FrameLayout.LayoutParams(dp(22f), dp(22f), Gravity.CENTER))
-                },
-                column(text("Say my goal", 20f, Tenin.PRIMARY_DARK, 600), text("e.g. “I want to order food, no shrimp”", 16f, Tenin.MUTED).margins(top = 2f)).weighted(),
-            ).fillWidth(), fill = Tenin.YELLOW_BG, line = Tenin.YELLOW_LINE, padding = 16f, radius = 20f).margins(top = 14f).onTap(onVoice),
-            card(row(icon(TeninIcon.SHIELD, 22f, Tenin.GREEN).margins(right = 12f),
-                column(text("Your photo is used for this lesson", 18f, 0xFF134D35.toInt(), 600),
-                    text("It is sent to build the lesson and removed from the server within 30 minutes.", 16f, Tenin.GREEN).margins(top = 3f)).weighted(),
-                gravity = Gravity.TOP).fillWidth(), fill = Tenin.GREEN_BG, line = Tenin.GREEN_LINE, padding = 16f, radius = 20f).margins(top = 14f),
+            entryCard(TeninIcon.CAMERA, "Take a photo", "Use the scene in front of you.", selected = true, action = onPhoto).margins(top = 16f),
+            entryCard(TeninIcon.IMAGE, "Choose from library", "Use a photo you already have.", action = onLibrary).margins(top = 10f),
+            entryCard(TeninIcon.MIC, "Say my goal", "Describe what you want to practice.", action = onVoice).margins(top = 10f),
+            text("Your photo is sent to create the lesson. The app’s lesson service keeps its copy for up to 30 minutes.",
+                15f, Tenin.MUTED).margins(top = 16f),
         ), nav = nav)
     }
 

@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.hardware.display.DisplayManager
 import android.os.BatteryManager
 import android.os.Build
@@ -12,12 +13,15 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.speech.tts.TextToSpeech
+import android.util.LruCache
 import android.view.Display
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowInsets
 import android.widget.FrameLayout
+import android.widget.ImageView
 import org.json.JSONObject
+import java.lang.ref.WeakReference
 import java.net.HttpURLConnection
 import java.net.URL
 import java.time.Instant
@@ -58,6 +62,14 @@ class TeninActivity : Activity() {
     private val stack = ArrayList<() -> View>()
     private var preparationDepth = 0
     private val worker = Executors.newSingleThreadExecutor()
+    private val previewWorker = Executors.newSingleThreadExecutor()
+    private val previewCache = object : LruCache<String, Bitmap>(12 * 1024 * 1024) {
+        override fun sizeOf(key: String, value: Bitmap) = value.allocationByteCount
+    }
+    private val pendingPreviews = mutableMapOf<String, MutableList<WeakReference<ImageView>>>()
+    private val unavailablePreviews = mutableSetOf<String>()
+    private val bundledPreviewPath = Regex("lessons/images/[A-Za-z0-9][A-Za-z0-9._-]{0,99}")
+
     private val main = Handler(Looper.getMainLooper())
     private var demo = false
     private var tts: TextToSpeech? = null
@@ -91,7 +103,7 @@ class TeninActivity : Activity() {
         displays.registerDisplayListener(displayListener, main)
         demo = intent.getBooleanExtra("demo", false)
         if (!demo) TeninWorkflow.install()
-        screens = TeninScreens(this)
+        screens = TeninScreens(this, ::bindScenarioPreview)
         root = FrameLayout(this).apply { setBackgroundColor(Tenin.BG) }
         root.setOnApplyWindowInsetsListener { view, insets ->
             if (Build.VERSION.SDK_INT >= 30) {
@@ -158,12 +170,47 @@ class TeninActivity : Activity() {
 
     // --- Start and pre-made lessons ------------------------------------------------------------
 
-    private fun startScreen(): View = screens.start(connected, scenarios.map { it.title }.take(3),
+    private fun startScreen(): View = screens.start(connected,
         onLive = { go(::liveScreen) }, onPremade = { go(::chooseScreen) }, nav = nav(TeninUi.Tab.START))
 
     private fun chooseScreen(): View = screens.chooseScenario(connected, scenarios, chosen,
         onSelect = { chosen = it; render() }, onOpen = { chosen = it; go(::detailScreen) },
         onStart = { prepare(scenarios[chosen]) }, onBack = ::back, nav = nav(TeninUi.Tab.START))
+
+    private fun bindScenarioPreview(path: String, view: ImageView) {
+        if (!path.matches(bundledPreviewPath) || path in unavailablePreviews) return
+        previewCache.get(path)?.let { view.setImageBitmap(it); return }
+        val waiters = pendingPreviews[path]
+        if (waiters != null) {
+            waiters.removeAll { it.get() == null }
+            waiters.add(WeakReference(view))
+            return
+        }
+        pendingPreviews[path] = mutableListOf(WeakReference(view))
+        previewWorker.execute {
+            val bitmap = runCatching { decodeBundledPreview(path) }.getOrNull()
+            main.post {
+                if (closed) return@post
+                val targets = pendingPreviews.remove(path).orEmpty()
+                if (bitmap == null) { unavailablePreviews.add(path); return@post }
+                previewCache.put(path, bitmap)
+                targets.forEach { it.get()?.setImageBitmap(bitmap) }
+            }
+        }
+    }
+
+    private fun decodeBundledPreview(path: String): Bitmap? {
+        val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        assets.open(path).use { BitmapFactory.decodeStream(it, null, options) }
+        val width = options.outWidth
+        val height = options.outHeight
+        if (width <= 0 || height <= 0 || width.toLong() * height > 80_000_000L) return null
+        var sample = 1
+        while (maxOf(width, height) / sample > 1280) sample *= 2
+        options.inJustDecodeBounds = false
+        options.inSampleSize = sample
+        return assets.open(path).use { BitmapFactory.decodeStream(it, null, options) }
+    }
 
     private fun detailScreen(): View = screens.scenarioDetail(connected, scenarios[chosen], onSpeak = { speak(it.jp) },
         onStart = { prepare(scenarios[chosen]) }, onBack = ::back)
@@ -511,6 +558,9 @@ class TeninActivity : Activity() {
         if (!demo) TeninWorkflow.cancel(this)
         main.removeCallbacksAndMessages(null)
         tts?.shutdown()
+        previewWorker.shutdownNow()
+        pendingPreviews.clear()
+        previewCache.evictAll()
         worker.shutdownNow()
         super.onDestroy()
     }

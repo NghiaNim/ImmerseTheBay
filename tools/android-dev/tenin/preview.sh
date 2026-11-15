@@ -34,6 +34,7 @@ mkdir -p "$work/classes" "$work/dex" "$work/assets/lessons"
 
 cp -R "$here/assets/." "$work/assets/"
 cp "$repo"/Assets/StreamingAssets/lessons/*.json "$work/assets/lessons/"
+cp -R "$repo"/Assets/StreamingAssets/lessons/images "$work/assets/lessons/"
 config="$repo/Builds/helloMR-baseline/Assets/StreamingAssets/visko.json"
 [[ -f "$config" ]] && cp "$config" "$work/assets/visko.json"
 
