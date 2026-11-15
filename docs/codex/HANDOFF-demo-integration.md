@@ -101,3 +101,11 @@ The phone Live Lesson flow shows native partial dictation for Japanese, English 
 Keep the Portal's working data in a stable ignored `portal/data/` directory. When launching from a temporary revision archive, link that archive's `portal/data/` to the stable directory before starting the process. Existing local record files were preserved across the switch. The expanded Portal reopened the exact synthetic run with three completed targets, three vocabulary links and a three-target replay.
 
 Run the repository's synthetic browser capture harness from #43 to regenerate the demo without a physical mic. The 24.32-second 1440×900 H.264/AAC export shows an independent pass, a 55% water attempt with wrong particle 「が」 and suggested 「を」, a hinted pass, and a completed checkout pass. These are actual recognition and sentence-match outcomes from synthetic Japanese speech with the three authored stills in browser preview. Physical capture, live Dynamic footage and the S25 batch acceptance remain tracked in #34, #39 and #41.
+
+### Native sentence feedback
+
+The validated Portal and installed S25 Android source were `f4f9fe1`. All 232 Portal tests passed and Unity Android built with zero errors. The installed `ImmerseTheBay-s25-f4f9fe1.apk` matched SHA-256 `1e7cd4400761923f0615ec6eb4045db757c8661a029314098ce298b56cd64bd2`.
+
+The Speak control submits a rehearsal turn. A scored retry stays in the current live scene. Explicit detour requests continue to branch. A successful result stays visible during video transitions and through the next voice line. The final sentence result appears before the summary.
+
+The physical S25 and Air 2 Ultra run produced three decoded Dynamic scene starts, Cartesia clerk playback and live learner attempts of 100%, 86% and 100%. The phone showed three of three phrases understood. A separate provider test scored synthetic inputs of 100%, 55% with a correction on 「を」, assisted 100%, and final 100%. In a second wearer run, an unrelated answer showed the centered “Please try again · 0% match” card in both eyes and kept the first target active. The wearer confirmed the card was visible.
