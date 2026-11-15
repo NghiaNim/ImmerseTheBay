@@ -36,6 +36,14 @@ The S25 ran signed APK `8b09c3b` (SHA-256 `be0009349720e49b3cc90caf4284ae14a6bae
 
 The photo dialog now follows phone rotation while capture is open, uses a proportionally cropped 16:9 preview, and restores portrait on close. A physical landscape/portrait comparison, a repeatable optical button-selection test and device-level saved Review highlight verification remain open.
 
+## Judge rehearsal build
+
+The S25 has signed APK `2962b12` (SHA-256 `7a75f3e80db888427121b25b9b0f7352cef69b01db91811643f0e72f47a602a6`) with the Portal behavior from `d54f6e7` at port 8793. Unity Android built with zero errors. The Portal suite passed 251 tests, and all three café opening endpoints returned valid partial content during preflight.
+
+The pre-course Android Presentation originally drew the Tenin title at 22 sp, about 9 visible pixels on the 1920×1080 image per eye. Unity's Order Coffee title appears after entering the class. The new build sets the standby text size before the external display's first layout and uses the physical per-eye dimensions. S25 capture at the home and ready screens measured a 70-pixel Tenin title and 49-pixel guidance in both eyes.
+
+The current Portal process loaded the recorded café run from disk. The full replay retained four practiced sentences and six attempts in the original record. The new tricky replay contains only the coffee and milk requests, which each needed a retry. Timed phone examples are included in the build.
+
 ## First café wearer pass
 
 S25 ran the signed `a2835a1` APK against Portal `2da42f1`. The handset showed Courses, separate English and Japanese title rows, and Order Coffee selected. The wearer confirmed the milk scene was visible and sound reached both ears.
