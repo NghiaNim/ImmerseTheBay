@@ -24,7 +24,7 @@ Shader "ImmerseTheBay/ImmersiveVisko"
             #include "UnityCG.cginc"
 
             sampler2D _MainTex, _EnvironmentTex;
-            float4 _MainTex_ST;
+            float4 _MainTex_ST, _EnvironmentTex_ST;
             float _EnvironmentDim, _HasVideo, _SceneOpacity;
             struct appdata
             {
@@ -52,7 +52,7 @@ Shader "ImmerseTheBay/ImmersiveVisko"
             {
                 UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(i);
                 // Native BGRA video uses the existing texture flip; JPEG photos do not.
-                fixed3 photo = tex2D(_EnvironmentTex, i.uv).rgb;
+                fixed3 photo = tex2D(_EnvironmentTex, TRANSFORM_TEX(i.uv, _EnvironmentTex)).rgb;
                 fixed3 video = tex2D(_MainTex, TRANSFORM_TEX(i.uv, _MainTex)).rgb;
                 float radius = length((i.uv - float2(0.5, 0.53)) / float2(0.43, 0.49));
                 float centre = 1.0 - smoothstep(0.47, 1.0, radius);

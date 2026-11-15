@@ -2,7 +2,11 @@
 set -euo pipefail
 
 repo=$(git -C "$(dirname "$0")" rev-parse --show-toplevel)
-dev="$repo/Builds/helloMR-baseline"
+dev="${ITB_DEV_PROJECT:-$repo/Builds/helloMR-baseline}"
+if [[ "$(basename "$dev")" != "helloMR-baseline" ]]; then
+  echo "Stage only into the isolated helloMR-baseline development project." >&2
+  exit 1
+fi
 if [[ ! -f "$dev/ProjectSettings/ProjectVersion.txt" || ! -d "$dev/Assets/Editor" ]]; then
   echo "Prepare the isolated XREAL 3.1 development project first." >&2
   exit 1

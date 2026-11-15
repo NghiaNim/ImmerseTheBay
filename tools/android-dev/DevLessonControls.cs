@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using UnityEngine.XR.ARFoundation;
 using UnityEngine.XR.ARSubsystems;
 using ImmerseTheBay.Learning;
+using ImmerseTheBay.Content;
+using UnityEngine.Networking;
 using ImmerseTheBay.Visko;
 using Unity.XR.XREAL;
 using UnityEngine;
@@ -22,6 +24,11 @@ namespace ImmerseTheBay.Learning
         string placementStatus = "";
         bool practiceVisible;
         bool starting;
+        bool openingRequested;
+        bool loadingReference;
+        int selectionGeneration;
+        bool retryAvailable;
+        string startupError = "";
         float connectDeadline;
         static readonly int SceneOpacity = Shader.PropertyToID("_SceneOpacity");
         MaterialPropertyBlock sceneProperties;
@@ -75,11 +82,33 @@ namespace ImmerseTheBay.Learning
             // The big circle is the microphone: it listens on its own after each line, and can be tapped any time.
             speakRing = Box(t, new Color(1f, 1f, 1f, 0.18f), 0.5f, 0.66f, 0.5f, 0.66f, rounded: true).GetComponent<RectTransform>();
             speakRing.sizeDelta = new Vector2(640, 640);
-            speakButton = RoundButton(t, "Tap to\nspeak", lesson.Speak, 520, 0.5f, 0.66f);
+            speakButton = RoundButton(t, "Tap to\nspeak", SpeakOrRetry, 520, 0.5f, 0.66f);
             speakLabel = speakButton.GetComponentInChildren<Text>();
+
+            var preview = new GameObject("Scene preview", typeof(RectTransform), typeof(RawImage), typeof(AspectRatioFitter));
+            var previewSlot = new GameObject("Scene preview area", typeof(RectTransform));
+            previewSlot.transform.SetParent(t, false);
+            Place(previewSlot.GetComponent<RectTransform>(), 0.08f, 0.545f, 0.92f, 0.79f);
+            preview.transform.SetParent(previewSlot.transform, false);
+            startPreview = preview.GetComponent<RawImage>();
+            startPreview.raycastTarget = false;
+            var aspect = preview.GetComponent<AspectRatioFitter>();
+            aspect.aspectMode = AspectRatioFitter.AspectMode.FitInParent;
+            aspect.aspectRatio = 16f / 9f;
+            preview.SetActive(false);
+            loadingFill = Box(t, TeninYellow, 0.46f, 0.514f, 0.54f, 0.521f, rounded: true).GetComponent<RectTransform>();
+            loadingFill.GetComponent<Image>().raycastTarget = false;
+            loadingFill.gameObject.SetActive(false);
 
             heading = Place(Label(t, 74, Color.white, "Lesson running\nin your glasses", TextAnchor.MiddleCenter, font: serif), 0.05f, 0.415f, 0.95f, 0.51f);
             status = Place(Label(t, 38, new Color(1f, 1f, 1f, 0.92f), "", TextAnchor.MiddleCenter, font: serif), 0.08f, 0.345f, 0.92f, 0.41f);
+
+            var retry = Box(t, Color.white, 0.34f, 0.276f, 0.66f, 0.333f, rounded: true);
+            retryButton = retry.AddComponent<Button>();
+            retryButton.targetGraphic = retry.GetComponent<Image>();
+            retryButton.onClick.AddListener(SpeakOrRetry);
+            Place(Label(retry.transform, 34, TeninPrimaryDark, "Retry", TextAnchor.MiddleCenter, FontStyle.Bold), 0f, 0f, 1f, 1f);
+            retry.SetActive(false);
 
             title = Place(Label(t, 36, Color.white, "", font: serif), 0.06f, 0.27f, 0.62f, 0.305f);
             step = Place(Label(t, 36, Color.white, "", TextAnchor.MiddleRight, font: serif), 0.62f, 0.27f, 0.94f, 0.305f);
@@ -95,9 +124,10 @@ namespace ImmerseTheBay.Learning
         }
 
         Font serif;
-        Button speakButton;
+        Button speakButton, retryButton;
         Text speakLabel, step, endLabel;
-        RectTransform speakRing, progressFill;
+        RectTransform speakRing, progressFill, loadingFill;
+        RawImage startPreview;
         static readonly Color TeninYellow = new Color32(0xFF, 0xE2, 0x99, 0xFF);
 
         static T Place<T>(T component, float x0, float y0, float x1, float y1) where T : Component
@@ -185,14 +215,26 @@ namespace ImmerseTheBay.Learning
         /// <summary>End lesson on the phone: stop the lesson and go back to Tenin, which shows the summary.</summary>
         void EndLessonAndReturn()
         {
-            bool wasRunning = practiceVisible || starting;
+            bool wasRunning = lesson.HasActiveLesson;
             EndPractice();
+            video.PrepareScenePreview(null);
             ShowPhone(lessonEnded: wasRunning);
+        }
+
+        void SpeakOrRetry()
+        {
+            if (retryAvailable) StartLive();
+            else if (practiceVisible && !starting && lesson.HasActiveLesson) lesson.Speak();
         }
 
         void EndPractice()
         {
             starting = false;
+            openingRequested = false;
+            loadingReference = false;
+            selectionGeneration++;
+            retryAvailable = false;
+            startupError = "";
             autoListenArmed = false;
             ClearPendingSession();
             lesson.LeaveLesson();
@@ -240,7 +282,7 @@ namespace ImmerseTheBay.Learning
             if (!autoListenArmed) return;
             if (!practiceVisible || lesson.IsDone || lesson.IsConversationActive || lesson.IsListening)
             { autoListenArmed = false; Debug.Log($"[Flow] auto-listen skipped visible={practiceVisible} done={lesson.IsDone} talk={lesson.IsConversationActive} listening={lesson.IsListening}"); return; }
-            if (lesson.IsBusy || lesson.IsClerkSpeaking) { autoListenAt = 0; return; }
+            if (starting || !lesson.HasActiveLesson || lesson.IsBusy || lesson.IsClerkSpeaking) { autoListenAt = 0; return; }
             if (autoListenAt == 0) { autoListenAt = Time.unscaledTime + 0.6f; return; }
             if (Time.unscaledTime < autoListenAt) return;
             autoListenArmed = false;
@@ -305,6 +347,9 @@ namespace ImmerseTheBay.Learning
         {
             CenterVideo();
             if (starting || lesson.IsBusy || lesson.IsConversationActive) return;
+            retryAvailable = false;
+            startupError = "";
+            currentTitle = "";
             pendingLessonId = presetLessonId;
             pendingStartImage = presetStartImage;
             pendingImage = null;
@@ -324,18 +369,37 @@ namespace ImmerseTheBay.Learning
             bool stored = pendingLessonId != null && (pendingLessonId.StartsWith("gen-") || pendingLessonId.StartsWith("rec-"));
             if (string.IsNullOrEmpty(pendingStartImage) && pendingImage == null && !stored)
             {
-                placementStatus = "Photo session expired. Choose another session on your phone.";
+                video.PrepareScenePreview(null);
+                startupError = "Photo session expired. Choose another session in Tenin.";
                 ClearPendingSession();
                 return;
             }
+            selectionGeneration++;
+            video.PrepareScenePreview(pendingImage);
             SetPracticeVisible(true);
-            if (video.IsConnected && !string.IsNullOrEmpty(video.SessionId)) BeginSelectedLesson();
-            else
+            starting = true;
+            openingRequested = false;
+            connectDeadline = Time.unscaledTime + 45f;
+            loadingReference = pendingImage == null && pendingStartImage != null && pendingStartImage.StartsWith("lessons/");
+            if (loadingReference) StartCoroutine(LoadBundledPreview(pendingStartImage, selectionGeneration));
+            if (!video.IsConnected || string.IsNullOrEmpty(video.SessionId)) video.CreateSession();
+        }
+
+        IEnumerator LoadBundledPreview(string path, int generation)
+        {
+            using var request = UnityWebRequest.Get(ContentLibrary.ToUrl(path));
+            request.timeout = 10;
+            yield return request.SendWebRequest();
+            if (generation != selectionGeneration || !starting) yield break;
+            loadingReference = false;
+            var bytes = request.result == UnityWebRequest.Result.Success ? request.downloadHandler.data : null;
+            if (bytes == null || bytes.Length == 0)
             {
-                starting = true;
-                connectDeadline = Time.unscaledTime + 45f;
-                video.CreateSession();
+                FailStartup("Could not load the scene photo. Try again or choose a different lesson.");
+                yield break;
             }
+            pendingImage = bytes;
+            video.PrepareScenePreview(bytes);
         }
 
         int totalLines;
@@ -358,6 +422,9 @@ namespace ImmerseTheBay.Learning
 
         void BeginSelectedLesson()
         {
+            openingRequested = true;
+            // Separate the connection deadline from the image upload and opening turn.
+            connectDeadline = Time.unscaledTime + 60f;
             lesson.lessonId = pendingLessonId;
             StartCoroutine(FetchLineCount(pendingLessonId));
             // Only bundled images can be loaded here; Portal-side images (replays of photo sessions) start from the prompt.
@@ -392,33 +459,65 @@ namespace ImmerseTheBay.Learning
 #endif
         }
 
+        void FailStartup(string message)
+        {
+            EndPractice();
+            startupError = message;
+            retryAvailable = true;
+        }
+
         void Update()
         {
             UpdateOneTriggerFlow();
-            if (starting && video.IsConnected && !string.IsNullOrEmpty(video.SessionId))
+            if (starting)
             {
-                starting = false;
-                BeginSelectedLesson();
+                if (Time.unscaledTime >= connectDeadline)
+                    FailStartup("The lesson took too long to start. Check the connection and retry.");
+                else if (!openingRequested && !loadingReference && video.IsConnected && !string.IsNullOrEmpty(video.SessionId))
+                    BeginSelectedLesson();
+                else if (openingRequested && !lesson.IsBusy)
+                {
+                    if (lesson.HasActiveLesson && video.HasLiveFrame) starting = false;
+                    else if (!lesson.HasActiveLesson) FailStartup("The lesson could not start. Check the connection and retry.");
+                }
+                else if (video.Status.StartsWith("error", System.StringComparison.OrdinalIgnoreCase) || video.Status == "FAILED")
+                    FailStartup("Could not connect to live video. Try again.");
             }
-            else if (starting && (video.Status.StartsWith("error", System.StringComparison.OrdinalIgnoreCase) ||
-                video.Status == "FAILED" || Time.unscaledTime >= connectDeadline))
-            {
-                starting = false;
-                ClearPendingSession();
-            }
-            if (practiceVisible && !starting && video.Status == "DISCONNECTED")
-                SetPracticeVisible(false);
+            if (practiceVisible && !starting && !lesson.IsDone && !lesson.IsBusy && !lesson.HasActiveLesson)
+                FailStartup("The lesson was interrupted. Check the connection and retry.");
+
             if (status)
             {
-                bool waiting = lesson.IsBusy || lesson.IsClerkSpeaking;
-                heading.text = !practiceVisible ? "Ready when\nyou are" : starting ? "Starting in\nyour glasses…" : lesson.IsDone ? "Lesson\ncomplete" : "Lesson running\nin your glasses";
-                status.text = !practiceVisible ? "Choose a lesson on your phone." : starting ? "Getting the scene ready…"
+                bool waiting = starting || lesson.IsBusy || lesson.IsClerkSpeaking;
+                heading.text = startupError.Length > 0 ? "Could not start the lesson"
+                    : !practiceVisible ? "Ready when\nyou are" : starting ? "Starting in\nyour glasses…"
+                    : lesson.IsDone ? "Lesson\ncomplete" : "Lesson running\nin your glasses";
+                status.text = startupError.Length > 0 ? startupError
+                    : !practiceVisible ? "Choose a lesson on your phone." : starting ? "Getting the scene ready…"
                     : lesson.IsDone ? "Well done. End the lesson to see your summary."
-                    : lesson.IsListening ? "Listening… say the line." : waiting ? "Listen to the other person…" : "Say the line, or tap the circle.";
+                    : lesson.IsListening ? "Listening… say the line." : waiting ? "Listen to the other person…"
+                    : "Say the line, or tap the circle.";
                 speakLabel.text = lesson.IsListening ? "Listening…" : waiting ? "…" : "Tap to\nspeak";
-                speakButton.interactable = practiceVisible && !lesson.IsBusy && !lesson.IsDone;
-                speakButton.gameObject.SetActive(practiceVisible);
-                speakRing.gameObject.SetActive(practiceVisible);
+                speakButton.interactable = practiceVisible && !starting && !lesson.IsBusy && !lesson.IsDone && lesson.HasActiveLesson;
+                speakButton.gameObject.SetActive(practiceVisible && !starting);
+                retryButton.gameObject.SetActive(retryAvailable);
+                speakRing.gameObject.SetActive(speakButton.gameObject.activeSelf);
+                startPreview.texture = video.StartImageTexture;
+                startPreview.gameObject.SetActive((starting || retryAvailable) && startPreview.texture);
+                if (startPreview.gameObject.activeSelf)
+                {
+                    float imageAspect = (float)startPreview.texture.width / startPreview.texture.height;
+                    float targetAspect = 16f / 9f;
+                    float w = Mathf.Min(1f, targetAspect / imageAspect), h = Mathf.Min(1f, imageAspect / targetAspect);
+                    startPreview.uvRect = new Rect((1f - w) * 0.5f, (1f - h) * 0.5f, w, h);
+                }
+                loadingFill.gameObject.SetActive(starting);
+                if (starting)
+                {
+                    float x = Mathf.Lerp(0.34f, 0.58f, Mathf.PingPong(Time.unscaledTime * 0.9f, 1f));
+                    loadingFill.anchorMin = new Vector2(x, 0.514f);
+                    loadingFill.anchorMax = new Vector2(x + 0.08f, 0.521f);
+                }
                 title.text = practiceVisible ? currentTitle : "";
                 int done = Mathf.Min(lesson.Beat + (lesson.IsDone ? 1 : 0), Mathf.Max(totalLines, 1));
                 step.text = !practiceVisible || starting ? "" : totalLines > 0 ? $"Step {Mathf.Min(lesson.Beat + 1, totalLines)} of {totalLines}" : $"Step {lesson.Beat + 1}";

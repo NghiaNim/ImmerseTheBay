@@ -39,6 +39,7 @@ namespace ImmerseTheBay.Learning
         public int Beat { get; private set; }
         public bool IsBusy { get; private set; }
         public bool IsDone { get; private set; }
+        public bool HasActiveLesson => m_HasLesson && !m_NeedsRestart;
         public bool IsListening => m_RecognitionPending;
         /// <summary>Clerk line still downloading or playing; Speak() would cut it off.</summary>
         public bool IsClerkSpeaking => m_ClerkAudioRequest != null || (m_ClerkSpeaker && m_ClerkSpeaker.isPlaying);

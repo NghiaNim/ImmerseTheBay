@@ -49,6 +49,11 @@ namespace ImmerseTheBay.Visko
         public string SessionId { get; private set; } = "";
         public string PortalSessionId => m_PortalSession;
         public Texture2D StartImageTexture { get; private set; }
+        public bool HasLiveFrame { get; private set; }
+        bool m_PreparingScene, m_AcceptSceneFrames;
+        long m_SceneFrameFloor;
+        float m_LiveBlend;
+        const float LessonAspect = 16f / 9f;
         public string Model { get; private set; } = "";
         public bool IsConnected => Status == "READY";
         public event Action<string> OnLearnMessage;
@@ -175,6 +180,11 @@ namespace ImmerseTheBay.Visko
         {
             while (m_Main.TryDequeue(out var a)) a();
             PullFrame();
+            if (m_PreparingScene && HasLiveFrame && m_LiveBlend < 1f)
+            {
+                m_LiveBlend = Mathf.MoveTowards(m_LiveBlend, 1f, Time.unscaledDeltaTime * 4f);
+                ApplyVideoBlend();
+            }
             m_FpsT += Time.unscaledDeltaTime;
             if (m_FpsT >= 1f) { m_Fps = m_Frames / m_FpsT; m_Frames = 0; m_FpsT = 0; }
         }
@@ -182,8 +192,9 @@ namespace ImmerseTheBay.Visko
         // ------------------------------------------------------------ public API (menu / other scripts)
         public async void CreateSession()
         {
+            int version = m_ConnectVersion;
             await ConfigReady;
-            if (this && isActiveAndEnabled) await ConnectInternal(ModelFromConfig(), null);
+            if (this && isActiveAndEnabled && version == m_ConnectVersion) await ConnectInternal(ModelFromConfig(), null);
         }
 
         public async void JoinPortalSession()
@@ -227,6 +238,7 @@ namespace ImmerseTheBay.Visko
             FailPending("Visko connection closed");
             m_ImageTask = null;
             m_LastFrame = -1;
+            m_AcceptSceneFrames = false;
             SetHasVideo(false);
             backend?.Dispose();
             if (m_OwnsSession) _ = m_Hub?.SendText("{\"type\":\"session_end\"}");
@@ -259,8 +271,19 @@ namespace ImmerseTheBay.Visko
                 await RunOperation("set_resolution", (id) => m_Backend.SendCommand(id, "set_resolution", "{\"resolution\":\"" + Esc(glassesResolution) + "\"}"));
                 CheckVersion(version);
             }
+            if (m_PreparingScene && (name == "reset" || name == "start"))
+            {
+                m_AcceptSceneFrames = false;
+                SetHasVideo(false);
+                if (name == "start") m_SceneFrameFloor = m_Backend.FrameId;
+            }
             await RunOperation(name, (id) => m_Backend.SendCommand(id, name, argsJson ?? ""));
             if (name == "reset") m_ImageTask = null;
+            if (m_PreparingScene && name == "start")
+            {
+                CheckVersion(version);
+                m_AcceptSceneFrames = true;
+            }
         }
 
         /// <summary>Uploads a JPEG and completes only after set_image returns image_accepted.</summary>
@@ -302,18 +325,59 @@ namespace ImmerseTheBay.Visko
             bool png = bytes.Length > 8 && bytes[0] == 137 && bytes[1] == 80 && bytes[2] == 78 && bytes[3] == 71;
             await RunOperation("set_image", id => m_Backend.UploadImage(id, bytes, png ? "photo.png" : "photo.jpg", png ? "image/png" : "image/jpeg"));
             CheckVersion(version);
-            var texture = new Texture2D(2, 2, TextureFormat.RGB24, false) { wrapMode = TextureWrapMode.Clamp };
-            if (!ImageConversion.LoadImage(texture, bytes, true))
+            if (!m_PreparingScene || !StartImageTexture)
+                DisplayStartImage(bytes);
+        }
+
+        /// <summary>Display the selected local image independently of the provider connection.</summary>
+        public void PrepareScenePreview(byte[] image)
+        {
+            m_PreparingScene = true;
+            m_AcceptSceneFrames = false;
+            SetHasVideo(false);
+            DisplayStartImage(image);
+            ApplySurfaceAspect();
+        }
+
+        void DisplayStartImage(byte[] bytes)
+        {
+            Texture2D texture = null;
+            if (bytes is { Length: > 0 })
             {
-                Destroy(texture);
-                Debug.LogWarning("[Visko] Image accepted, but the local environment preview could not decode it");
-                return;
+                texture = new Texture2D(2, 2, TextureFormat.RGB24, false) { wrapMode = TextureWrapMode.Clamp };
+                if (!ImageConversion.LoadImage(texture, bytes, true))
+                {
+                    Destroy(texture);
+                    texture = null;
+                    Debug.LogWarning("[Visko] Could not decode the scene preview");
+                }
             }
             var old = StartImageTexture;
             StartImageTexture = texture;
-            if (screen && screen.material.HasProperty("_EnvironmentTex")) screen.material.SetTexture("_EnvironmentTex", texture);
+            if (screen && screen.material.HasProperty("_EnvironmentTex"))
+            {
+                var mat = screen.material;
+                mat.SetTexture("_EnvironmentTex", texture ? texture : Texture2D.blackTexture);
+                Vector2 crop = texture && m_PreparingScene ? CropScale(texture.width, texture.height) : Vector2.one;
+                mat.SetTextureScale("_EnvironmentTex", crop);
+                mat.SetTextureOffset("_EnvironmentTex", (Vector2.one - crop) * 0.5f);
+            }
             SetHasVideo(false);
             if (old) Destroy(old);
+        }
+
+        static Vector2 CropScale(int width, int height)
+        {
+            float aspect = (float)width / height;
+            return new Vector2(Mathf.Min(1f, LessonAspect / aspect), Mathf.Min(1f, aspect / LessonAspect));
+        }
+
+        void ApplySurfaceAspect()
+        {
+            if (!screen) return;
+            var t = screen.transform;
+            float heightRatio = m_PreparingScene ? 1f / LessonAspect : (m_Texture ? (float)m_Texture.height / m_Texture.width : 1f / LessonAspect);
+            t.localScale = new Vector3(t.localScale.x, t.localScale.x * heightRatio, 1f);
         }
 
         public Task SendLearningEvent(string json)
@@ -505,34 +569,44 @@ namespace ImmerseTheBay.Visko
         // ------------------------------------------------------------ video
         void SetHasVideo(bool value)
         {
-            if (screen && screen.material.HasProperty("_HasVideo")) screen.material.SetFloat("_HasVideo", value ? 1 : 0);
+            HasLiveFrame = value;
+            if (!value || !m_PreparingScene) m_LiveBlend = value ? 1f : 0f;
+            ApplyVideoBlend();
+        }
+
+        void ApplyVideoBlend()
+        {
+            if (screen && screen.material.HasProperty("_HasVideo")) screen.material.SetFloat("_HasVideo", m_LiveBlend);
         }
 
         void PullFrame()
         {
-            if (m_Backend == null || !screen) return;
+            if (m_Backend == null || !screen || (m_PreparingScene && !m_AcceptSceneFrames)) return;
             long id = m_Backend.FrameId;
-            if (id == m_LastFrame) return;
-            m_LastFrame = id;
+            if (id == m_LastFrame || (m_PreparingScene && id <= m_SceneFrameFloor)) return;
             int w = m_Backend.Width, h = m_Backend.Height;
             if (w <= 0 || h <= 0) return;
             var px = m_Backend.GetFrame();
             if (px == null || px.Length != w * h * 4) return;
+            m_LastFrame = id;
             if (!m_Texture || m_Texture.width != w || m_Texture.height != h)
             {
                 if (m_Texture) Destroy(m_Texture);
                 m_Texture = new Texture2D(w, h, TextureFormat.BGRA32, false) { wrapMode = TextureWrapMode.Clamp };
+            }
+            if (!HasLiveFrame || screen.material.mainTexture != m_Texture)
+            {
                 var mat = screen.material;
+                var crop = m_PreparingScene ? CropScale(w, h) : Vector2.one;
                 mat.mainTexture = m_Texture;
-                mat.mainTextureScale = new Vector2(1, -1); // frames are top-down, Unity textures bottom-up
-                mat.mainTextureOffset = new Vector2(0, 1);
+                mat.mainTextureScale = new Vector2(crop.x, -crop.y); // BGRA rows arrive top-down.
+                mat.mainTextureOffset = new Vector2((1f - crop.x) * 0.5f, (1f + crop.y) * 0.5f);
                 if (mat.HasProperty("_Layout")) mat.SetFloat("_Layout", 0);
-                var t = screen.transform;
-                t.localScale = new Vector3(t.localScale.x, t.localScale.x * h / w, 1);
+                ApplySurfaceAspect();
             }
             m_Texture.LoadRawTextureData(px);
             m_Texture.Apply(false);
-            SetHasVideo(true);
+            if (!HasLiveFrame) SetHasVideo(true);
             m_Frames++;
         }
 
