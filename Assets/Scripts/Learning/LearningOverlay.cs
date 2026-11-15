@@ -73,6 +73,7 @@ namespace ImmerseTheBay.Learning
         int m_ReviewIndex;
         bool ShowingReview => m_Done && !m_SceneTransition && m_ReviewLines?.Count > 0;
         Button m_HoveredButton;
+        float m_KeepControlsStillUntil;
         bool m_SceneTransition;
         static readonly Color ActionPurple = new Color32(70, 48, 146, 245);
         static readonly Color HoverPurple = new Color32(130, 98, 236, 255);
@@ -429,7 +430,7 @@ namespace ImmerseTheBay.Learning
             go.transform.SetParent(m_ControlPanel, false);
             var rt = (RectTransform)go.transform;
             rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0);
-            rt.sizeDelta = new Vector2(206, 136);
+            rt.sizeDelta = new Vector2(222, 154);
             var image = go.GetComponent<Image>();
             image.color = ActionPurple;
             var button = go.GetComponent<Button>();
@@ -437,7 +438,12 @@ namespace ImmerseTheBay.Learning
             button.navigation = new Navigation { mode = Navigation.Mode.None };
             var trigger = go.AddComponent<EventTrigger>();
             var enter = new EventTrigger.Entry { eventID = EventTriggerType.PointerEnter };
-            enter.callback.AddListener(_ => { if (button.interactable) m_HoveredButton = button; });
+            enter.callback.AddListener(_ =>
+            {
+                if (!button.interactable) return;
+                m_HoveredButton = button;
+                m_KeepControlsStillUntil = Time.unscaledTime + 0.25f;
+            });
             trigger.triggers.Add(enter);
             var exit = new EventTrigger.Entry { eventID = EventTriggerType.PointerExit };
             exit.callback.AddListener(_ => { if (m_HoveredButton == button) m_HoveredButton = null; });
@@ -757,7 +763,7 @@ namespace ImmerseTheBay.Learning
             returnRect.anchoredPosition = new Vector2(0, 212);
             returnRect.sizeDelta = new Vector2(310, 126);
             var conversationRect = (RectTransform)m_Conversation.transform;
-            conversationRect.sizeDelta = new Vector2(m_ConversationActive ? 340 : 206, 136);
+            conversationRect.sizeDelta = new Vector2(m_ConversationActive ? 340 : 222, 154);
             ((RectTransform)m_ControlHint.transform).anchoredPosition = new Vector2(0, 18);
         }
 
@@ -765,6 +771,7 @@ namespace ImmerseTheBay.Learning
         {
             if (m_HoveredButton && (!m_HoveredButton.isActiveAndEnabled || !m_HoveredButton.interactable))
                 m_HoveredButton = null;
+            if (m_HoveredButton) m_KeepControlsStillUntil = Time.unscaledTime + 0.25f;
             foreach (var button in m_Buttons) button.targetGraphic.color = button == m_HoveredButton ? HoverPurple : ActionPurple;
             foreach (var button in m_ReviewButtons) button.targetGraphic.color = button == m_HoveredButton ? HoverPurple : ActionPurple;
             m_Return.targetGraphic.color = m_Return == m_HoveredButton ? HoverPurple : ActionPurple;
@@ -972,7 +979,9 @@ namespace ImmerseTheBay.Learning
                 m_ResultBadge.transform.parent.localScale = Vector3.one
                     * (1f + 0.09f * Mathf.Clamp01((m_ResultEmphasisUntil - Time.unscaledTime) / 0.24f));
             UpdateWaveform();
-            if (headCamera)
+            // The rail follows the head between interactions. Keep it still while a hand is
+            // aiming or pinching so a small head movement cannot move the target under the ray.
+            if (headCamera && (m_Tabletop.HasValue || Time.unscaledTime >= m_KeepControlsStillUntil))
             {
                 var heading = Vector3.ProjectOnPlane(rotation * Vector3.forward, Vector3.up).normalized;
                 if (heading.sqrMagnitude < 0.01f) return;

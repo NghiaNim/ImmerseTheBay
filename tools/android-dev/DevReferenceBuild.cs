@@ -32,7 +32,10 @@ public static class DevReferenceBuild {
   }
   handMaterial.color = new Color(0.68f, 0.60f, 0.89f);
   EditorUtility.SetDirty(handMaterial);
-  foreach (var visualizer in rig.GetComponentsInChildren<HandVisualizer>(true))
+  var handVisualizers = rig.GetComponentsInChildren<HandVisualizer>(true);
+  if (handVisualizers.Length == 0)
+   throw new System.InvalidOperationException("The development rig is missing the XREAL hand model visualizer.");
+  foreach (var visualizer in handVisualizers)
   {
    visualizer.enabled = true;
    var meshSettings = new SerializedObject(visualizer);
