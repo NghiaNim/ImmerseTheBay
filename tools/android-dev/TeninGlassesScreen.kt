@@ -13,6 +13,7 @@ import android.view.Display
 import android.view.Gravity
 import android.view.WindowManager
 import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 
@@ -73,12 +74,22 @@ object TeninGlassesScreen {
         }
 
         private fun eye(eyeHeight: Float): FrameLayout {
+            val brandColor = 0xFFE1D6FF.toInt()
             val title = TextView(context).apply {
                 text = "Tenin"
                 setTextSize(TypedValue.COMPLEX_UNIT_PX, eyeHeight * 0.092f)
-                setTextColor(0xFFE1D6FF.toInt())
+                setTextColor(brandColor)
                 typeface = Tenin.font(context, 500)
                 gravity = Gravity.CENTER
+            }
+            val brand = LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                val iconSize = (eyeHeight * 0.069f).toInt()
+                addView(ImageView(context).apply {
+                    setImageDrawable(TeninIconDrawable(TeninIcon.USER, brandColor, 1.7f))
+                }, LinearLayout.LayoutParams(iconSize, iconSize).apply { marginEnd = (eyeHeight * 0.02f).toInt() })
+                addView(title)
             }
             val guidance = TextView(context).apply {
                 text = "Continue on your phone"
@@ -89,7 +100,7 @@ object TeninGlassesScreen {
             val content = LinearLayout(context).apply {
                 orientation = LinearLayout.VERTICAL
                 gravity = Gravity.CENTER_HORIZONTAL
-                addView(title)
+                addView(brand)
                 addView(guidance)
             }
             return FrameLayout(context).apply {
