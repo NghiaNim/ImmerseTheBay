@@ -245,7 +245,8 @@ async function loadCatalog() {
     const data = await api('/api/agent/lessons'); catalog = data.lessons;
     if (!Array.isArray(catalog) || !catalog.length) throw new Error('No lessons are available yet.');
     $('lesson').replaceChildren(...catalog.map((item) => new Option(item.title, item.id)));
-    if (catalog.some((item) => item.id === 'ja-konbini-001')) $('lesson').value = 'ja-konbini-001';
+    const preferred = catalog.find((item) => item.id === 'ja-cafe-demo-001');
+    if (preferred) $('lesson').value = preferred.id;
     await chooseLesson();
   } catch (error) { notify(`Could not load lessons: ${error.message}`, true); }
 }

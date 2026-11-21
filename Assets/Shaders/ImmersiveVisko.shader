@@ -5,9 +5,12 @@ Shader "ImmerseTheBay/ImmersiveVisko"
     {
         _MainTex ("Live video", 2D) = "black" {}
         _EnvironmentTex ("Starting photograph", 2D) = "black" {}
+        [NoScaleOffset] _OpeningTex ("Cached opening", 2D) = "black" {}
+        _OpeningBlend ("Cached opening blend", Range(0, 1)) = 0
         _EnvironmentDim ("Peripheral brightness", Range(0, 1)) = 0.36
         _HasVideo ("Live frame available", Float) = 0
         _SceneOpacity ("Scene opacity", Range(0, 1)) = 1
+        _TransitionOpacity ("Transition opacity", Range(0, 1)) = 1
     }
     SubShader
     {
@@ -23,9 +26,9 @@ Shader "ImmerseTheBay/ImmersiveVisko"
             #pragma multi_compile_instancing
             #include "UnityCG.cginc"
 
-            sampler2D _MainTex, _EnvironmentTex;
-            float4 _MainTex_ST;
-            float _EnvironmentDim, _HasVideo, _SceneOpacity;
+            sampler2D _MainTex, _EnvironmentTex, _OpeningTex;
+            float4 _MainTex_ST, _EnvironmentTex_ST;
+            float _EnvironmentDim, _HasVideo, _SceneOpacity, _OpeningBlend, _TransitionOpacity;
             struct appdata
             {
                 float4 vertex : POSITION;
@@ -52,14 +55,23 @@ Shader "ImmerseTheBay/ImmersiveVisko"
             {
                 UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(i);
                 // Native BGRA video uses the existing texture flip; JPEG photos do not.
-                fixed3 photo = tex2D(_EnvironmentTex, i.uv).rgb;
+                fixed3 photo = tex2D(_EnvironmentTex, TRANSFORM_TEX(i.uv, _EnvironmentTex)).rgb;
                 fixed3 video = tex2D(_MainTex, TRANSFORM_TEX(i.uv, _MainTex)).rgb;
                 float radius = length((i.uv - float2(0.5, 0.53)) / float2(0.43, 0.49));
-                float centre = 1.0 - smoothstep(0.47, 1.0, radius);
-                fixed3 focus = lerp(photo, video, saturate(_HasVideo));
+                float centre = 1.0 - smoothstep(0.34, 1.0, radius);
+                fixed3 preview = photo;
+                UNITY_BRANCH
+                if (_OpeningBlend > 0)
+                    preview = lerp(photo, tex2D(_OpeningTex, i.uv).rgb, _OpeningBlend);
+                fixed3 focus = lerp(preview, video, saturate(_HasVideo));
                 float2 margins = min(i.uv, 1.0 - i.uv);
-                float edge = smoothstep(0.0, 0.13, margins.x) * smoothstep(0.0, 0.16, margins.y);
-                return fixed4(lerp(photo * _EnvironmentDim, focus, centre), edge * _SceneOpacity);
+                // Apply a second eased falloff to the entire photo/video composite.
+                // This widens the transparent border and fades the corners before
+                // the physical quad ends, including over bright real surfaces.
+                float2 falloff = smoothstep(float2(0.015, 0.02), float2(0.24, 0.27), margins);
+                float edge = falloff.x * falloff.y;
+                edge *= edge;
+                return fixed4(lerp(photo * _EnvironmentDim, focus, centre), edge * _SceneOpacity * _TransitionOpacity);
             }
             ENDCG
         }

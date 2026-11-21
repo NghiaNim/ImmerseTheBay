@@ -26,7 +26,7 @@ function setup(t, { fetchImpl, playError } = {}) {
   return { player, video, microphone, calls, audios, states, revoked };
 }
 
-test('microphone excludes playback; after it stops learner audio uses the authenticated endpoint', async (t) => {
+test('microphone excludes playback; the authenticated endpoint distinguishes learner examples and clerk dialogue', async (t) => {
   const { player, microphone, calls, audios } = setup(t);
   microphone.active = true;
   assert.equal(await player.play({ text: 'Blocked during microphone' }), false);
@@ -39,6 +39,10 @@ test('microphone excludes playback; after it stops learner audio uses the authen
   assert.equal(calls[0].init.headers.portal_token, 'fixture-token');
   assert.deepEqual(JSON.parse(calls[0].init.body), { text: '新しい返事。', language: 'ja' });
   audios[0].onended(); assert.equal(await playback, true);
+  const example = player.play({ text: 'はい。' });
+  await tick();
+  assert.deepEqual(JSON.parse(calls[1].init.body), { text: 'はい。', language: 'ja', role: 'tutor' });
+  audios[1].onended(); assert.equal(await example, true);
 });
 
 test('canceled in-flight audio response never plays, including a fetch that ignores abort', async (t) => {

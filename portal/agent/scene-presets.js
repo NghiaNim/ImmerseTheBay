@@ -1,6 +1,8 @@
 import { SCENE_ANCHOR } from './continuity.js';
 import { primaryIntent } from './flow.js';
 export const PRESET_SET = 'konbini-original';
+export const DEMO_LESSON = 'ja-konbini-demo-001';
+export const DEMO_ORDER = Object.freeze(['sandwiches', 'drinks', 'checkout']);
 // Authored from the approved original image, never inferred from learner text.
 export const CHECKOUT_IDENTITY = 'The same young adult woman: oval face, dark brown eyes, dark brown low ponytail with wispy bangs, white collared shirt, beige apron; her gender, age, face, hair and clothing stay unchanged.';
 const scene = (id, label, startImage, prompt, visiblePartner) => ({ id, label, startImage, prompt, visiblePartner });
@@ -29,9 +31,30 @@ export function presetDrinkPlan(intent, returnBeat) {
   {jp:'こちらを一本お願いします。',kana:'こちらをいっぽんおねがいします。',romaji:'Kochira o ippon onegaishimasu.',zh:'请给我这款一瓶。',en:'I would like one bottle of this, please.',cue:'The selected bottle remains visible on the shelf.'},
  ]};
 }
-export function updatePreset(state, { entered, intent, route }) {
- if (!state.presetSceneSet) return;
- const id = route.kind === 'rejoin' ? 'checkout' : entered ? classifyPresetIntent(intent) || state.scene?.id || 'checkout' : state.scene?.id || 'checkout';
+const storeMotionIds = { sandwiches: 'store-sandwich', drinks: 'store-drink', checkout: 'store-checkout' };
+
+export function updatePreset(state, { entered, intent, route, authoredScenes }) {
+ if (authoredScenes?.length) {
+  const main = authoredScenes[state.flow.mainBeat];
+  const detour = route.kind === 'detour';
+  const previous = authoredScenes.find((shot) => shot.id === state.scene?.id);
+  const destination = detour && entered && state.demoScenes ? storeMotionIds[classifyPresetIntent(intent)] : null;
+  const target = detour ? authoredScenes.find((shot) => shot.id === destination) || previous || main : main;
+  if (state.scene?.id !== target.id) state.sceneContext.recentActions = [];
+  state.scene = scene(target.id, target.label, `/lessons/images/${target.id}.jpg`, target.prompt, true);
+  state.sceneContext.sceneAnchor = target.prompt;
+  state.sceneContext.visiblePartner = true;
+  state.sceneContext.identityAnchor = target.identity;
+  state.sceneContext.partnerLocation = target.label;
+  state.sceneContext.referenceId = state.scene.startImage;
+  return;
+ }
+ const main = state.demoScenes ? DEMO_ORDER[state.flow.mainBeat] : 'checkout';
+ if (!state.presetSceneSet && !state.demoScenes) return;
+ let id = main;
+ if (route.kind === 'detour') {
+  id = (entered && classifyPresetIntent(intent)) || state.scene?.id || main;
+ }
  if (state.scene && state.scene.id !== id) state.sceneContext.recentActions = [];
  state.scene = structuredClone(SCENES[id]);
  state.sceneContext.sceneAnchor = state.scene.prompt;

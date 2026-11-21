@@ -1,5 +1,9 @@
 # Start-image sources
 
+## Café menu
+
+`cafe-menu.jpg` is an original 1664 × 936 JPEG prepared from the built-in image generation tool. It uses `cafe-menupour.jpg` as the reference for the barista and café. The prompt places a large upright chalkboard beside the barista near the center, with distinct COFFEE and LATTE rows, while preserving the first-person framing, wardrobe and warm brass-and-wood counter.
+
 ## Convenience-store lesson
 
 `ja-konbini-001` uses **`konbini-checkout-original.png`**, an original AI-generated convenience-store checkout illustration. The user explicitly approved this exception to the CC0/public-domain source-photo policy on 2026-11-14. **This is not a photograph and is not claimed to be CC0.**

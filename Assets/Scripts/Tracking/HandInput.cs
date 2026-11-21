@@ -7,7 +7,7 @@ namespace ImmerseTheBay.Tracking
     /// <summary>Per-frame state of one hand in world space.</summary>
     public struct HandState
     {
-        public bool tracked;
+        public bool tracked, pointing;
         public bool pinching, pinchDown, pinchUp;
         public float pinchCm;
         public Vector3 pinchPoint;   // midpoint of thumb tip and index tip
@@ -67,9 +67,29 @@ namespace ImmerseTheBay.Tracking
             s.pinchUp = !s.pinching && was;
             s.indexTip = transform.TransformPoint(i.position);
             s.pinchPoint = transform.TransformPoint((t.position + i.position) * 0.5f);
+            // Hysteresis absorbs small changes in the tracked joint angles after acquiring a point.
+            float indexLimit = s.pointing ? 0.73f : 0.80f;
+            float curlLimit = s.pointing ? 0.89f : 0.83f;
+            s.pointing = !s.pinching &&
+                TryFingerBend(hand, XRHandJointID.IndexProximal, XRHandJointID.IndexIntermediate, XRHandJointID.IndexTip, out float index) && index > indexLimit &&
+                TryFingerBend(hand, XRHandJointID.MiddleProximal, XRHandJointID.MiddleIntermediate, XRHandJointID.MiddleTip, out float middle) && middle < curlLimit &&
+                TryFingerBend(hand, XRHandJointID.RingProximal, XRHandJointID.RingIntermediate, XRHandJointID.RingTip, out float ring) && ring < curlLimit;
             s.palmRotation = hand.GetJoint(XRHandJointID.Palm).TryGetPose(out var p)
                 ? transform.rotation * p.rotation
                 : transform.rotation * hand.rootPose.rotation;
+        }
+
+        static bool TryFingerBend(XRHand hand, XRHandJointID proximal, XRHandJointID intermediate, XRHandJointID tip, out float bend)
+        {
+            bend = 0f;
+            if (!hand.GetJoint(proximal).TryGetPose(out var start) ||
+                !hand.GetJoint(intermediate).TryGetPose(out var middle) || !hand.GetJoint(tip).TryGetPose(out var end))
+                return false;
+            var first = middle.position - start.position;
+            var last = end.position - middle.position;
+            if (first.sqrMagnitude < 0.000001f || last.sqrMagnitude < 0.000001f) return false;
+            bend = Vector3.Dot(first.normalized, last.normalized);
+            return true;
         }
     }
 }

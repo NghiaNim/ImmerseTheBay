@@ -1,11 +1,14 @@
 using System;
+using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.EventSystems;
 using UnityEngine.UI;
+using UnityEngine.XR.Interaction.Toolkit;
 using UnityEngine.XR.Interaction.Toolkit.UI;
 
 namespace ImmerseTheBay.Learning
 {
-    /// <summary>Compact subtitles inside the shared video’s lower safe area. Buttons use the scene's XRI UI input module.</summary>
+    /// <summary>Stable, readable subtitles inside the shared video’s lower safe area. Buttons use the scene's XRI UI input module.</summary>
     public class LearningOverlay : MonoBehaviour
     {
         public Renderer screen;
@@ -13,8 +16,8 @@ namespace ImmerseTheBay.Learning
         [Tooltip("Optional override; otherwise loads the bundled Noto CJK font.")]
         public Font subtitleFont;
         public bool showRomaji = true;
-        public bool showKana = true;
-        public bool showTranslation;
+        public bool showKana;
+        public bool showTranslation = true;
         public bool useChineseTranslation;
         [Min(0.5f)] public float fallbackWidth = 1.3f;
         [Min(0.5f)] public float fallbackDistance = 1.6f;
@@ -26,6 +29,9 @@ namespace ImmerseTheBay.Learning
         public event Action SpeakRequested;
         public event Action HintRequested;
         public event Action NextRequested;
+        public event Action RestartRequested;
+        public event Action<int> ReviewRecordingRequested;
+        public event Action<int> ReviewExampleRequested;
         public RectTransform Panel => m_Panel;
         public RectTransform ControlsPanel => m_ControlPanel;
         RectTransform m_ControlPanel;
@@ -35,18 +41,67 @@ namespace ImmerseTheBay.Learning
         public void PlaceControls(Pose pose) => m_Tabletop = pose;
 
         const float Width = 1400f;
+        const float ReferenceHeight = 900f;
+        const int JapaneseSize = 68;
+        const int PronunciationSize = 43;
+        const int TranslationSize = 39;
+        const int OpeningTitleSize = 80;
+        const int DialogueSize = 40;
+        const int ClerkJapaneseSize = 58;
+        const int ClerkTranslationSize = 48;
+        const float ControlButtonSpacing = 248f;
+        const float CaptionBottom = 0.055f;
+        const float CaptionSidePadding = 36f;
+        const int GroupReadingSize = 25;
+        const int MaximumReadingGroups = 24;
         RectTransform m_Panel;
+        RectTransform m_Hud, m_InstructionText, m_ReadingPanel;
         Canvas m_Canvas;
-        Text m_Japanese, m_Romaji, m_Kana, m_Translation, m_Status, m_SpeakLabel, m_Clerk, m_Learner, m_ConversationLabel;
+        Text m_Japanese, m_Romaji, m_Kana, m_Translation, m_Status, m_SpeakLabel, m_Clerk, m_Learner, m_ConversationLabel, m_TargetCue;
+        Text m_ProgressBadge, m_ResultBadge, m_Instruction, m_ControlHint, m_LookDown, m_ExploreMarker;
+        Text m_ReviewTitle;
+        readonly List<(Text japanese, Text kana, Text romaji, RectTransform underline)> m_ReadingCells = new();
+        GameObject m_Backdrop;
+        readonly RectTransform[] m_Waveform = new RectTransform[5];
+        readonly float[] m_ListeningHistory = new float[5];
         Button m_Speak, m_Hint, m_Next, m_Conversation, m_Return;
+        Button m_Restart;
+        CanvasGroup m_ResultGroup;
+        Vector3? m_ExploreAim;
+        string m_ExploreHint;
+        public bool HoveringLessonAction => m_HoveredButton && m_HoveredButton.isActiveAndEnabled && m_HoveredButton.interactable;
+        Button[] m_Buttons, m_ReviewButtons;
+        Button m_ReviewPrevious, m_ReviewNext, m_ReviewRecording, m_ReviewExample;
+        IReadOnlyList<LearningReviewLine> m_ReviewLines;
+        int m_ReviewIndex;
+        bool ShowingReview => m_Done && !m_SceneTransition && m_ReviewLines?.Count > 0;
+        Button m_HoveredButton;
+        float m_KeepControlsStillUntil;
+        bool m_SceneTransition;
+        static readonly Color ActionPurple = new Color32(70, 48, 146, 245);
+        static readonly Color HoverPurple = new Color32(130, 98, 236, 255);
+        static readonly Color TargetJapanese = new Color32(255, 247, 210, 255);
         LearningOverlayData m_Overlay;
         LearningFeedback m_Feedback;
         bool m_Busy, m_Listening, m_Done, m_ConversationActive, m_AgentSpeaking, m_Detour, m_ControlsLocked;
-        string m_ClerkCaption = "", m_ClerkEnglish = "", m_LearnerCaption = "", m_LearnerEnglish = "", m_RouteLabel = "", m_ConversationStatus = "";
+        bool m_ClerkSpeaking, m_ExampleSpeaking;
+        string m_ExampleSpanText;
+        int m_ExampleStart, m_ExampleEnd;
+        string m_ClerkCaption = "", m_ClerkEnglish = "", m_ClerkRomaji = "", m_LearnerCaption = "", m_LearnerEnglish = "", m_RouteLabel = "", m_ConversationStatus = "";
         Func<string> m_Debug;
         string m_StatusOverride = "";
+        string m_OpeningTitle = "";
+        string m_PracticeStatus = "";
+        string m_PracticeProgress = "";
+        string m_PracticeOutcome = "";
+        string m_PracticeAttemptId, m_CompletionSummary = "";
+        LearningAttempt m_ResultAttempt;
+        bool m_ShowCorrection;
+        float m_ListeningLevel, m_NextWaveformSample, m_LastListeningSample;
+        float m_ResultEmphasisUntil;
         float m_Height;
-        float m_AvailableHeight = 380;
+        float m_ReadingHeight;
+        float m_AvailableHeight = ReferenceHeight * 0.38f;
 
         void Awake()
         {
@@ -62,13 +117,111 @@ namespace ImmerseTheBay.Learning
             BuildUi();
             m_FocusWords = focusWords;
             m_Overlay = overlay; m_Feedback = feedback; m_Done = done;
+            if (!done)
+            {
+                m_ReviewLines = null;
+                m_ReviewIndex = 0;
+            }
+            m_SceneTransition = false;
             m_StatusOverride = "";
             Refresh();
         }
 
+        public void SetPracticeResult(string progress, string result, string outcome, string attemptId = null,
+            LearningAttempt currentAttempt = null)
+        {
+            if (!string.IsNullOrEmpty(result) && (result != m_PracticeStatus || attemptId != m_PracticeAttemptId))
+                m_ResultEmphasisUntil = Time.unscaledTime + 1.8f;
+            m_PracticeProgress = progress ?? "";
+            m_PracticeStatus = result ?? "";
+            m_PracticeOutcome = outcome ?? "";
+            m_PracticeAttemptId = attemptId;
+            m_ResultAttempt = currentAttempt;
+            Refresh();
+        }
+
+        public void SetResultOpacity(float alpha)
+        {
+            if (m_ResultGroup) m_ResultGroup.alpha = alpha;
+        }
+
+        public void SetCompletionSummary(string text)
+        {
+            m_CompletionSummary = text ?? "";
+            Refresh();
+        }
+
+        public void SetReview(IReadOnlyList<LearningReviewLine> lines)
+        {
+            m_ReviewLines = lines;
+            m_ReviewIndex = 0;
+            Refresh();
+        }
+
+        public void ShowReviewLine(int index)
+        {
+            if (!ShowingReview || index < 0 || index >= m_ReviewLines.Count || index == m_ReviewIndex) return;
+            m_ReviewIndex = index;
+            Refresh();
+        }
+
         public void SetStatus(string text) { BuildUi(); m_StatusOverride = text ?? ""; Refresh(); }
-        public void SetBusy(bool busy) { BuildUi(); m_Busy = busy; Refresh(); }
-        public void SetListening(bool listening) { BuildUi(); m_Listening = listening; Refresh(); }
+        public void SetOpeningTitle(string title) { BuildUi(); m_OpeningTitle = title ?? ""; Refresh(); }
+        public void SetBusy(bool busy) { BuildUi(); m_Busy = busy; if (!busy) m_SceneTransition = false; Refresh(); }
+        public void SetSceneTransition(bool changing) { BuildUi(); m_SceneTransition = changing; Refresh(); }
+        public void SetListening(bool listening)
+        {
+            BuildUi();
+            if (m_Listening == listening) return;
+            m_Listening = listening;
+            m_ListeningLevel = m_NextWaveformSample = m_LastListeningSample = 0;
+            Array.Clear(m_ListeningHistory, 0, m_ListeningHistory.Length);
+            foreach (var bar in m_Waveform) bar.sizeDelta = new Vector2(8, 4);
+            Refresh();
+        }
+        public void SetListeningLevel(float normalized)
+        {
+            if (!m_Listening || float.IsNaN(normalized)) return;
+            m_ListeningLevel = Mathf.Clamp01(normalized);
+            m_LastListeningSample = Time.unscaledTime;
+        }
+        public void SetExampleSpan(string sentence, int start, int end)
+        {
+            if (sentence == m_ExampleSpanText && start == m_ExampleStart && end == m_ExampleEnd) return;
+            m_ExampleSpanText = sentence;
+            m_ExampleStart = start;
+            m_ExampleEnd = end;
+            Refresh();
+        }
+
+        bool ExampleOverlaps(string sentence, int start, int end) =>
+            m_ExampleSpeaking && m_ExampleSpanText != null && sentence == m_ExampleSpanText &&
+            start < m_ExampleEnd && end > m_ExampleStart;
+
+        const string ExampleColorTag = "<color=#79F4FF>";
+
+        string HighlightExample(string text, string sentence, int sentenceOffset = 0, bool wholeGroup = false, bool preserveVocabulary = false)
+        {
+            if (!ExampleOverlaps(sentence, sentenceOffset, sentenceOffset + text.Length)) return null;
+            int start = wholeGroup ? 0 : Mathf.Max(0, m_ExampleStart - sentenceOffset);
+            int end = wholeGroup ? text.Length : Mathf.Min(text.Length, m_ExampleEnd - sentenceOffset);
+            string Outside(string part) => preserveVocabulary ? HighlightVocabulary(part) : EscapeRichText(part);
+            return Outside(text.Substring(0, start)) + ExampleColorTag +
+                EscapeRichText(text.Substring(start, end - start)) + "</color>" + Outside(text.Substring(end));
+        }
+
+        public void SetExampleSpeaking(bool speaking)
+        {
+            if (m_ExampleSpeaking == speaking) return;
+            m_ExampleSpeaking = speaking;
+            Refresh();
+        }
+        public void SetClerkSpeaking(bool speaking)
+        {
+            if (m_ClerkSpeaking == speaking) return;
+            m_ClerkSpeaking = speaking;
+            Refresh();
+        }
         public void SetRomajiVisible(bool visible) { showRomaji = visible; Refresh(); }
         public void SetKanaVisible(bool visible) { showKana = visible; Refresh(); }
         public void SetTranslationVisible(bool visible) { showTranslation = visible; Refresh(); }
@@ -81,14 +234,35 @@ namespace ImmerseTheBay.Learning
         }
         public void SetRoute(bool isDetour, string label = null)
         { BuildUi(); m_Detour = isDetour; m_RouteLabel = label ?? ""; Refresh(); }
-        public void SetClerkCaption(string text, string english = null)
-        { BuildUi(); m_ClerkCaption = text ?? ""; m_ClerkEnglish = english ?? ""; Refresh(); }
+        public void SetClerkCaption(string text, string english = null, string romaji = null)
+        {
+            BuildUi();
+            if (m_ClerkCaption != text) m_ClerkRomaji = "";
+            m_ClerkCaption = text ?? "";
+            m_ClerkEnglish = english ?? "";
+            m_ClerkRomaji = romaji ?? m_ClerkRomaji;
+            Refresh();
+        }
         public void SetLearnerCaption(string text, string english = null)
         { BuildUi(); m_LearnerCaption = text ?? ""; m_LearnerEnglish = english ?? ""; Refresh(); }
 
-        static string Dialogue(string label, string original, string english) =>
+        static string Dialogue(string label, string original, string english, string romaji = null) =>
             string.IsNullOrEmpty(original) ? "" :
-            label + " · " + original + (string.IsNullOrEmpty(english) ? "" : "\n" + english);
+            label + " · " + original + (string.IsNullOrEmpty(romaji) ? "" : "\n" + romaji)
+                + (string.IsNullOrEmpty(english) ? "" : "\n" + english);
+
+        static bool RepeatsTarget(string original, string target) =>
+            !string.IsNullOrWhiteSpace(original) && !string.IsNullOrWhiteSpace(target)
+            && string.Equals(original.Trim().TrimEnd('。', '？', '！', '.', '?', '!'),
+                target.Trim().TrimEnd('。', '？', '！', '.', '?', '!'), StringComparison.Ordinal);
+        public void SetExploreState(Vector3? aim, string hint)
+        {
+            m_ExploreAim = aim;
+            if (hint == m_ExploreHint) return;
+            m_ExploreHint = hint;
+            Refresh();
+        }
+
         public void SetControlsLocked(bool locked) { BuildUi(); m_ControlsLocked = locked; Refresh(); }
         public void Conversation() { if (m_Conversation && m_Conversation.interactable) ConversationRequested?.Invoke(); }
         public void ReturnToLesson() { if (m_Return && m_Return.interactable) ReturnRequested?.Invoke(); }
@@ -111,7 +285,8 @@ namespace ImmerseTheBay.Learning
             var controls = new GameObject("Learning Buttons", typeof(RectTransform), typeof(Canvas),
                 typeof(GraphicRaycaster), typeof(TrackedDeviceGraphicRaycaster));
             m_ControlPanel = (RectTransform)controls.transform;
-            m_ControlPanel.sizeDelta = new Vector2(1240, 160);
+            m_ControlPanel.sizeDelta = new Vector2(1240, 300);
+            m_ControlPanel.pivot = new Vector2(0.5f, 0f);
             m_ControlCanvas = controls.GetComponent<Canvas>();
             m_ControlCanvas.renderMode = RenderMode.WorldSpace;
             m_ControlCanvas.sortingOrder = 21;
@@ -127,27 +302,104 @@ namespace ImmerseTheBay.Learning
             Stretch((RectTransform)background.transform);
             background.GetComponent<Image>().color = new Color(0.015f, 0.025f, 0.04f, 0.72f);
             background.GetComponent<Image>().raycastTarget = false;
+            m_Backdrop = background;
 
-            m_Clerk = MakeText("Clerk", font, 26, new Color(0.82f, 0.9f, 0.94f));
-            m_Learner = MakeText("Learner", font, 26, new Color(0.78f, 0.94f, 0.82f));
-            m_Japanese = MakeText("Japanese", font, 42, Color.white);
+            m_Clerk = MakeText("Clerk", font, DialogueSize, new Color(0.82f, 0.9f, 0.94f));
+            m_Learner = MakeText("Learner", font, DialogueSize, new Color(0.78f, 0.94f, 0.82f));
+            m_TargetCue = MakeText("Prompt to speak", font, 30, new Color32(255, 218, 119, 255));
+            m_TargetCue.fontStyle = FontStyle.Bold;
+            m_Japanese = MakeText("Japanese", font, JapaneseSize, Color.white);
             m_Japanese.supportRichText = true;
-            m_Romaji = MakeText("Romaji", font, 29, new Color(0.9f, 0.94f, 0.96f));
-            m_Kana = MakeText("Kana", font, 29, new Color(0.82f, 0.9f, 0.94f));
-            m_Translation = MakeText("Translation", font, 29, new Color(0.82f, 0.9f, 0.94f));
+            m_Romaji = MakeText("Romaji", font, PronunciationSize, new Color(0.9f, 0.94f, 0.96f));
+            m_ReadingPanel = (RectTransform)new GameObject("Word readings", typeof(RectTransform)).transform;
+            m_ReadingPanel.SetParent(m_Panel, false);
+            m_ReadingPanel.anchorMin = new Vector2(0, 1);
+            m_ReadingPanel.anchorMax = Vector2.one;
+            m_ReadingPanel.pivot = new Vector2(0.5f, 1);
+            m_ReadingPanel.gameObject.SetActive(false);
+            m_Kana = MakeText("Kana", font, TranslationSize, new Color(0.82f, 0.9f, 0.94f));
+            m_Translation = MakeText("Translation", font, TranslationSize, new Color(0.82f, 0.9f, 0.94f));
             m_Status = MakeText("Feedback", font, 25, new Color(0.68f, 0.84f, 0.83f));
-            m_Conversation = MakeButton("Conversation", 0, font, out m_ConversationLabel);
-            m_Return = MakeButton("Return to lesson", 0, font, out _);
+            m_Hud = (RectTransform)new GameObject("Lesson HUD", typeof(RectTransform)).transform;
+            m_Hud.SetParent(m_Panel, false);
+            m_Hud.anchorMin = m_Hud.anchorMax = m_Hud.pivot = new Vector2(0.5f, 0f);
+            m_ProgressBadge = MakeHudBadge("Progress", font, 34, new Vector2(1, 1), new Vector2(-30, -22), new Vector2(405, 62));
+            m_ResultBadge = MakeHudBadge("Sentence result", font, 44, new Vector2(0.5f, 0.78f), Vector2.zero, new Vector2(880, 112));
+            m_ResultGroup = m_ResultBadge.transform.parent.gameObject.AddComponent<CanvasGroup>();
+            m_ReviewTitle = MakeHudBadge("Lesson review title", font, 62, new Vector2(0.5f, 0.66f), Vector2.zero, new Vector2(870, 126));
+            m_Instruction = MakeHudBadge("Instruction", font, 27, new Vector2(1, 0), new Vector2(-30, 3), new Vector2(530, 45));
+            m_LookDown = MakeHudBadge("Look down", font, 27, new Vector2(0.5f, 0), new Vector2(-48, -8), new Vector2(385, 44));
+            m_InstructionText = (RectTransform)m_Instruction.transform;
+            m_ExploreMarker = MakeText("Explore target", font, 57, new Color(0.85f, 0.72f, 1f));
+            var markerRect = m_ExploreMarker.rectTransform;
+            markerRect.SetParent(m_Hud, false);
+            markerRect.anchorMin = markerRect.anchorMax = new Vector2(0.5f, 0.5f);
+            markerRect.sizeDelta = new Vector2(86, 90);
+            m_ExploreMarker.alignment = TextAnchor.MiddleCenter;
+            m_ExploreMarker.text = "＋";
+            m_ExploreMarker.gameObject.SetActive(false);
+            for (int i = 0; i < m_Waveform.Length; i++)
+            {
+                var bar = new GameObject("Input level", typeof(Image)).GetComponent<Image>();
+                var rect = bar.rectTransform;
+                rect.SetParent(m_Instruction.transform.parent, false);
+                rect.anchorMin = rect.anchorMax = new Vector2(0, 0.5f);
+                rect.anchoredPosition = new Vector2(20 + 14 * i, 0);
+                rect.sizeDelta = new Vector2(8, 4);
+                bar.color = new Color(0.58f, 0.92f, 0.82f);
+                bar.raycastTarget = false;
+                m_Waveform[i] = rect;
+            }
+            m_ControlHint = MakeText("Button hint", font, 31, new Color(0.9f, 0.96f, 1f));
+            var hintRect = (RectTransform)m_ControlHint.transform;
+            hintRect.SetParent(m_ControlPanel, false);
+            hintRect.anchorMin = hintRect.anchorMax = new Vector2(0.5f, 0);
+            hintRect.sizeDelta = new Vector2(870, 54);
+            m_ControlHint.text = "Point and pinch · or tap Speak on your phone";
+            m_Conversation = MakeButton("Conversation", font, out m_ConversationLabel);
+            m_Return = MakeButton("Return to lesson", font, out _);
             m_Conversation.onClick.AddListener(Conversation);
             m_Return.onClick.AddListener(ReturnToLesson);
-            m_Speak = MakeButton("Speak", -205, font, out m_SpeakLabel);
-            m_Hint = MakeButton("Hint", 0, font, out _);
-            m_Next = MakeButton("Next", 205, font, out _);
+            m_Speak = MakeButton("Speak", font, out m_SpeakLabel);
+            m_Hint = MakeButton("Hint", font, out _);
+            m_Next = MakeButton("Next", font, out _);
+            m_Restart = MakeButton("Restart", font, out _);
+            m_Restart.onClick.AddListener(() => RestartRequested?.Invoke());
+            // Keep Speak and Finish in the same far-right slot.
+            m_Buttons = new[] { m_Conversation, m_Hint, m_Next, m_Speak };
             m_Speak.onClick.AddListener(Speak);
             m_Hint.onClick.AddListener(Hint);
             m_Next.onClick.AddListener(Next);
+            m_ReviewPrevious = MakeButton("Previous", font, out _);
+            m_ReviewNext = MakeButton("Next", font, out _);
+            m_ReviewRecording = MakeButton("My recording", font, out _);
+            m_ReviewExample = MakeButton("Example", font, out _);
+            ((RectTransform)m_ReviewRecording.transform).sizeDelta = new Vector2(246, 136);
+            m_ReviewButtons = new[] { m_ReviewPrevious, m_ReviewRecording, m_ReviewExample, m_ReviewNext };
+            m_ReviewPrevious.onClick.AddListener(() => ShowReviewLine(m_ReviewIndex - 1));
+            m_ReviewNext.onClick.AddListener(() => ShowReviewLine(m_ReviewIndex + 1));
+            m_ReviewRecording.onClick.AddListener(() =>
+            {
+                if (ShowingReview && m_ReviewLines[m_ReviewIndex].HasRecording) ReviewRecordingRequested?.Invoke(m_ReviewIndex);
+            });
+            m_ReviewExample.onClick.AddListener(() =>
+            {
+                if (ShowingReview && !string.IsNullOrWhiteSpace(m_ReviewLines[m_ReviewIndex].Target)) ReviewExampleRequested?.Invoke(m_ReviewIndex);
+            });
+            foreach (var laser in FindObjectsByType<XRInteractorLineVisual>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+            {
+                laser.lineWidth = Mathf.Max(0.007f, laser.lineWidth);
+                laser.validColorGradient = RayColor(new Color32(183, 152, 255, 255), 1f);
+                laser.invalidColorGradient = RayColor(new Color32(217, 204, 255, 255), 0.7f);
+            }
             Refresh();
         }
+
+        static Gradient RayColor(Color color, float opacity) => new Gradient
+        {
+            colorKeys = new[] { new GradientColorKey(color, 0), new GradientColorKey(Color.white, 1) },
+            alphaKeys = new[] { new GradientAlphaKey(opacity * 0.55f, 0), new GradientAlphaKey(opacity, 1) }
+        };
 
         Text MakeText(string name, Font font, int size, Color color)
         {
@@ -156,25 +408,56 @@ namespace ImmerseTheBay.Learning
             var text = go.GetComponent<Text>();
             text.font = font; text.fontSize = size; text.color = color;
             text.supportRichText = false; text.raycastTarget = false;
+            text.resizeTextForBestFit = false;
             text.alignment = TextAnchor.MiddleCenter;
             text.horizontalOverflow = HorizontalWrapMode.Wrap;
             text.verticalOverflow = VerticalWrapMode.Truncate;
             return text;
         }
 
-        Button MakeButton(string label, float x, Font font, out Text text)
+        Text MakeHudBadge(string name, Font font, int size, Vector2 corner, Vector2 offset, Vector2 dimensions)
+        {
+            var image = new GameObject(name, typeof(Image)).GetComponent<Image>();
+            var rect = image.rectTransform;
+            rect.SetParent(m_Hud, false);
+            rect.anchorMin = rect.anchorMax = rect.pivot = corner;
+            rect.anchoredPosition = offset;
+            rect.sizeDelta = dimensions;
+            image.color = new Color(0.015f, 0.025f, 0.04f, 0.83f);
+            image.raycastTarget = false;
+            var text = MakeText(name + " text", font, size, Color.white);
+            text.transform.SetParent(rect, false);
+            var textRect = (RectTransform)text.transform;
+            Stretch(textRect);
+            textRect.offsetMin = new Vector2(12, 0);
+            textRect.offsetMax = new Vector2(-12, 0);
+            return text;
+        }
+
+        Button MakeButton(string label, Font font, out Text text)
         {
             var go = new GameObject(label, typeof(RectTransform), typeof(Image), typeof(Button));
             go.transform.SetParent(m_ControlPanel, false);
             var rt = (RectTransform)go.transform;
             rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0);
-            rt.sizeDelta = new Vector2(228, 120);
-            rt.anchoredPosition = new Vector2(x, 40);
+            rt.sizeDelta = new Vector2(222, 154);
             var image = go.GetComponent<Image>();
-            image.color = new Color(0.15f, 0.25f, 0.3f, 1f);
+            image.color = ActionPurple;
             var button = go.GetComponent<Button>();
             button.targetGraphic = image;
             button.navigation = new Navigation { mode = Navigation.Mode.None };
+            var trigger = go.AddComponent<EventTrigger>();
+            var enter = new EventTrigger.Entry { eventID = EventTriggerType.PointerEnter };
+            enter.callback.AddListener(_ =>
+            {
+                if (!button.interactable) return;
+                m_HoveredButton = button;
+                m_KeepControlsStillUntil = Time.unscaledTime + 0.25f;
+            });
+            trigger.triggers.Add(enter);
+            var exit = new EventTrigger.Entry { eventID = EventTriggerType.PointerExit };
+            exit.callback.AddListener(_ => { if (m_HoveredButton == button) m_HoveredButton = null; });
+            trigger.triggers.Add(exit);
             text = MakeText(label + " Label", font, 32, Color.white);
             text.transform.SetParent(rt, false);
             Stretch((RectTransform)text.transform);
@@ -191,48 +474,161 @@ namespace ImmerseTheBay.Learning
         void Refresh()
         {
             if (!m_Panel) return;
-            m_Clerk.text = Dialogue("店員", m_ClerkCaption, m_ClerkEnglish);
-            m_Learner.text = Dialogue("あなた", m_LearnerCaption, m_LearnerEnglish);
-            m_Japanese.text = m_ConversationActive ? "" : Highlight(m_Overlay?.jp ?? (m_Done ? "お疲れさまでした" : ""));
-            m_Romaji.text = !m_ConversationActive && showRomaji ? m_Overlay?.romaji ?? "" : "";
-            m_Kana.text = !m_ConversationActive && showKana ? m_Overlay?.kana ?? "" : "";
-            m_Translation.text = !m_ConversationActive && showTranslation && m_Overlay != null
-                ? (useChineseTranslation ? m_Overlay.zh : m_Overlay.en) ?? "" : "";
-            string status = m_StatusOverride;
-            if (string.IsNullOrEmpty(status))
-            {
-                if (m_ConversationActive) status = !string.IsNullOrEmpty(m_ConversationStatus) ? m_ConversationStatus
-                    : m_AgentSpeaking ? "Clerk speaking · you can interrupt" : "Listening · speak naturally";
-                else if (m_Listening) status = "Listening…";
-                else if (m_Busy) status = "One moment…";
-                else if (m_Done) status = "Lesson complete";
-                else if (m_Detour) status = string.IsNullOrEmpty(m_RouteLabel) ? "Exploring · return when ready" : Shorten(m_RouteLabel, 65);
-                else if (m_Feedback?.notes != null && m_Feedback.notes.Length > 0)
-                    status = m_Feedback.notes[0] ?? "";
-            }
-            // Feedback is supplementary; preserve the target sentence's visual priority.
-            m_Status.text = status.Length > 150 ? status.Substring(0, 147) + "…" : status;
-            bool controls = m_Overlay != null && !m_Done;
-            m_Conversation.gameObject.SetActive(controls || m_ConversationActive);
+            m_ShowCorrection = ShouldShowCorrection();
+            bool opening = m_OpeningTitle.Length > 0;
+            bool reviewing = ShowingReview;
+            var review = reviewing ? m_ReviewLines[m_ReviewIndex] : default;
+            bool clerkTurn = !opening && !reviewing && !m_SceneTransition && !m_ConversationActive && m_ClerkSpeaking && m_ClerkCaption.Length > 0;
+            bool targetTurn = !opening && !reviewing && !m_SceneTransition && !m_ConversationActive && !clerkTurn;
+            bool showTargetCue = targetTurn && !m_Done && !string.IsNullOrWhiteSpace(m_Overlay?.jp);
+            bool showLearner = !m_SceneTransition && (m_ConversationActive || (targetTurn && !m_ExampleSpeaking
+                && !m_ShowCorrection && m_PracticeStatus.Length > 0 && !RepeatsTarget(m_LearnerCaption, m_Overlay?.jp)));
+            m_Clerk.fontSize = m_ConversationActive ? ClerkTranslationSize : ClerkJapaneseSize;
+            m_Translation.fontSize = clerkTurn ? ClerkTranslationSize : TranslationSize;
+            m_Clerk.text = !reviewing && !m_SceneTransition && m_ConversationActive ? Dialogue("店員", m_ClerkCaption, m_ClerkEnglish, m_ClerkRomaji)
+                : clerkTurn ? Dialogue("店員", m_ClerkCaption, "") : "";
+            m_Learner.text = reviewing ? Dialogue("Heard", review.Transcript, null)
+                : showLearner ? Dialogue("あなた", m_LearnerCaption, m_LearnerEnglish) : "";
+            m_TargetCue.text = showTargetCue ? (m_ExampleSpeaking ? "LISTEN, THEN REPEAT" : "SAY THIS") : "";
+            m_Japanese.fontSize = opening ? OpeningTitleSize : JapaneseSize;
+            m_Japanese.color = opening || showTargetCue ? TargetJapanese : Color.white;
+            m_Japanese.fontStyle = opening || showTargetCue ? FontStyle.Bold : FontStyle.Normal;
+            m_Japanese.text = opening ? EscapeRichText(m_OpeningTitle) : reviewing ? (HighlightExample(review.Target ?? "", review.Target) ?? EscapeRichText(review.Target ?? "")) : m_SceneTransition ? "Preparing next scene…" :
+                targetTurn ? Highlight(m_Overlay?.jp ?? (m_Done ? "お疲れさまでした" : "")) : "";
+            m_Romaji.text = clerkTurn ? m_ClerkRomaji : targetTurn && showRomaji ? m_Overlay?.romaji ?? "" : "";
+            m_Kana.text = targetTurn && showKana ? m_Overlay?.kana ?? "" : "";
+            m_Translation.text = opening ? "Getting the scene ready…" : reviewing ? (string.IsNullOrEmpty(m_CompletionSummary) ? "Lesson complete" : m_CompletionSummary)
+                : clerkTurn ? m_ClerkEnglish : targetTurn && m_Done ? m_CompletionSummary
+                : targetTurn && showTranslation && m_Overlay != null
+                    ? (useChineseTranslation ? m_Overlay.zh : m_Overlay.en) ?? "" : "";
+            m_ReadingHeight = targetTurn && showRomaji ? LayoutReadingGroups(m_Overlay?.readingGroups) : 0f;
+            if (m_ReadingHeight > 0f)
+                m_Japanese.text = m_Kana.text = m_Romaji.text = "";
+            bool controls = !opening && m_Overlay != null && !m_Done && !m_SceneTransition;
+            string status = opening ? "" : reviewing ? ReviewOutcome(review) : PracticeInstruction();
+            bool showCorner = controls || m_ConversationActive || m_Done;
+            m_Status.text = showCorner ? "" : Shorten(status, 150);
+            SetBadge(m_Instruction, showCorner ? Shorten(status, 46) : "");
+            SetBadge(m_LookDown, reviewing ? "↓  Review actions" : controls ? "↓  Look down for actions" : "");
+            SetBadge(m_ProgressBadge, reviewing ? $"Review {m_ReviewIndex + 1} / {m_ReviewLines.Count}"
+                : !m_ConversationActive ? Shorten(m_PracticeProgress, 28) : "");
+            SetBadge(m_ReviewTitle, m_Done ? "Lesson review" : "");
+            if (reviewing) SetBadge(m_ResultBadge, "");
+            else UpdateResultBadge();
+            bool showWaveform = m_Listening && controls && !m_ExampleSpeaking && !clerkTurn;
+            m_InstructionText.offsetMin = new Vector2(showWaveform ? 90 : 12, 0);
+            foreach (var bar in m_Waveform) bar.gameObject.SetActive(showWaveform);
+            m_Conversation.gameObject.SetActive(!reviewing && (controls || m_ConversationActive));
             bool manual = controls && !m_ConversationActive;
             m_Speak.gameObject.SetActive(manual);
             m_Hint.gameObject.SetActive(manual);
             m_Next.gameObject.SetActive(manual);
             m_Return.gameObject.SetActive(controls && m_Detour);
+            m_Restart.gameObject.SetActive(RestartRequested != null && (controls || reviewing || m_ConversationActive));
+            m_ReviewPrevious.gameObject.SetActive(reviewing && m_ReviewLines.Count > 1);
+            m_ReviewNext.gameObject.SetActive(m_ReviewPrevious.gameObject.activeSelf);
+            m_ReviewRecording.gameObject.SetActive(reviewing && review.HasRecording);
+            m_ReviewExample.gameObject.SetActive(reviewing && !string.IsNullOrWhiteSpace(review.Target));
+            bool canReview = reviewing && !m_Busy && !m_ControlsLocked;
+            m_ReviewPrevious.interactable = canReview && m_ReviewIndex > 0;
+            m_ReviewNext.interactable = canReview && m_ReviewIndex + 1 < m_ReviewLines.Count;
+            m_ReviewRecording.interactable = m_ReviewExample.interactable = canReview;
             LayoutButtons();
             FitLayout();
-            m_ControlPanel.gameObject.SetActive(isActiveAndEnabled && (controls || m_ConversationActive));
+            m_ControlPanel.gameObject.SetActive(isActiveAndEnabled && (controls || m_ConversationActive || reviewing));
             m_ConversationLabel.text = m_ConversationActive ? "End conversation" : "Conversation";
             m_Conversation.interactable = m_ConversationActive || (controls && !m_Busy && !m_Listening && !m_ControlsLocked);
             m_SpeakLabel.text = m_Listening ? "Finish" : "Speak";
             m_Speak.interactable = manual && !m_Busy && !m_ControlsLocked;
             m_Hint.interactable = m_Next.interactable = manual && !m_Busy && !m_Listening && !m_ControlsLocked;
             m_Return.interactable = controls && !m_Busy && !m_Listening && !m_ControlsLocked && !m_ConversationActive;
-            bool content = controls || m_ConversationActive || !string.IsNullOrEmpty(m_Japanese.text) || !string.IsNullOrEmpty(m_Status.text) || m_Clerk.text.Length > 0 || m_Learner.text.Length > 0;
+            m_Restart.interactable = !m_SceneTransition;
+            bool content = opening || m_SceneTransition || showCorner || m_Status.text.Length > 0 || m_PracticeStatus.Length > 0;
             m_Panel.gameObject.SetActive(isActiveAndEnabled && content);
         }
 
-        string Highlight(string text)
+        static string ReviewOutcome(LearningReviewLine line)
+        {
+            if (line.Outcome == "skip") return "Skipped";
+            string outcome = line.Outcome switch
+            {
+                "pass" => "Matched",
+                "assisted" => "Matched with hint",
+                "retry" => "Try again",
+                _ => ""
+            };
+            if (line.Score >= 0 && line.Score <= 100)
+                return outcome.Length > 0 ? $"{outcome} · {line.Score}% match" : $"{line.Score}% match";
+            return outcome.Length > 0 ? outcome : "No scored attempt";
+        }
+
+        string PracticeInstruction()
+        {
+            if (m_SceneTransition) return "";
+            if (m_ConversationActive) return !string.IsNullOrEmpty(m_ConversationStatus) ? m_ConversationStatus
+                : m_AgentSpeaking ? "Clerk speaking · you can interrupt" : "Listening · speak naturally";
+            if (!string.IsNullOrEmpty(m_ExploreHint)) return m_ExploreHint;
+            if (m_ExampleSpeaking) return "Guide speaking";
+            if (m_Listening) return m_StatusOverride == "Finishing speech…" ? m_StatusOverride : "Listening…";
+            if (m_ClerkSpeaking) return "Clerk speaking";
+            if (!string.IsNullOrEmpty(m_StatusOverride)) return m_StatusOverride;
+            if (m_Busy) return "One moment…";
+            if (m_Done) return "Lesson complete";
+            if (m_Detour) return string.IsNullOrEmpty(m_RouteLabel) ? "Exploring · return when ready" : m_RouteLabel;
+            if (m_Feedback?.notes != null)
+                foreach (string note in m_Feedback.notes)
+                    if (!string.IsNullOrWhiteSpace(note) &&
+                        !note.StartsWith("Text similarity only", StringComparison.OrdinalIgnoreCase) &&
+                        !RepeatsTarget(note, m_Overlay?.jp)) return note;
+            return "";
+        }
+
+        static void SetBadge(Text text, string value)
+        {
+            text.text = value;
+            text.transform.parent.gameObject.SetActive(value.Length > 0);
+        }
+
+        void UpdateResultBadge()
+        {
+            string result = m_PracticeStatus;
+            bool passed = m_PracticeOutcome == "pass" || m_PracticeOutcome == "assisted";
+            bool retry = m_PracticeOutcome == "retry";
+            var background = m_ResultBadge.transform.parent.GetComponent<Image>();
+            background.color = passed ? new Color(0.07f, 0.28f, 0.18f, 0.58f)
+                : retry ? new Color(0.30f, 0.18f, 0.06f, 0.94f) : new Color(0.015f, 0.025f, 0.04f, 0.83f);
+            m_ResultBadge.fontSize = m_ShowCorrection ? 34 : 44;
+            if (m_ShowCorrection)
+            {
+                SetBadge(m_ResultBadge, $"Practice 「{m_ResultAttempt.correction.jp}」\nHeard {Shorten(m_ResultAttempt.text ?? "", 19)}");
+                return;
+            }
+            SetBadge(m_ResultBadge, result.Length == 0 ? "" : (passed ? "✓  " : retry ? "↻  " : "") + result);
+        }
+
+        bool ShouldShowCorrection() =>
+            m_PracticeOutcome == "retry" && !m_ConversationActive && !m_Done && !m_SceneTransition &&
+            !(m_ClerkSpeaking && m_ClerkCaption.Length > 0) && Time.unscaledTime >= m_ResultEmphasisUntil &&
+            m_ResultAttempt?.correction != null &&
+            string.Equals(m_ResultAttempt.jp, m_Overlay?.jp, StringComparison.Ordinal);
+
+        string Highlight(string text, int sentenceOffset = 0)
+        {
+            string active = HighlightExample(text, m_Overlay?.jp, sentenceOffset, preserveVocabulary: true);
+            if (active != null) return active;
+            var correction = m_ShowCorrection ? m_ResultAttempt.correction : null;
+            if (correction != null && correction.start >= sentenceOffset && correction.end <= sentenceOffset + text.Length)
+            {
+                int start = correction.start - sentenceOffset;
+                int end = correction.end - sentenceOffset;
+                return HighlightVocabulary(text.Substring(0, start)) +
+                    "<b><color=#FFAE76>" + EscapeRichText(text.Substring(start, end - start)) + "</color></b>" +
+                    HighlightVocabulary(text.Substring(end));
+            }
+            return HighlightVocabulary(text);
+        }
+
+        string HighlightVocabulary(string text)
         {
             var result = new System.Text.StringBuilder();
             for (int offset = 0; offset < text.Length;)
@@ -252,93 +648,263 @@ namespace ImmerseTheBay.Learning
             return result.ToString();
         }
 
+        float LayoutReadingGroups(LearningReadingGroup[] groups)
+        {
+            if (groups == null || groups.Length == 0 || groups.Length > MaximumReadingGroups || string.IsNullOrEmpty(m_Overlay?.jp))
+                return 0f;
+            var sentence = new System.Text.StringBuilder(m_Overlay.jp.Length);
+            foreach (var group in groups)
+            {
+                if (group == null || string.IsNullOrWhiteSpace(group.jp) || string.IsNullOrWhiteSpace(group.romaji))
+                    return 0f;
+                sentence.Append(group.jp);
+            }
+            if (!string.Equals(sentence.ToString(), m_Overlay.jp, StringComparison.Ordinal)) return 0f;
+
+            const float gap = 16;
+            const float width = Width - 2 * CaptionSidePadding;
+            float japaneseHeight = JapaneseSize * 1.1f, kanaHeight = 0f, romajiHeight = GroupReadingSize * 1.1f;
+            var widths = new float[groups.Length];
+            var rowWidths = new float[2];
+            int row = 0, secondRowAt = groups.Length, sentenceOffset = 0;
+            for (int i = 0; i < groups.Length; i++)
+            {
+                if (i >= m_ReadingCells.Count) m_ReadingCells.Add(CreateReadingCell());
+                var cell = m_ReadingCells[i];
+                bool exampleActive = ExampleOverlaps(m_Overlay.jp, sentenceOffset, sentenceOffset + groups[i].jp.Length);
+                cell.japanese.text = HighlightExample(groups[i].jp, m_Overlay.jp, sentenceOffset, wholeGroup: true)
+                    ?? Highlight(groups[i].jp, sentenceOffset);
+                cell.japanese.color = m_Japanese.color;
+                cell.japanese.fontStyle = m_Japanese.fontStyle;
+                Color readingColor = exampleActive ? (Color)new Color32(121, 244, 255, 255) : m_Romaji.color;
+                cell.kana.color = cell.romaji.color = readingColor;
+                cell.kana.text = groups[i].jp == groups[i].kana ? "" : groups[i].kana ?? "";
+                sentenceOffset += groups[i].jp.Length;
+                cell.romaji.text = groups[i].romaji;
+                widths[i] = Mathf.Ceil(Mathf.Max(cell.japanese.preferredWidth, cell.kana.preferredWidth, cell.romaji.preferredWidth)) + 2;
+                if (widths[i] > width) return 0f;
+                japaneseHeight = Mathf.Max(japaneseHeight, cell.japanese.preferredHeight);
+                if (!string.IsNullOrEmpty(cell.kana.text)) kanaHeight = Mathf.Max(kanaHeight, cell.kana.preferredHeight);
+                romajiHeight = Mathf.Max(romajiHeight, cell.romaji.preferredHeight);
+                if (rowWidths[row] + gap + widths[i] > width && rowWidths[row] > 0)
+                {
+                    if (row == 1) return 0f;
+                    row = 1;
+                    secondRowAt = i;
+                }
+                rowWidths[row] += (rowWidths[row] == 0 ? 0 : gap) + widths[i];
+            }
+            float rowHeight = japaneseHeight + kanaHeight + romajiHeight;
+            float height = (row + 1) * rowHeight;
+            if (height + MinimumLineHeight(m_Translation) + 24 > m_AvailableHeight) return 0f;
+            for (int i = 0; i < m_ReadingCells.Count; i++)
+            {
+                var cell = m_ReadingCells[i];
+                cell.japanese.gameObject.SetActive(i < groups.Length);
+                cell.kana.gameObject.SetActive(i < groups.Length && !string.IsNullOrEmpty(cell.kana.text));
+                cell.romaji.gameObject.SetActive(i < groups.Length);
+                cell.underline.gameObject.SetActive(false);
+            }
+            float x = -rowWidths[0] * 0.5f;
+            sentenceOffset = 0;
+            for (int i = 0; i < groups.Length; i++)
+            {
+                if (i == secondRowAt) x = -rowWidths[1] * 0.5f;
+                float y = i < secondRowAt ? 0 : -rowHeight;
+                var cell = m_ReadingCells[i];
+                PositionReadingCell(cell.japanese.rectTransform, x, y, widths[i], japaneseHeight);
+                PositionReadingCell(cell.kana.rectTransform, x, y - japaneseHeight, widths[i], kanaHeight);
+                PositionReadingCell(cell.romaji.rectTransform, x, y - japaneseHeight - kanaHeight, widths[i], romajiHeight);
+                int groupEnd = sentenceOffset + groups[i].jp.Length;
+                if (m_ShowCorrection && m_ResultAttempt.correction.start >= sentenceOffset && m_ResultAttempt.correction.end <= groupEnd)
+                {
+                    float lineWidth = Mathf.Min(widths[i], cell.japanese.preferredWidth);
+                    PositionReadingCell(cell.underline, x + (widths[i] - lineWidth) * 0.5f,
+                        y - japaneseHeight + 5, lineWidth, 3);
+                    cell.underline.gameObject.SetActive(true);
+                }
+                sentenceOffset = groupEnd;
+                x += widths[i] + gap;
+            }
+            return height;
+        }
+
+        (Text japanese, Text kana, Text romaji, RectTransform underline) CreateReadingCell()
+        {
+            var japanese = MakeText("Word", m_Japanese.font, JapaneseSize, m_Japanese.color);
+            japanese.supportRichText = true;
+            var kana = MakeText("Word kana", m_Japanese.font, GroupReadingSize, m_Romaji.color);
+            var romaji = MakeText("Word romaji", m_Romaji.font, GroupReadingSize, m_Romaji.color);
+            japanese.transform.SetParent(m_ReadingPanel, false);
+            kana.transform.SetParent(m_ReadingPanel, false);
+            romaji.transform.SetParent(m_ReadingPanel, false);
+            japanese.horizontalOverflow = kana.horizontalOverflow = romaji.horizontalOverflow = HorizontalWrapMode.Overflow;
+            var underline = new GameObject("Correction underline", typeof(Image)).GetComponent<Image>();
+            underline.transform.SetParent(m_ReadingPanel, false);
+            underline.color = new Color(1f, 0.68f, 0.46f);
+            underline.raycastTarget = false;
+            underline.gameObject.SetActive(false);
+            return (japanese, kana, romaji, underline.rectTransform);
+        }
+
+        static void PositionReadingCell(RectTransform rect, float x, float y, float width, float height)
+        {
+            rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 1);
+            rect.pivot = new Vector2(0, 1);
+            rect.sizeDelta = new Vector2(width, height);
+            rect.anchoredPosition = new Vector2(x, y);
+        }
+
         static string EscapeRichText(string text) => text.Replace('<', '＜').Replace('>', '＞');
 
         static string Shorten(string text, int length) => text.Length <= length ? text : text.Substring(0, length - 1) + "…";
 
         void LayoutButtons()
         {
-            var buttons = new[] { m_Conversation, m_Speak, m_Hint, m_Next, m_Return };
             int count = 0;
-            foreach (var button in buttons) if (button.gameObject.activeSelf) count++;
+            foreach (var button in m_Buttons) if (button.gameObject.activeSelf) count++;
             int index = 0;
-            foreach (var button in buttons)
+            foreach (var button in m_Buttons)
                 if (button.gameObject.activeSelf)
-                    ((RectTransform)button.transform).anchoredPosition = new Vector2((index++ - (count - 1) * 0.5f) * 244, 80);
+                    ((RectTransform)button.transform).anchoredPosition =
+                        new Vector2((index++ - (count - 1) * 0.5f) * ControlButtonSpacing, 110);
+            for (int i = 0; i < m_ReviewButtons.Length; i++)
+                ((RectTransform)m_ReviewButtons[i].transform).anchoredPosition =
+                    new Vector2((i - (m_ReviewButtons.Length - 1) * 0.5f) * ControlButtonSpacing, 110);
+            var returnRect = (RectTransform)m_Return.transform;
+            returnRect.anchoredPosition = new Vector2(0, 212);
+            returnRect.sizeDelta = new Vector2(310, 126);
+            var restartRect = (RectTransform)m_Restart.transform;
+            restartRect.anchoredPosition = new Vector2(0, -55);
+            restartRect.sizeDelta = new Vector2(180, 82);
+            var conversationRect = (RectTransform)m_Conversation.transform;
+            conversationRect.sizeDelta = new Vector2(m_ConversationActive ? 340 : 222, 154);
+            ((RectTransform)m_ControlHint.transform).anchoredPosition = new Vector2(0, 18);
+        }
+
+        void UpdateActionHints()
+        {
+            if (m_HoveredButton && (!m_HoveredButton.isActiveAndEnabled || !m_HoveredButton.interactable))
+                m_HoveredButton = null;
+            if (m_HoveredButton) m_KeepControlsStillUntil = Time.unscaledTime + 0.25f;
+            foreach (var button in m_Buttons) button.targetGraphic.color = button == m_HoveredButton ? HoverPurple : ActionPurple;
+            foreach (var button in m_ReviewButtons) button.targetGraphic.color = button == m_HoveredButton ? HoverPurple : ActionPurple;
+            m_Return.targetGraphic.color = m_Return == m_HoveredButton ? HoverPurple : ActionPurple;
+            m_Restart.targetGraphic.color = m_Restart == m_HoveredButton ? HoverPurple : ActionPurple;
+            if (!m_HoveredButton)
+            {
+                m_ControlHint.text = ShowingReview ? "Point and pinch to review"
+                    : m_ExploreHint ?? "Aim the pointer at an action";
+                return;
+            }
+            string label = m_HoveredButton == m_Speak ? m_SpeakLabel.text : m_HoveredButton.name;
+            m_ControlHint.text = $"Pinch to select {label}";
         }
 
         void FitLayout()
         {
-            const float footer = 12;
-            float budget = Mathf.Max(1, m_AvailableHeight - footer - 12);
-            m_Japanese.resizeTextForBestFit = false;
-            m_Romaji.resizeTextForBestFit = false;
-            m_Status.resizeTextForBestFit = false;
-            m_Japanese.fontSize = 42;
-            m_Romaji.fontSize = 29;
+            const float padding = 12;
+            float targetCue = MeasureLine(m_TargetCue);
+            float budget = Mathf.Max(1, m_AvailableHeight - padding * 2 - m_ReadingHeight - targetCue);
             float japanese = MeasureLine(m_Japanese);
             float romaji = MeasureLine(m_Romaji);
-            float clerkCaption = MeasureLine(m_Clerk);
-            float learnerCaption = MeasureLine(m_Learner);
-            float dialogueBudget = japanese + romaji > 0 ? budget * 0.55f : budget;
-            float captionScale = Mathf.Min(1, dialogueBudget / Mathf.Max(1, clerkCaption + learnerCaption));
-            clerkCaption *= captionScale;
-            learnerCaption *= captionScale;
-            float clerk = clerkCaption + learnerCaption;
-            float kana = MeasureLine(m_Kana);
             float translation = MeasureLine(m_Translation);
+            float clerk = MeasureLine(m_Clerk);
+            float learner = MeasureLine(m_Learner);
+            float kana = MeasureLine(m_Kana);
             float status = MeasureLine(m_Status);
-            // Pronunciation stays directly under Japanese; collapse optional hints first.
-            if (japanese + romaji + clerk + kana + translation + status > budget) translation = 0;
-            if (japanese + romaji + clerk + kana + translation + status > budget) kana = 0;
-            if (japanese + romaji + clerk + kana + translation + status > budget && m_Overlay != null) status = 0;
-            while (japanese + romaji + clerk + status > budget && (m_Japanese.fontSize > 32 || m_Romaji.fontSize > 23))
+
+            // The current utterance retains its Japanese, romaji and translation at
+            // fixed type sizes. Optional readings and the previous reply yield first.
+            if (japanese + romaji + translation + clerk + learner + kana + status > budget) kana = 0;
+            if (japanese + romaji + translation + clerk + learner + status > budget && (japanese > 0 || m_ReadingHeight > 0)) learner = 0;
+            if (japanese + romaji + translation + clerk + learner + status > budget)
+                status = 0;
+            float textBudget = budget - status;
+
+            float required = japanese + romaji + translation + clerk + learner;
+            if (required > textBudget)
             {
-                m_Japanese.fontSize = Mathf.Max(32, m_Japanese.fontSize - 2);
-                m_Romaji.fontSize = Mathf.Max(23, m_Romaji.fontSize - 2);
-                japanese = MeasureLine(m_Japanese);
-                romaji = MeasureLine(m_Romaji);
+                // External transcripts can be arbitrarily long. Bound their rows and
+                // show an explicit ellipsis at the same font size instead of tiny type.
+                float minJapanese = MinimumLineHeight(m_Japanese);
+                float minRomaji = MinimumLineHeight(m_Romaji);
+                float minTranslation = MinimumLineHeight(m_Translation);
+                float minClerk = clerk > 0 ? MinimumLineHeight(m_Clerk) : 0;
+                float minLearner = learner > 0 ? MinimumLineHeight(m_Learner) : 0;
+                float minimum = minJapanese + minRomaji + minTranslation + minClerk + minLearner;
+                float share = Mathf.Clamp01((textBudget - minimum) / Mathf.Max(1, required - minimum));
+                japanese = minJapanese + (japanese - minJapanese) * share;
+                romaji = minRomaji + (romaji - minRomaji) * share;
+                translation = minTranslation + (translation - minTranslation) * share;
+                clerk = minClerk + (clerk - minClerk) * share;
+                learner = minLearner + (learner - minLearner) * share;
             }
-            if (japanese + romaji + clerk + status > budget && japanese + romaji > 0)
+            float y = padding;
+            LayoutCaption(m_Clerk, ref y, clerk);
+            if (ShowingReview) LayoutCaption(m_Japanese, ref y, japanese);
+            LayoutCaption(m_Learner, ref y, learner);
+            LayoutLine(m_TargetCue, ref y, targetCue);
+            if (!ShowingReview) LayoutCaption(m_Japanese, ref y, japanese);
+            LayoutCaption(m_Romaji, ref y, romaji);
+            m_ReadingPanel.gameObject.SetActive(m_ReadingHeight > 0);
+            if (m_ReadingHeight > 0)
             {
-                // Unusually long external lines share the remaining safe area. The text
-                // rectangles never overlap the caption or controls, even on narrow displays.
-                float remaining = Mathf.Max(0, budget - clerk - status);
-                float scale = remaining / (japanese + romaji);
-                japanese *= scale;
-                romaji *= scale;
-                m_Japanese.resizeTextForBestFit = true;
-                m_Japanese.resizeTextMinSize = 18;
-                m_Japanese.resizeTextMaxSize = 32;
-                m_Romaji.resizeTextForBestFit = true;
-                m_Romaji.resizeTextMinSize = 18;
-                m_Romaji.resizeTextMaxSize = 23;
+                m_ReadingPanel.offsetMin = new Vector2(CaptionSidePadding, -y - m_ReadingHeight);
+                m_ReadingPanel.offsetMax = new Vector2(-CaptionSidePadding, -y);
+                y += m_ReadingHeight;
             }
-            if (japanese + romaji == 0 && clerk + status > budget)
-            {
-                m_Status.resizeTextForBestFit = true;
-                m_Status.resizeTextMinSize = 20;
-                m_Status.resizeTextMaxSize = 25;
-                status = Mathf.Max(0, budget - clerk);
-            }
-            float y = 12;
-            FitCaption(m_Clerk, ref y, clerkCaption);
-            FitCaption(m_Learner, ref y, learnerCaption);
-            LayoutLine(m_Japanese, ref y, japanese);
-            LayoutLine(m_Romaji, ref y, romaji);
-            LayoutLine(m_Kana, ref y, kana);
-            LayoutLine(m_Translation, ref y, translation);
-            LayoutLine(m_Status, ref y, status);
-            m_Height = Mathf.Min(m_AvailableHeight, y + footer);
+            LayoutCaption(m_Translation, ref y, translation);
+            LayoutCaption(m_Kana, ref y, kana);
+            LayoutCaption(m_Status, ref y, status);
+            m_Height = Mathf.Min(m_AvailableHeight, y + padding);
             m_Panel.sizeDelta = new Vector2(Width, m_Height);
+            m_Backdrop.SetActive(y > padding);
         }
 
-        static void FitCaption(Text text, ref float y, float height)
+        void UpdateWaveform()
         {
-            text.resizeTextForBestFit = true;
-            text.resizeTextMinSize = 16;
-            text.resizeTextMaxSize = 26;
+            float now = Time.unscaledTime;
+            if (!m_Waveform[0].gameObject.activeSelf || now < m_NextWaveformSample) return;
+            m_NextWaveformSample = now + 0.05f;
+            Array.Copy(m_ListeningHistory, 1, m_ListeningHistory, 0, m_ListeningHistory.Length - 1);
+            m_ListeningHistory[m_ListeningHistory.Length - 1] = now - m_LastListeningSample <= 0.16f ? m_ListeningLevel : 0f;
+            for (int i = 0; i < m_Waveform.Length; i++)
+                m_Waveform[i].sizeDelta = new Vector2(8, 4 + 27 * m_ListeningHistory[i]);
+        }
+
+        void LayoutCaption(Text text, ref float y, float height)
+        {
             LayoutLine(text, ref y, height);
+            if (height <= 0 || text.preferredHeight + 6 <= height) return;
+            // Japanese is the only rich-text row; truncate the source before adding
+            // vocabulary highlights so an ellipsis can never leave a broken color tag.
+            bool highlight = text == m_Japanese && m_OpeningTitle.Length == 0 && !ShowingReview && !m_SceneTransition;
+            string source = highlight ? m_Overlay?.jp ?? (m_Done ? "お疲れさまでした" : "") : text.text;
+            var boundaries = System.Globalization.StringInfo.ParseCombiningCharacters(source);
+            int low = 0, high = boundaries.Length;
+            while (low < high)
+            {
+                int mid = (low + high + 1) / 2;
+                int end = mid < boundaries.Length ? boundaries[mid] : source.Length;
+                string candidate = source.Substring(0, end).TrimEnd() + "…";
+                text.text = highlight ? Highlight(candidate) : candidate;
+                if (text.preferredHeight + 6 <= height) low = mid;
+                else high = mid - 1;
+            }
+            int length = low < boundaries.Length ? boundaries[low] : source.Length;
+            string fitted = source.Substring(0, length).TrimEnd() + "…";
+            text.text = highlight ? Highlight(fitted) : fitted;
+        }
+
+        static float MinimumLineHeight(Text text)
+        {
+            if (string.IsNullOrEmpty(text.text)) return 0;
+            string source = text.text;
+            text.text = "…";
+            float height = MeasureLine(text);
+            text.text = source;
+            return height;
         }
 
         static float MeasureLine(Text text)
@@ -347,8 +913,8 @@ namespace ImmerseTheBay.Learning
             var rt = (RectTransform)text.transform;
             rt.anchorMin = new Vector2(0, 1); rt.anchorMax = Vector2.one;
             rt.pivot = new Vector2(0.5f, 1);
-            rt.offsetMin = new Vector2(36, -100);
-            rt.offsetMax = new Vector2(-36, 0);
+            rt.offsetMin = new Vector2(CaptionSidePadding, -100);
+            rt.offsetMax = new Vector2(-CaptionSidePadding, 0);
             // Noto's line metrics are taller than the built-in Latin font.
             return Mathf.Max(text.preferredHeight + 6, text.fontSize * 1.5f);
         }
@@ -358,14 +924,16 @@ namespace ImmerseTheBay.Learning
             text.gameObject.SetActive(height > 0);
             if (height <= 0) return;
             var rt = (RectTransform)text.transform;
-            rt.offsetMin = new Vector2(36, -y - height);
-            rt.offsetMax = new Vector2(-36, -y);
+            rt.offsetMin = new Vector2(CaptionSidePadding, -y - height);
+            rt.offsetMax = new Vector2(-CaptionSidePadding, -y);
             y += height;
         }
 
         void LateUpdate()
         {
+            if (m_ControlPanel && m_ControlPanel.gameObject.activeInHierarchy) UpdateActionHints();
             if (!m_Panel) return;
+            if (m_ShowCorrection != ShouldShowCorrection()) Refresh();
             if (!headCamera) headCamera = Camera.main;
             m_Canvas.worldCamera = headCamera;
             m_ControlCanvas.worldCamera = headCamera;
@@ -397,29 +965,48 @@ namespace ImmerseTheBay.Learning
                 bottom = headCamera.transform.position + headCamera.transform.forward * distance - up * (screenHeight * 0.5f);
             }
             else return;
-            float pixelScale = width / Width;
-            // Reserve the central view: subtitles and controls occupy only the lower third.
-            float available = screenHeight * (m_ConversationActive ? 0.40f : 0.32f) / pixelScale;
+            // Uniform scale preserves glyph proportions. Height caps the type size on
+            // wide video; width caps it on narrow video. Resolution changes at the
+            // same aspect cannot change typography, and ultrawide media cannot inflate it.
+            float pixelScale = Mathf.Min(width / Width, screenHeight / ReferenceHeight);
+            // The subtitle band excludes navigation, results, and input status.
+            float available = screenHeight * 0.38f / pixelScale;
             if (Mathf.Abs(available - m_AvailableHeight) > 0.5f)
             {
                 m_AvailableHeight = available;
                 Refresh();
             }
-            Vector3 anchor = bottom + up * (screenHeight * 0.03f + m_Height * pixelScale * 0.5f);
+            Vector3 anchor = bottom + up * (screenHeight * CaptionBottom + m_Height * pixelScale * 0.5f);
             if (headCamera) anchor += (headCamera.transform.position - anchor).normalized * Mathf.Max(0.002f, screenGap);
             m_Panel.SetPositionAndRotation(anchor, rotation);
             m_Panel.localScale = Vector3.one * pixelScale;
-            if (headCamera)
+            float canvasHeight = screenHeight / pixelScale;
+            m_Hud.anchoredPosition = new Vector2(0, -CaptionBottom * canvasHeight);
+            m_Hud.sizeDelta = new Vector2(Width, canvasHeight);
+            bool showExploreMarker = m_ExploreAim.HasValue && headCamera;
+            m_ExploreMarker.gameObject.SetActive(showExploreMarker);
+            if (showExploreMarker)
+            {
+                Vector3 hit = m_ExploreAim.Value;
+                m_ExploreMarker.transform.position = hit + (headCamera.transform.position - hit).normalized * screenGap;
+            }
+            if (m_ResultBadge.gameObject.activeInHierarchy)
+                m_ResultBadge.transform.parent.localScale = Vector3.one
+                    * (1f + 0.09f * Mathf.Clamp01((m_ResultEmphasisUntil - Time.unscaledTime) / 0.24f));
+            UpdateWaveform();
+            // The rail follows the head between interactions. Keep it still while a hand is
+            // aiming or pinching so a small head movement cannot move the target under the ray.
+            if (headCamera && (m_Tabletop.HasValue || Time.unscaledTime >= m_KeepControlsStillUntil))
             {
                 var heading = Vector3.ProjectOnPlane(rotation * Vector3.forward, Vector3.up).normalized;
                 if (heading.sqrMagnitude < 0.01f) return;
                 var upright = Quaternion.LookRotation(heading, Vector3.up);
-                // Face the user from arm's reach and remain below eye level when they look down.
+                // Give the fallback rail a short, downward sightline from arm's reach.
                 var pose = m_Tabletop ?? new Pose(
-                    headCamera.transform.position + heading * 0.57f - Vector3.up * 0.29f,
-                    upright * Quaternion.Euler(28, 0, 0));
+                    headCamera.transform.position + heading * 0.48f - Vector3.up * 0.205f,
+                    upright * Quaternion.Euler(18, 0, 0));
                 m_ControlPanel.SetPositionAndRotation(pose.position, pose.rotation);
-                m_ControlPanel.localScale = Vector3.one * 0.00039f;
+                m_ControlPanel.localScale = Vector3.one * 0.00040f;
             }
         }
     }

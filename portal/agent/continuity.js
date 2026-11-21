@@ -36,12 +36,17 @@ function usable(value) {
  * Initial WHO/WHERE may also use a trusted reference description. The identity
  * lock persists through continuation and rejoin, including short action cues.
  */
-export function composeVisualPrompt(action, fallback = NEUTRAL_ACTION, { initial = false, subject = '', speaking = false, visiblePartner = true, identityAnchor = CHARACTER_ANCHOR } = {}) {
+export function composeVisualPrompt(action, fallback = NEUTRAL_ACTION, { initial = false, subject = '', speaking = false, visiblePartner = true, identityAnchor = CHARACTER_ANCHOR, environmentalMotion = false } = {}) {
   // Without a photographed partner, dialogue may branch off-camera but visual
   // actions must not synthesize a character (including unsafe authored fallbacks).
   // Keep the reference environment itself authoritative instead of repeating
   // human nouns from an LLM cue or a default store script.
-  if (visiblePartner === false) return `The photographed environment retains its original layout and lighting. Existing objects remain stationary. ${SCENE_ANCHOR}`;
+  if (visiblePartner === false) {
+    const motion = environmentalMotion ? usable(action).match(/^[^.!?。！？]+/u)?.[0] || '' : '';
+    const grounded = motion && /\b(?:leaves|branches|curtain|reflections?|water|steam|light|shadows?|rain|clouds?|fountain|fan)\b/iu.test(motion) &&
+      !/\b(?:people|person|person's|body|figure|faces?|clerk|barista|host|partne?r|man|woman|hands?|customer|walks?|enters?|appears?|moves toward|new|forms?)\b/iu.test(motion);
+    return `The photographed environment retains its original layout and lighting. ${grounded ? motion.slice(0, 200) + '.' : 'Existing objects remain stationary.'} ${SCENE_ANCHOR}`;
+  }
   const identity = usable(identityAnchor);
   const anchor = identity && identity.length <= 240 ? identity : CHARACTER_ANCHOR;
   const locked = anchor !== CHARACTER_ANCHOR;

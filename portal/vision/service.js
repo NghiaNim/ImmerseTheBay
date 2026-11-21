@@ -6,7 +6,7 @@ export function createVisionService({ client = createVisionClient(), now = Date.
   let active = 0;
   const recent = new Map(); // Timestamp-only throttle; never retains frames.
   return {
-    async point(body, { caller = 'local' } = {}) {
+    async point(body, { caller = 'local', sceneHint } = {}) {
       const request = validateRequest(body);
       if (!client) throw new VisionError(503, 'OPENAI_API_KEY is not configured for vision');
       const time = now();
@@ -14,7 +14,7 @@ export function createVisionService({ client = createVisionClient(), now = Date.
       if (recent.has(caller) || active >= maxConcurrent || recent.size >= 256) throw new VisionError(429, 'Wait before pointing at another video object');
       recent.set(caller, time);
       active++;
-      try { return gateDetection(await client(request), request); }
+      try { return gateDetection(await client(sceneHint ? { ...request, sceneHint } : request), request); }
       finally { active--; }
     },
   };

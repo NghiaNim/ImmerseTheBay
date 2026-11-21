@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Linq;
 using ImmerseTheBay.Learning.Voice;
 using System.Text;
 using System.Threading.Tasks;
@@ -10,11 +11,19 @@ using UnityEngine.Networking;
 
 namespace ImmerseTheBay.Learning
 {
+    public sealed class LearningReviewLine
+    {
+        public string Target, Transcript, Outcome;
+        public int Score;
+        internal byte[] Recording;
+        public bool HasRecording => Recording != null;
+    }
+
     /// <summary>
     /// Serialized lesson turns over the portal. Mirrored learn events only render; they never execute
     /// Reactor commands. BeginLesson explicitly resets the shared scene; no session starts on enable.
     /// </summary>
-    public sealed class LearningAgentClient : MonoBehaviour
+    public sealed partial class LearningAgentClient : MonoBehaviour
     {
         public ViskoSession visko;
         public LearningContext context;
@@ -28,7 +37,25 @@ namespace ImmerseTheBay.Learning
         public CartesiaConversationClient conversation;
         public bool IsConversationActive => m_VoiceActive || m_VoiceConnecting || m_Reconciling;
         string m_RunId;
+        string m_ActiveSceneId, m_PrefetchedSceneId;
+        Task<byte[]> m_ScenePrefetch;
         LearningResponse m_LastResponse;
+        LearningAttempt m_LastAttempt;
+        string m_LastPublishedAttemptId;
+        float m_AttemptExpires;
+        string m_CompletionRunId;
+        public LearningAttempt VisibleAttempt => m_LastAttempt;
+        public float VisibleAttemptOpacity => IsPositiveAttempt
+            ? Mathf.Clamp01((m_AttemptExpires - Time.unscaledTime) / 0.35f) : 1f;
+        bool IsPositiveAttempt => m_LastAttempt?.outcome is "pass" or "assisted";
+        public LearningProgress Progress => m_LastResponse?.progress;
+        public string CurrentTargetJapanese => m_LastResponse?.overlay?.jp ?? "";
+        public LearningRoute CurrentRoute => m_LastResponse?.route;
+        readonly List<LearningReviewLine> m_Review = new();
+        AudioSource m_ReviewSpeaker;
+        AudioClip m_ReviewClip;
+        public IReadOnlyList<LearningReviewLine> CompletedReview =>
+            IsDone ? m_Review : (IReadOnlyList<LearningReviewLine>)Array.Empty<LearningReviewLine>();
         int m_Revision, m_AudioTurn;
         double m_LastPromptAt = double.NegativeInfinity;
         bool m_VoiceActive, m_VoiceConnecting, m_Reconciling, m_ToolRunning, m_Cancelling;
@@ -39,21 +66,45 @@ namespace ImmerseTheBay.Learning
         public int Beat { get; private set; }
         public bool IsBusy { get; private set; }
         public bool IsDone { get; private set; }
+        public bool HasActiveLesson => m_HasLesson && !m_NeedsRestart;
+        public string ActiveRunId => HasActiveLesson ? m_RunId : null;
+        public bool IsListening => m_RecognitionPending;
+        /// <summary>Clerk line still downloading or playing; Speak() would cut it off.</summary>
+        public bool IsClerkSpeaking => m_ClerkAudioRequest != null || (m_ClerkSpeaker && m_ClerkSpeaker.isPlaying);
+        public bool IsExamplePending => m_ExampleAudioRequest != null;
+        public bool IsWaitingForExamplePause => IsExamplePending && Time.unscaledTime < m_TutorAfterClerkAt;
+        public bool IsExamplePlaying => m_ExampleSpeaker && m_ExampleSpeaker.isPlaying;
+        public bool IsFeedbackPlaying => Time.unscaledTime < m_FeedbackUntil;
+        public bool PlayExamples { get; private set; } = true;
         public string Status { get; private set; } = "Join a lesson from the web, or begin a lesson.";
 
         readonly ConcurrentQueue<Action> m_Main = new();
         ISpeechToText m_Speech;
         Func<string> m_Debug;
         UnityWebRequest m_Request;
+        UnityWebRequest m_CompletionRequest;
         UnityWebRequest m_ClerkAudioRequest;
         AudioSource m_ClerkSpeaker;
         AudioClip m_ClerkAudio;
+        UnityWebRequest m_ExampleAudioRequest;
+        const float TutorPauseAfterClerk = 2f;
+        float m_TutorAfterClerkAt;
+        AudioSource m_ExampleSpeaker, m_FeedbackSpeaker;
+        AudioClip m_ExampleAudio, m_PassCue, m_RetryCue, m_CompletionCue;
+        float m_FeedbackUntil;
         readonly UnityWebRequest[] m_CaptionRequests = new UnityWebRequest[2];
         readonly string[] m_CaptionText = new string[2];
 
-        [Serializable] sealed class CaptionTranslation { public string english; }
+        [Serializable] sealed class CaptionTranslation { public string english, romaji; }
+        [Serializable] sealed class CompletionSummary
+        {
+            public string runId, lessonId;
+            public int revision, targetsEncountered, targetsAttempted, targetsCompleted, scoredAttempts, averageTranscriptMatch;
+            public bool completed;
+        }
         string m_Session = "", m_RunLesson = "";
         bool m_HasLesson, m_NeedsRestart, m_RecognitionPending;
+        bool m_ListeningVisible;
         int m_Generation;
         int m_MirrorEpoch;
         int m_SpeechGeneration;
@@ -82,6 +133,8 @@ namespace ImmerseTheBay.Learning
                 overlay.SpeakRequested += Speak;
                 overlay.HintRequested += Hint;
                 overlay.NextRequested += Next;
+                overlay.ReviewRecordingRequested += PlayReviewRecording;
+                overlay.ReviewExampleRequested += PlayReviewExample;
                 if (visko) overlay.screen = visko.screen;
             }
             if (conversation) { conversation.ToolCall += OnVoiceTool; conversation.StateChanged += OnVoiceState; conversation.Transcript += OnVoiceTranscript; conversation.Interrupted += OnVoiceInterrupted; }
@@ -103,6 +156,8 @@ namespace ImmerseTheBay.Learning
                 overlay.SpeakRequested -= Speak;
                 overlay.HintRequested -= Hint;
                 overlay.NextRequested -= Next;
+                overlay.ReviewRecordingRequested -= PlayReviewRecording;
+                overlay.ReviewExampleRequested -= PlayReviewExample;
             }
             if (IsBusy) m_NeedsRestart = true;
             m_HasLesson = false; // /sync does not replay missed learn events on re-enable.
@@ -111,6 +166,13 @@ namespace ImmerseTheBay.Learning
             SetStatus("Follow the web lesson or begin again.");
             // The provider component owns Dispose and its microphone restoration lifecycle.
             m_Speech = null;
+        }
+
+        void OnDestroy()
+        {
+            if (m_PassCue) Destroy(m_PassCue);
+            if (m_RetryCue) Destroy(m_RetryCue);
+            if (m_CompletionCue) Destroy(m_CompletionCue);
         }
 
         void Update()
@@ -129,6 +191,22 @@ namespace ImmerseTheBay.Learning
                 SetStatus(string.IsNullOrEmpty(session) ? "Join a lesson from the web." : "Connected. Begin a lesson or follow the web.");
             }
             while (m_Main.TryDequeue(out var action)) action();
+            UpdateExplore();
+            if (overlay)
+            {
+                var portal = m_Speech as PortalSpeechToText;
+                bool capturing = m_RecognitionPending && (portal ? portal.IsCapturing : m_Speech?.IsListening == true);
+                if (m_ListeningVisible != capturing) overlay.SetListening(m_ListeningVisible = capturing);
+                if (capturing && portal) overlay.SetListeningLevel(portal.InputLevel);
+            }
+            if (overlay) overlay.SetResultOpacity(VisibleAttemptOpacity);
+            if (m_LastAttempt != null && !IsPositiveAttempt && (IsBusy || IsClerkSpeaking || IsExamplePending))
+                m_AttemptExpires = Mathf.Max(m_AttemptExpires, Time.unscaledTime + 3f);
+            else if (m_LastAttempt != null && Time.unscaledTime >= m_AttemptExpires)
+            {
+                m_LastAttempt = null;
+                UpdatePracticeLabel();
+            }
             if (m_RecognitionPending && Time.frameCount > m_RecognitionStartFrame + 1 &&
                 (!speechProvider || !speechProvider.isActiveAndEnabled || m_Speech == null || !m_Speech.IsListening))
             {
@@ -155,10 +233,19 @@ namespace ImmerseTheBay.Learning
             { SetStatus("Connect the glasses to Visko before beginning a lesson."); return; }
             if (visko.glassesResolution != "native")
             { SetStatus("Glasses learning requires native resolution."); return; }
+            CancelExploreInput();
+            m_ExploreReturnFrame = null;
             // Capture identity before any await. Update must not invalidate this new operation.
             m_Session = visko.SessionId;
             m_RunLesson = lessonId;
             int generation = ++m_Generation;
+            m_LastResponse = null;
+            m_LastAttempt = null;
+            m_LastPublishedAttemptId = null;
+            ClearCompletion();
+            StopExampleAudio();
+            StopClerkAudio();
+            UpdatePracticeLabel();
             SetBusy(true);
             m_HasLesson = false;
             m_NeedsRestart = true;
@@ -170,6 +257,7 @@ namespace ImmerseTheBay.Learning
                 await visko.ConfigReady;
                 EnsureCurrent(generation);
                 SetStatus("Preparing lesson…");
+                visko.UseSceneOpening(m_RunLesson, ViskoSession.CourseOpeningSceneId(startImage));
                 await visko.CommandAsync("reset", "{}");
                 EnsureCurrent(generation);
                 await Post("/api/agent/reset", "{\"sessionId\":" + LearningContract.Quote(m_Session) +
@@ -186,6 +274,7 @@ namespace ImmerseTheBay.Learning
                 }
                 m_RunId = null; m_Revision = 0; m_Claims.Clear();
                 await ExecuteTurn("", context ? context.Capture() : null, generation);
+                m_LocalExplore = true;
                 m_HasLesson = true;
                 m_NeedsRestart = false;
             }
@@ -209,13 +298,13 @@ namespace ImmerseTheBay.Learning
 
         public void SubmitIntent(string intent) => Submit("", context ? context.Capture() : null, intent);
         public void ReturnToMain() => Submit("", context ? context.Capture() : null, null, "return_to_main");
+        public void PromptWhenIdle() => Submit("", new LearningContextSnapshot(), null, "idle_hint");
         public void Next() => Submit("", context ? context.Capture("pinch") : new LearningContextSnapshot { gesture = "pinch" });
         public void Hint() => Submit("", context ? context.Capture("long_pinch") : new LearningContextSnapshot { gesture = "long_pinch" });
         void OnIntent(LearningContextSnapshot snapshot) => Submit("", snapshot);
 
         public void Speak()
         {
-            StopClerkAudio();
             if (m_RecognitionPending)
             {
                 // Stop requests a final result. E retains mic ownership until final/error.
@@ -223,6 +312,7 @@ namespace ImmerseTheBay.Learning
                 SetStatus("Finishing speech…");
                 return;
             }
+            if (IsClerkSpeaking || IsExamplePending || IsFeedbackPlaying) return;
             if (!CanSubmit()) return;
             if (m_Speech == null || !speechProvider || !speechProvider.isActiveAndEnabled)
             { SetStatus("Speech input is unavailable. Use Hint or Next."); return; }
@@ -232,7 +322,6 @@ namespace ImmerseTheBay.Learning
             m_RecognitionPending = true;
             m_RecognitionStartFrame = Time.frameCount;
             SubscribeSpeech(generation, speechGeneration);
-            if (overlay) overlay.SetListening(true);
             SetStatus(m_Speech is EditorSpeechToText ? "Editor: submit the test transcript on the speech component." : "Speak the Japanese sentence.");
             try { m_Speech.StartListening(); }
             catch (Exception e) { EndRecognition(); SetStatus("Speech input failed: " + e.Message); }
@@ -244,14 +333,19 @@ namespace ImmerseTheBay.Learning
             {
                 if (SpeechCurrent(generation, speechGeneration)) SetStatus(text ?? "");
             });
-            m_FinalHandler = text => m_Main.Enqueue(() =>
+            var portal = m_Speech as PortalSpeechToText;
+            m_FinalHandler = text =>
             {
-                if (!SpeechCurrent(generation, speechGeneration)) return;
-                EndRecognition();
-                if (string.IsNullOrWhiteSpace(text)) { SetStatus("No speech heard. Try Speak again."); return; }
-                ShowDialogue(false, text);
-                Submit(text, context ? context.Capture() : null);
-            });
+                byte[] recording = portal?.TakeFinalUtterance();
+                m_Main.Enqueue(() =>
+                {
+                    if (!SpeechCurrent(generation, speechGeneration)) return;
+                    EndRecognition();
+                    if (string.IsNullOrWhiteSpace(text)) { SetStatus("No speech heard. Try Speak again."); return; }
+                    ShowDialogue(false, text);
+                    Submit(text, context ? context.Capture() : null, practiceAttempt: true, recording: recording);
+                });
+            };
             m_ErrorHandler = error => m_Main.Enqueue(() =>
             {
                 if (!SpeechCurrent(generation, speechGeneration)) return;
@@ -277,7 +371,12 @@ namespace ImmerseTheBay.Learning
                 m_Speech.Error -= m_ErrorHandler;
             }
             m_PartialHandler = m_FinalHandler = m_ErrorHandler = null;
-            if (overlay) overlay.SetListening(false);
+            if (overlay)
+            {
+                m_ListeningVisible = false;
+                overlay.SetListening(false);
+                overlay.SetListeningLevel(0);
+            }
         }
 
         bool CanSubmit(bool fromVoice = false)
@@ -291,28 +390,31 @@ namespace ImmerseTheBay.Learning
             return true;
         }
 
-        async void Submit(string transcript, LearningContextSnapshot snapshot, string intent = null, string action = null)
+        async void Submit(string transcript, LearningContextSnapshot snapshot, string intent = null, string action = null,
+            bool practiceAttempt = false, byte[] recording = null)
         {
             if (!CanSubmit()) return;
+            CancelExploreInput();
             int generation = m_Generation;
             SetBusy(true);
             try
             {
                 await visko.ConfigReady;
                 EnsureCurrent(generation);
-                await ExecuteTurn(transcript, snapshot, generation, intent, action);
+                await ExecuteTurn(transcript, snapshot, generation, intent, action, practiceAttempt, recording: recording);
             }
             catch (OperationCanceledException) { }
             catch (Exception e) { FailTurn(generation, e); }
             finally { if (IsCurrent(generation)) SetBusy(false); }
         }
 
-        async Task ExecuteTurn(string transcript, LearningContextSnapshot snapshot, int generation, string intent = null, string action = null)
+        async Task ExecuteTurn(string transcript, LearningContextSnapshot snapshot, int generation, string intent = null, string action = null,
+            bool practiceAttempt = false, ExplorationSelection exploration = null, byte[] recording = null)
         {
-            SetStatus("Preparing the next scene…");
+            SetStatus(practiceAttempt ? "Checking your answer…" : "Preparing…");
             if (m_Claims.Count >= 256) throw new InvalidOperationException("Lesson operation limit reached; restart safely.");
             string id = Guid.NewGuid().ToString("N");
-            string body = LearningContract.TurnJson(m_Session, m_RunLesson, Beat, transcript, snapshot, id, m_RunId, m_Revision, intent, action);
+            string body = LearningContract.TurnJson(m_Session, m_RunLesson, Beat, transcript, snapshot, id, m_RunId, m_Revision, intent, action, practiceAttempt);
             string json;
             try { json = await Post("/api/agent/turn", body, generation); }
             catch (TransportException) { EnsureCurrent(generation); json = await Post("/api/agent/turn", body, generation); }
@@ -320,11 +422,73 @@ namespace ImmerseTheBay.Learning
             LearningContract.ValidateOperation(response, id, m_RunId, m_Revision);
             m_RunId = response.operation.runId; m_Revision = response.operation.revision;
             if (!m_Claims.Add(id)) throw new InvalidOperationException("Scene operation already attempted.");
-            if (!IsConversationActive && response.speech?.role == "clerk")
+            // Portal has committed scoring. Media acknowledgement only gates advancing the target.
+            PublishAttempt(response.attempt, playCue: true);
+            if (response.attempt != null) RecordReviewLine(response.attempt, recording);
+            bool nextTarget = response.overlay != null &&
+                (response.route?.nodeId != m_LastResponse?.route?.nodeId ||
+                 response.overlay.jp != m_LastResponse?.overlay?.jp);
+            if (nextTarget || response.overlay == null) StopExampleAudio();
+            string sceneId = response.scene?.id;
+            bool switchScene = !string.IsNullOrEmpty(m_ActiveSceneId) &&
+                !string.IsNullOrEmpty(sceneId) && sceneId != m_ActiveSceneId;
+            bool exploring = response.route?.kind == "detour";
+            bool enterExploration = exploration != null && exploring &&
+                response.route.step == 1 && response.route.returnBeat == Beat;
+            bool restoreExploration = m_ExploreReturnFrame != null && response.route?.kind == "rejoin";
+            bool reseed = switchScene || enterExploration || restoreExploration;
+            if (exploring)
             {
-                ShowDialogue(true, response.speech.text);
-                PlayClerkAudio(response.speech, generation);
+                visko.ClearSceneOpening();
+                visko.PrefetchSceneOpening(null, null);
             }
+            else if (!reseed) visko.ConfirmSceneOpening(m_RunLesson, sceneId);
+            bool preparingNext = reseed || response.advance == "next_line" && response.visko.Any(command => command.name == "set_prompt");
+            double transitionAt = Time.realtimeSinceStartupAsDouble + 1;
+            if (!IsConversationActive && response.reaction?.role == "clerk")
+            {
+                ShowClerkDialogue(response.reaction);
+                await PlayClerkAudio(response.reaction, generation, reaction: true);
+                EnsureCurrent(generation);
+            }
+            if (preparingNext && response.attempt?.outcome is "pass" or "assisted")
+            {
+                while (Time.realtimeSinceStartupAsDouble < transitionAt)
+                {
+                    await Task.Yield();
+                    EnsureCurrent(generation);
+                }
+            }
+            if (preparingNext && overlay) overlay.SetSceneTransition(true);
+            if (reseed)
+            {
+                if (response.visko.All(command => command.name != "set_prompt"))
+                    throw new InvalidOperationException("The new lesson scene has no video prompt.");
+                byte[] image;
+                if (enterExploration)
+                {
+                    m_ExploreReturnFrame = exploration.EntryFrame;
+                    image = exploration.StartFrame;
+                }
+                else if (restoreExploration && string.IsNullOrEmpty(sceneId))
+                    image = m_ExploreReturnFrame;
+                else
+                {
+                    image = m_PrefetchedSceneId == sceneId && m_ScenePrefetch != null
+                        ? await m_ScenePrefetch : null;
+                    image ??= await visko.PrefetchLessonScene(sceneId);
+                }
+                EnsureCurrent(generation);
+                await visko.FadeToScenePreview(image);
+                EnsureCurrent(generation);
+                if (!exploring) visko.UseSceneOpening(m_RunLesson, sceneId);
+                await visko.CommandAsync("reset", "{}");
+                EnsureCurrent(generation);
+                await visko.SetImage(image);
+                EnsureCurrent(generation);
+            }
+            visko.PrefetchSceneOpening(m_RunLesson, exploring ? null : response.nextSceneId,
+                exploring ? null : response.alternateNextSceneId);
             foreach (var command in response.visko)
             {
                 EnsureCurrent(generation);
@@ -343,8 +507,32 @@ namespace ImmerseTheBay.Learning
                     EnsureCurrent(generation);
                     m_LastPromptAt = Time.realtimeSinceStartupAsDouble;
                 }
-                await visko.CommandAsync(command.name, command.Arguments());
+                string commandArgs = enterExploration && command.name == "set_prompt"
+                    ? "{\"prompt\":" + LearningContract.Quote(exploration.Prompt) + "}" : command.Arguments();
+                await visko.CommandAsync(command.name, commandArgs);
                 EnsureCurrent(generation);
+            }
+            if (reseed)
+            {
+                await visko.CommandAsync("start", "{}");
+                EnsureCurrent(generation);
+                double deadline = Time.realtimeSinceStartupAsDouble + 22;
+                while (!visko.HasLiveFrame)
+                {
+                    if (Time.realtimeSinceStartupAsDouble >= deadline)
+                        throw new TimeoutException("The next live scene did not arrive. Please retry.");
+                    await Task.Yield();
+                    EnsureCurrent(generation);
+                }
+            }
+            if (restoreExploration) m_ExploreReturnFrame = null;
+            if (enterExploration) Debug.Log("[Learning] Live exploration branch entered");
+            if (restoreExploration) Debug.Log("[Learning] Exploration returned to its saved checkpoint");
+            m_ActiveSceneId = sceneId;
+            if (m_PrefetchedSceneId != response.nextSceneId)
+            {
+                m_PrefetchedSceneId = response.nextSceneId;
+                m_ScenePrefetch = string.IsNullOrEmpty(m_PrefetchedSceneId) ? null : PreloadScene(m_PrefetchedSceneId);
             }
             int nextBeat = Beat + (response.advance == "next_line" ? 1 : 0);
             // Do not publish success until ALL native acknowledgements have completed.
@@ -353,7 +541,19 @@ namespace ImmerseTheBay.Learning
             Beat = nextBeat;
             IsDone = response.advance == "scene_done";
             Present(response);
+            if (!IsConversationActive && response.speech?.role == "clerk")
+                _ = PlayClerkAudio(response.speech, generation);
+            else if (!IsConversationActive) ShowClerkDialogue(null);
             SetStatus(IsDone ? "Lesson complete." : "");
+            if (IsDone) PresentCompletion(playCue: true);
+            else if (nextTarget && !IsConversationActive && PlayExamples)
+                PlayExample(response.overlay.jp, generation);
+        }
+
+        async Task<byte[]> PreloadScene(string sceneId)
+        {
+            try { return await visko.PrefetchLessonScene(sceneId); }
+            catch (Exception) { return null; } // A cache miss is retried only when this scene is needed.
         }
 
         void OnLearnMessage(string json)
@@ -378,7 +578,16 @@ namespace ImmerseTheBay.Learning
                 if (response.operation == null || string.IsNullOrEmpty(response.operation.runId)) { m_NeedsRestart = true; return; }
                 if (response.operation.runId == m_RunId && response.operation.revision <= m_Revision) return;
                 if (IsConversationActive) { m_NeedsRestart = true; conversation.Disconnect(); return; }
+                m_LocalExplore = false;
+                CancelExploreInput();
                 CancelSpeech();
+                if (response.operation.runId != m_RunId)
+                {
+                    m_LastAttempt = null;
+                    m_LastPublishedAttemptId = null;
+                    ClearCompletion();
+                    StopExampleAudio();
+                }
                 m_RunId = response.operation.runId; m_Revision = response.operation.revision;
                 m_RunLesson = response.lessonId;
                 Beat = response.beat; // Already advanced by the driving client.
@@ -387,6 +596,7 @@ namespace ImmerseTheBay.Learning
                 m_NeedsRestart = false;
                 Present(response);
                 SetStatus(IsDone ? "Lesson complete." : "");
+                if (IsDone) PresentCompletion(playCue: false);
             }
             catch (Exception) { SetStatus("Received an invalid lesson update."); }
         }
@@ -433,6 +643,7 @@ namespace ImmerseTheBay.Learning
         {
             if (!IsCurrent(generation)) return;
             // A server may already have accepted the turn. Blind retries can skip a line or restart video.
+            visko.PrefetchSceneOpening(null, null);
             m_NeedsRestart = true;
             SetStatus("Lesson interrupted. Leave or begin again. " + error.Message);
         }
@@ -441,7 +652,9 @@ namespace ImmerseTheBay.Learning
         {
             bool pending = m_RecognitionPending;
             EndRecognition();
-            if (pending) m_Speech?.StopListening();
+            if (!pending) return;
+            if (m_Speech is PortalSpeechToText portal) portal.Dispose();
+            else m_Speech?.StopListening();
         }
 
         void OnApplicationPause(bool paused)
@@ -455,16 +668,31 @@ namespace ImmerseTheBay.Learning
 
         void CancelWork()
         {
+            m_LocalExplore = false;
+            CancelExploreInput();
+            m_ExploreReturnFrame = null;
+            m_ActiveSceneId = m_PrefetchedSceneId = null;
+            m_ScenePrefetch = null;
+            if (visko) visko.PrefetchSceneOpening(null, null);
             m_Cancelling = true;
             conversation?.Disconnect();
             m_VoiceActive = m_VoiceConnecting = m_Reconciling = false;
             m_Tools.Clear(); m_VoiceTools.Clear();
+            m_LastResponse = null;
+            m_LastAttempt = null;
+            m_LastPublishedAttemptId = null;
+            ClearCompletion();
+            UpdatePracticeLabel();
             m_RunId = null; m_Revision = 0; m_Claims.Clear();
             m_Generation++;
             m_Cancelling = false;
             m_Request?.Abort();
             ClearDialogue();
             StopClerkAudio();
+            StopExampleAudio();
+            m_TutorAfterClerkAt = 0;
+            if (m_FeedbackSpeaker) m_FeedbackSpeaker.Stop();
+            m_FeedbackUntil = 0;
             CancelSpeech();
             SetBusy(false);
         }
@@ -478,19 +706,24 @@ namespace ImmerseTheBay.Learning
             if (m_ClerkSpeaker) { m_ClerkSpeaker.Stop(); m_ClerkSpeaker.clip = null; }
             if (m_ClerkAudio) Destroy(m_ClerkAudio);
             m_ClerkAudio = null;
+            if (overlay) overlay.SetClerkSpeaking(false);
         }
 
-        async void PlayClerkAudio(LearningSpeech speech, int generation)
+        async Task PlayClerkAudio(LearningSpeech speech, int generation, bool reaction = false)
         {
             if (string.IsNullOrWhiteSpace(speech.text)) return;
             StopClerkAudio();
             try
             {
-                string url = visko.config.portalUrl.TrimEnd('/') + "/api/agent/speak";
+                string url = visko.config.portalUrl.TrimEnd('/') + "/api/agent/clerk-speech";
                 using var request = new UnityWebRequest(url, "POST");
+                request.SetRequestHeader("x-tenin-audio-layout", "stereo");
                 request.downloadHandler = new DownloadHandlerAudioClip(url, AudioType.WAV);
-                string body = "{\"text\":" + LearningContract.Quote(speech.text)
-                    + ",\"language\":" + LearningContract.Quote(speech.language) + "}";
+                string body = "{\"sessionId\":" + LearningContract.Quote(m_Session)
+                    + ",\"lessonId\":" + LearningContract.Quote(m_RunLesson)
+                    + ",\"runId\":" + LearningContract.Quote(m_RunId)
+                    + ",\"revision\":" + m_Revision.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                    + (reaction ? ",\"part\":\"reaction\"}" : "}");
                 request.uploadHandler = new UploadHandlerRaw(Encoding.UTF8.GetBytes(body));
                 request.SetRequestHeader("Content-Type", "application/json");
                 if (!string.IsNullOrEmpty(visko.config.portalToken)) request.SetRequestHeader("portal_token", visko.config.portalToken);
@@ -506,8 +739,11 @@ namespace ImmerseTheBay.Learning
                         Debug.LogWarning("[Learning] Clerk speech could not be loaded.");
                         return;
                     }
-                    m_ClerkAudio = DownloadHandlerAudioClip.GetContent(request);
+                    m_ClerkAudio = ReadSpeechClip(request);
                     if (!m_ClerkAudio) return;
+                    while (IsCurrent(generation) && m_ClerkAudioRequest == request && Time.unscaledTime < m_FeedbackUntil)
+                        await Task.Yield();
+                    if (!IsCurrent(generation) || m_ClerkAudioRequest != request || IsConversationActive) return;
                     if (!m_ClerkSpeaker)
                     {
                         m_ClerkSpeaker = gameObject.AddComponent<AudioSource>();
@@ -516,11 +752,198 @@ namespace ImmerseTheBay.Learning
                     }
                     m_ClerkSpeaker.clip = m_ClerkAudio;
                     m_ClerkSpeaker.Play();
-                    Debug.Log("[Learning] Clerk speech started");
+                    if (overlay) overlay.SetClerkSpeaking(true);
+                    Debug.Log(reaction ? "[Learning] Clerk reaction started" : "[Learning] Clerk prompt started");
+                    while (IsCurrent(generation) && m_ClerkAudioRequest == request && m_ClerkSpeaker.isPlaying)
+                        await Task.Yield();
+                    if (IsCurrent(generation) && m_ClerkAudioRequest == request)
+                    {
+                        m_TutorAfterClerkAt = Time.unscaledTime + TutorPauseAfterClerk;
+                        Debug.Log("[Learning] Clerk playback completed");
+                    }
                 }
-                finally { if (m_ClerkAudioRequest == request) m_ClerkAudioRequest = null; }
+                finally
+                {
+                    if (m_ClerkAudioRequest == request)
+                    {
+                        m_ClerkAudioRequest = null;
+                        if (overlay) overlay.SetClerkSpeaking(false);
+                    }
+                }
             }
             catch (Exception) { Debug.LogWarning("[Learning] Clerk speech unavailable."); }
+        }
+
+        public void SetPlayExamples(bool enabled)
+        {
+            if (PlayExamples == enabled) return;
+            PlayExamples = enabled;
+            if (!enabled) StopExampleAudio();
+            else if (HasActiveLesson && !IsBusy && !IsDone && !IsListening && !IsConversationActive)
+                PlayExample(m_LastResponse?.overlay?.jp, m_Generation);
+        }
+
+        void StopExampleAudio()
+        {
+            m_ExampleAudioRequest?.Abort();
+            m_ExampleAudioRequest = null;
+            if (m_ExampleSpeaker) { m_ExampleSpeaker.Stop(); m_ExampleSpeaker.clip = null; }
+            if (m_ExampleAudio) Destroy(m_ExampleAudio);
+            m_ExampleAudio = null;
+            if (overlay)
+            {
+                overlay.SetExampleSpan(null, 0, 0);
+                overlay.SetExampleSpeaking(false);
+            }
+        }
+
+        [Serializable] sealed class ExampleRanges { public ExampleRange[] ranges; }
+        [Serializable] sealed class ExampleRange { public int start, end, from, to; }
+
+        async void PlayExample(string japanese, int generation, bool slow = false)
+        {
+            if (string.IsNullOrWhiteSpace(japanese)) return;
+            japanese = japanese.Trim();
+            bool timed = japanese.Length <= 120;
+            string url = visko.config.portalUrl.TrimEnd('/') + (timed ? "/api/agent/pronunciation" : "/api/agent/speak");
+            using var request = new UnityWebRequest(url, "POST");
+            request.SetRequestHeader("x-tenin-audio-layout", "stereo");
+            try
+            {
+                request.downloadHandler = new DownloadHandlerAudioClip(url, AudioType.WAV);
+                request.uploadHandler = new UploadHandlerRaw(Encoding.UTF8.GetBytes(
+                    "{\"text\":" + LearningContract.Quote(japanese) +
+                    (timed ? ",\"slow\":" + (slow ? "true}" : "false}") : ",\"language\":\"ja\",\"role\":\"tutor\"}")));
+                request.SetRequestHeader("Content-Type", "application/json");
+                if (!string.IsNullOrEmpty(visko.config.portalToken))
+                    request.SetRequestHeader("portal_token", visko.config.portalToken);
+                request.timeout = 4;
+                m_ExampleAudioRequest = request;
+                var operation = request.SendWebRequest();
+                while (!operation.isDone) await Task.Yield();
+                if (!IsCurrent(generation) || m_ExampleAudioRequest != request) return;
+                if (request.result != UnityWebRequest.Result.Success)
+                {
+                    Debug.LogWarning("[Learning] Pronunciation example unavailable; continuing without it.");
+                    return;
+                }
+                m_ExampleAudio = ReadSpeechClip(request);
+                if (!m_ExampleAudio) return;
+                while (IsCurrent(generation) && m_ExampleAudioRequest == request &&
+                    (IsClerkSpeaking || IsFeedbackPlaying || Time.unscaledTime < m_TutorAfterClerkAt))
+                    await Task.Yield();
+                if (!IsCurrent(generation) || m_ExampleAudioRequest != request || IsConversationActive || IsListening) return;
+                if (!m_ExampleSpeaker)
+                {
+                    m_ExampleSpeaker = gameObject.AddComponent<AudioSource>();
+                    m_ExampleSpeaker.playOnAwake = false;
+                    m_ExampleSpeaker.spatialBlend = 0;
+                }
+                var ranges = ReadExampleRanges(request, japanese, m_ExampleAudio.length);
+                int index = 0;
+                m_ExampleSpeaker.clip = m_ExampleAudio;
+                m_ExampleSpeaker.Play();
+                Debug.Log("[Learning] Tutor example started");
+                if (overlay) overlay.SetExampleSpeaking(true);
+                while (IsCurrent(generation) && m_ExampleAudioRequest == request && m_ExampleSpeaker.isPlaying)
+                {
+                    int milliseconds = (int)((long)m_ExampleSpeaker.timeSamples * 1000 / m_ExampleAudio.frequency);
+                    while (index < ranges.Length && ranges[index].to <= milliseconds) index++;
+                    var range = index < ranges.Length && ranges[index].from <= milliseconds ? ranges[index] : null;
+                    if (overlay) overlay.SetExampleSpan(range == null ? null : japanese, range?.start ?? 0, range?.end ?? 0);
+                    await Task.Yield();
+                }
+            }
+            catch (Exception) { Debug.LogWarning("[Learning] Pronunciation example unavailable; continuing without it."); }
+            finally
+            {
+                if (m_ExampleAudioRequest == request) StopExampleAudio();
+            }
+        }
+
+        static ExampleRange[] ReadExampleRanges(UnityWebRequest request, string text, float seconds)
+        {
+            string header = request.GetResponseHeader("X-Tenin-Speech-Ranges");
+            if (string.IsNullOrEmpty(header) || header.Length > 8192) return Array.Empty<ExampleRange>();
+            try
+            {
+                var ranges = JsonUtility.FromJson<ExampleRanges>(header)?.ranges;
+                if (ranges == null || ranges.Length > text.Length) return Array.Empty<ExampleRange>();
+                int lastOffset = 0, lastTime = 0;
+                foreach (var range in ranges)
+                {
+                    if (range == null || range.start < lastOffset || range.end <= range.start || range.end > text.Length ||
+                        range.from < lastTime || range.to <= range.from || range.to > seconds * 1000 + 2)
+                        return Array.Empty<ExampleRange>();
+                    lastOffset = range.end;
+                    lastTime = range.to;
+                }
+                return ranges;
+            }
+            catch (ArgumentException) { return Array.Empty<ExampleRange>(); }
+        }
+
+        void PlayAttemptCue(bool passed)
+        {
+            PlayFeedbackCue(passed
+                ? (m_PassCue ??= BuildCue("Answer matched", 660, 880))
+                : (m_RetryCue ??= BuildCue("Try again", 520, 390)));
+        }
+
+        static AudioClip ReadSpeechClip(UnityWebRequest request)
+        {
+            var clip = DownloadHandlerAudioClip.GetContent(request);
+            if (!clip) return clip;
+            var samples = new float[clip.samples * clip.channels];
+            if (clip.GetData(samples, 0))
+            {
+                for (int i = 0; i < samples.Length; i++) samples[i] = BoostSpeechSample(samples[i]);
+                clip.SetData(samples, 0);
+            }
+            return clip;
+        }
+
+        internal static float BoostSpeechSample(float sample)
+        {
+            const float gain = 1.35f;
+            const float knee = 0.72f;
+            const float headroom = 0.26f;
+            float magnitude = Math.Abs(sample) * gain;
+            float above = magnitude - knee;
+            if (above > 0f) magnitude = knee + headroom * above / (headroom + above);
+            return sample < 0f ? -magnitude : magnitude;
+        }
+
+        void PlayFeedbackCue(AudioClip cue)
+        {
+            if (!m_FeedbackSpeaker)
+            {
+                m_FeedbackSpeaker = gameObject.AddComponent<AudioSource>();
+                m_FeedbackSpeaker.playOnAwake = false;
+                m_FeedbackSpeaker.spatialBlend = 0;
+            }
+            m_FeedbackSpeaker.Stop();
+            m_FeedbackSpeaker.PlayOneShot(cue);
+            m_FeedbackUntil = Time.unscaledTime + cue.length;
+        }
+
+        static AudioClip BuildCue(string name, params float[] tones)
+        {
+            const int rate = 24000;
+            const int segment = 1800;
+            int frames = segment * tones.Length;
+            var samples = new float[frames * 2];
+            for (int frame = 0; frame < frames; frame++)
+            {
+                int offset = frame % segment;
+                float envelope = Mathf.Sin(Mathf.PI * offset / segment);
+                float tone = tones[frame / segment];
+                float sample = 0.21f * envelope * envelope * Mathf.Sin(2 * Mathf.PI * tone * offset / rate);
+                samples[frame * 2] = samples[frame * 2 + 1] = sample;
+            }
+            var clip = AudioClip.Create(name, frames, 2, rate, false);
+            clip.SetData(samples, 0);
+            return clip;
         }
 
         void ClearDialogue()
@@ -529,7 +952,10 @@ namespace ImmerseTheBay.Learning
             ShowDialogue(false, null);
         }
 
-        async void ShowDialogue(bool clerk, string original)
+        void ShowClerkDialogue(LearningSpeech speech) =>
+            ShowDialogue(true, speech?.text, speech?.english, speech?.romaji);
+
+        async void ShowDialogue(bool clerk, string original, string english = null, string romaji = null)
         {
             if (!overlay) return;
             int slot = clerk ? 0 : 1;
@@ -538,7 +964,8 @@ namespace ImmerseTheBay.Learning
             m_CaptionText[slot] = original;
             m_CaptionRequests[slot]?.Abort();
             m_CaptionRequests[slot] = null;
-            if (clerk) overlay.SetClerkCaption(original); else overlay.SetLearnerCaption(original);
+            if (clerk) overlay.SetClerkCaption(original, english, romaji); else overlay.SetLearnerCaption(original);
+            if (clerk && !string.IsNullOrWhiteSpace(english) && !string.IsNullOrWhiteSpace(romaji)) return;
             if (string.IsNullOrEmpty(original) || !visko || !isActiveAndEnabled) return;
 
             try
@@ -547,7 +974,8 @@ namespace ImmerseTheBay.Learning
                 if (!this || !isActiveAndEnabled || m_CaptionText[slot] != original) return;
                 using var request = new UnityWebRequest(visko.config.portalUrl.TrimEnd('/') + "/api/agent/translate", "POST");
                 request.uploadHandler = new UploadHandlerRaw(Encoding.UTF8.GetBytes(
-                    "{\"text\":" + LearningContract.Quote(original.Substring(0, Math.Min(original.Length, 2000))) + "}"));
+                    "{\"text\":" + LearningContract.Quote(original.Substring(0, Math.Min(original.Length, 2000))) +
+                    (clerk ? ",\"includeRomaji\":true}" : "}")));
                 request.downloadHandler = new DownloadHandlerBuffer();
                 request.SetRequestHeader("Content-Type", "application/json");
                 if (!string.IsNullOrEmpty(visko.config.portalToken)) request.SetRequestHeader("portal_token", visko.config.portalToken);
@@ -559,9 +987,11 @@ namespace ImmerseTheBay.Learning
                     while (!operation.isDone) await Task.Yield();
                     if (!this || !overlay || m_CaptionRequests[slot] != request || request.result != UnityWebRequest.Result.Success) return;
                     var translation = JsonUtility.FromJson<CaptionTranslation>(request.downloadHandler.text);
-                    if (string.IsNullOrWhiteSpace(translation?.english)) return;
-                    if (clerk) overlay.SetClerkCaption(original, translation.english);
-                    else overlay.SetLearnerCaption(original, translation.english);
+                    if (translation == null) return;
+                    if (clerk) overlay.SetClerkCaption(original,
+                        string.IsNullOrWhiteSpace(english) ? translation.english : english,
+                        string.IsNullOrWhiteSpace(romaji) ? translation.romaji : romaji);
+                    else if (!string.IsNullOrWhiteSpace(translation.english)) overlay.SetLearnerCaption(original, translation.english);
                     Debug.Log("[Learning] English caption displayed for " + (clerk ? "clerk" : "learner"));
                 }
                 finally { if (m_CaptionRequests[slot] == request) m_CaptionRequests[slot] = null; }
@@ -572,13 +1002,196 @@ namespace ImmerseTheBay.Learning
 
         void Present(LearningResponse response)
         {
+            PublishAttempt(response.attempt, playCue: false);
             m_LastResponse = response;
             if (!overlay) return;
             overlay.Show(response.overlay, response.feedback, IsDone, response.focusWords);
             overlay.SetRoute(response.route?.kind == "detour", response.route?.label);
-            if (!m_VoiceActive) ShowDialogue(true, response.speech?.text);
+            UpdatePracticeLabel();
+            if (!m_VoiceActive) ShowClerkDialogue(response.speech);
         }
+
+        void PublishAttempt(LearningAttempt attempt, bool playCue)
+        {
+            if (attempt == null || string.IsNullOrEmpty(attempt.id) || m_LastPublishedAttemptId == attempt.id) return;
+            m_LastPublishedAttemptId = attempt.id;
+            m_LastAttempt = attempt;
+            m_AttemptExpires = Time.unscaledTime + (IsPositiveAttempt ? 1.4f : 6f);
+            if (overlay) overlay.SetResultOpacity(1f);
+            UpdatePracticeLabel();
+            if (!playCue || attempt.outcome == "skip") return;
+            try { PlayAttemptCue(attempt.outcome is "pass" or "assisted"); }
+            catch (Exception) { Debug.LogWarning("[Learning] Sentence result audio cue unavailable."); }
+        }
+
+        void UpdatePracticeLabel()
+        {
+            if (!overlay) return;
+            var progress = Progress;
+            string main = progress == null ? "" : $"Main {progress.mainStep}/{progress.mainTotal}";
+            var route = CurrentRoute;
+            if (route?.kind == "detour") main += $" · Side trip {route.step}/{route.total}";
+            string attempt = LearningContract.AttemptLabel(m_LastAttempt);
+            string visibleTargetId = route?.kind == "detour" ? route.nodeId : $"main:{Beat}";
+            overlay.SetPracticeResult(main, attempt, m_LastAttempt?.outcome, m_LastAttempt?.id,
+                m_LastAttempt?.targetId == visibleTargetId ? m_LastAttempt : null);
+        }
+
         string BindingJson() => "{\"sessionId\":" + LearningContract.Quote(m_Session) + ",\"lessonId\":" + LearningContract.Quote(m_RunLesson) + "}";
+
+        void PresentCompletion(bool playCue)
+        {
+            if (!overlay || string.IsNullOrEmpty(m_RunId) || m_CompletionRunId == m_RunId) return;
+            m_CompletionRunId = m_RunId;
+            overlay.SetCompletionSummary("Loading session results…");
+            overlay.SetReview(CompletedReview);
+            ReadCompletionSummary(m_RunId, m_RunLesson, m_Revision, m_Generation);
+            if (playCue) PlayCompletionCue(m_RunId, m_Generation);
+        }
+
+        void RecordReviewLine(LearningAttempt attempt, byte[] recording)
+        {
+            const int maxReviewLines = 36;
+            const int maxRecordings = 12;
+            if (m_Review.Count == maxReviewLines) m_Review.RemoveAt(0);
+            if (recording != null && m_Review.Count(line => line.HasRecording) >= maxRecordings)
+                m_Review.First(line => line.HasRecording).Recording = null;
+            m_Review.Add(new LearningReviewLine
+            {
+                Target = attempt.jp,
+                Transcript = attempt.text,
+                Outcome = attempt.outcome,
+                Score = attempt.score,
+                Recording = recording
+            });
+        }
+
+        public void PlayReviewRecording(int index)
+        {
+            if (!IsDone || index < 0 || index >= m_Review.Count || IsClerkSpeaking) return;
+            byte[] wav = m_Review[index].Recording;
+            if (wav == null || wav.Length <= 44) return;
+            StopExampleAudio();
+            StopReviewRecording();
+            // PortalSpeechToText encodes this recording in PCM16 mono with the canonical 44-byte WAV header.
+            int rate = BitConverter.ToInt32(wav, 24);
+            int frames = (wav.Length - 44) / 2;
+            if (rate < 8000 || rate > 48000 || frames == 0) return;
+            var stereo = new float[frames * 2];
+            for (int indexInClip = 0; indexInClip < frames; indexInClip++)
+            {
+                float sample = BoostSpeechSample(BitConverter.ToInt16(wav, 44 + indexInClip * 2) / 32768f);
+                stereo[indexInClip * 2] = stereo[indexInClip * 2 + 1] = sample;
+            }
+            if (!m_ReviewSpeaker)
+            {
+                m_ReviewSpeaker = gameObject.AddComponent<AudioSource>();
+                m_ReviewSpeaker.playOnAwake = false;
+                m_ReviewSpeaker.spatialBlend = 0;
+            }
+            m_ReviewClip = AudioClip.Create("Learner recording", frames, 2, rate, false);
+            m_ReviewClip.SetData(stereo, 0);
+            m_ReviewSpeaker.clip = m_ReviewClip;
+            m_ReviewSpeaker.Play();
+        }
+
+        public void PlayReviewExample(int index) => PlayReviewExample(index, false);
+        public void PlayReviewExampleSlow(int index) => PlayReviewExample(index, true);
+
+        void PlayReviewExample(int index, bool slow)
+        {
+            if (!IsDone || index < 0 || index >= m_Review.Count || IsClerkSpeaking) return;
+            StopReviewRecording();
+            StopExampleAudio();
+            PlayExample(m_Review[index].Target, m_Generation, slow);
+        }
+
+        public void StopReviewPlayback()
+        {
+            StopReviewRecording();
+            StopExampleAudio();
+        }
+
+        void StopReviewRecording()
+        {
+            if (m_ReviewSpeaker) { m_ReviewSpeaker.Stop(); m_ReviewSpeaker.clip = null; }
+            if (m_ReviewClip) Destroy(m_ReviewClip);
+            m_ReviewClip = null;
+        }
+
+        bool IsCompletionCurrent(string runId, int generation) =>
+            this && isActiveAndEnabled && IsDone && m_CompletionRunId == runId &&
+            m_RunId == runId && m_Generation == generation && EffectiveSessionId() == m_Session;
+
+        void ClearCompletion()
+        {
+            m_CompletionRequest?.Abort();
+            m_CompletionRequest = null;
+            m_CompletionRunId = null;
+            m_Review.Clear();
+            StopReviewRecording();
+            if (overlay)
+            {
+                overlay.SetReview(null);
+                overlay.SetCompletionSummary("");
+            }
+        }
+
+        async void ReadCompletionSummary(string runId, string completedLessonId, int revision, int generation)
+        {
+            try
+            {
+                await visko.ConfigReady;
+                if (!IsCompletionCurrent(runId, generation)) return;
+                using var request = new UnityWebRequest(visko.config.portalUrl.TrimEnd('/') + "/api/agent/summary", "POST");
+                request.uploadHandler = new UploadHandlerRaw(Encoding.UTF8.GetBytes(BindingJson()));
+                request.downloadHandler = new DownloadHandlerBuffer();
+                request.SetRequestHeader("Content-Type", "application/json");
+                if (!string.IsNullOrEmpty(visko.config.portalToken))
+                    request.SetRequestHeader("portal_token", visko.config.portalToken);
+                request.timeout = 6;
+                m_CompletionRequest = request;
+                try
+                {
+                    var operation = request.SendWebRequest();
+                    while (!operation.isDone) await Task.Yield();
+                    if (!IsCompletionCurrent(runId, generation) || m_CompletionRequest != request) return;
+                    if (request.result != UnityWebRequest.Result.Success)
+                        throw new InvalidOperationException("Summary request did not succeed.");
+                    var summary = JsonUtility.FromJson<CompletionSummary>(request.downloadHandler.text);
+                    // The route looks up the current session/lesson. A reset must never substitute another run.
+                    if (summary == null || !summary.completed || summary.runId != runId ||
+                        summary.lessonId != completedLessonId || summary.revision != revision ||
+                        summary.targetsEncountered < 0 || summary.targetsAttempted < 0 ||
+                        summary.targetsAttempted > summary.targetsEncountered || summary.targetsCompleted < 0 ||
+                        summary.targetsCompleted > summary.targetsAttempted || summary.scoredAttempts < summary.targetsAttempted ||
+                        (summary.scoredAttempts > 0 && (summary.averageTranscriptMatch < 0 || summary.averageTranscriptMatch > 100)))
+                        throw new FormatException("Summary did not match the completed run.");
+                    string details = $"Attempted {summary.targetsAttempted}/{summary.targetsEncountered} · Matched {summary.targetsCompleted}";
+                    if (summary.scoredAttempts > 0) details += $" · {summary.averageTranscriptMatch}% average match";
+                    if (overlay) overlay.SetCompletionSummary(details);
+                }
+                finally { if (m_CompletionRequest == request) m_CompletionRequest = null; }
+            }
+            catch (Exception)
+            {
+                if (IsCompletionCurrent(runId, generation) && overlay)
+                    overlay.SetCompletionSummary("Session results unavailable.");
+            }
+        }
+
+        async void PlayCompletionCue(string runId, int generation)
+        {
+            try
+            {
+                while (IsCompletionCurrent(runId, generation) && (IsFeedbackPlaying || IsClerkSpeaking))
+                    await Task.Yield();
+                if (IsCompletionCurrent(runId, generation))
+                    PlayFeedbackCue(m_CompletionCue ??= BuildCue("Lesson complete", 523, 659, 784));
+            }
+            catch (Exception) { Debug.LogWarning("[Learning] Completion audio cue unavailable."); }
+        }
+
         async Task VerifySnapshot(int generation)
         {
             string json = await Post("/api/agent/snapshot", BindingJson(), generation);
@@ -591,6 +1204,7 @@ namespace ImmerseTheBay.Learning
             if (m_VoiceActive || m_VoiceConnecting) { conversation.Disconnect(); return; }
             if (!CanSubmit()) return;
             StopClerkAudio();
+            StopExampleAudio();
             CancelSpeech();
             int generation = m_Generation;
             m_VoiceConnecting = true; SetBusy(true);
@@ -677,8 +1291,10 @@ namespace ImmerseTheBay.Learning
                         else if (call.tool_name == "return_to_main") action = "return_to_main";
                         else throw new InvalidOperationException("Unsupported lesson tool.");
                         SetBusy(true);
-                        await ExecuteTurn(transcript, context ? context.Capture() : null, generation, intent, action);
-                        result = "{\"accepted\":true,\"beat\":" + Beat + ",\"overlay\":" + (m_LastResponse?.overlay == null ? "null" : JsonUtility.ToJson(m_LastResponse.overlay)) + ",\"route\":" + (m_LastResponse?.route == null ? "null" : JsonUtility.ToJson(m_LastResponse.route)) + ",\"complete\":" + (IsDone ? "true" : "false") + "}";
+                        bool rehearse = call.tool_name == "rehearse_line";
+                        await ExecuteTurn(transcript, context ? context.Capture() : null, generation, intent, action, practiceAttempt: rehearse);
+                        result = "{\"accepted\":true,\"beat\":" + Beat + ",\"overlay\":" + (m_LastResponse?.overlay == null ? "null" : JsonUtility.ToJson(m_LastResponse.overlay)) + ",\"route\":" + (m_LastResponse?.route == null ? "null" : JsonUtility.ToJson(m_LastResponse.route)) + ",\"complete\":" + (IsDone ? "true" : "false") +
+                            (rehearse ? ",\"feedback\":" + LearningContract.Quote(LearningContract.AttemptLabel(m_LastResponse?.attempt)) : "") + "}";
                     }
                     catch (OperationCanceledException) { return; }
                     catch (Exception e) { failed = true; result = "{\"accepted\":false,\"error\":" + LearningContract.Quote(e.Message) + "}"; if (IsBusy) FailTurn(generation, e); }

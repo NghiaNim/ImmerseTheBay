@@ -6,15 +6,43 @@ export const LESSON_ROOT = fileURLToPath(new URL('../../Assets/StreamingAssets/l
 export class AgentError extends Error { constructor(status, message) { super(message); this.status = status; } }
 const plain = (v) => v && typeof v === 'object' && !Array.isArray(v);
 const text = (s) => typeof s === 'string' && s.trim().length > 0 && s.length <= 2000;
+export const authoredSceneId = /^(?:cafe|dog|date|store)-[a-z]{2,16}$/;
+export function partnerVoiceOverride(value) {
+  if (value === undefined || value === 'auto') return undefined;
+  if (value === 'female' || value === 'male') return value;
+  throw new AgentError(400, 'partnerVoice must be auto, female or male');
+}
+export function castPartnerVoice(recommendation, override) {
+  return override ?? (recommendation === 'male' ? 'male' : 'female');
+}
 export function flattenLesson(lesson) { return lesson.beats.flatMap((beat, beatIndex) => beat.lines.map((line) => ({ line, beat, beatIndex }))); }
+export function authoredLessonScenes(lesson) {
+  return lesson.beats.flatMap(beat => [beat.scene, beat.milkScene].filter(Boolean));
+}
 export function validateLesson(lesson) {
   if (!plain(lesson) || !/^[a-z0-9][a-z0-9-]{0,79}$/.test(lesson.id) || !['title', 'level', 'scenePrompt', 'audioPrompt'].every((k) => text(lesson[k]))
       || typeof lesson.startImage !== 'string' || !Array.isArray(lesson.beats) || !lesson.beats.length || lesson.beats.length > 100) throw new AgentError(422, 'Invalid lesson metadata');
   if (lesson.visiblePartner !== undefined && typeof lesson.visiblePartner !== 'boolean') throw new AgentError(422, 'Invalid visible partner flag');
+  if (lesson.partnerVoice !== undefined && !['female', 'male'].includes(lesson.partnerVoice)) throw new AgentError(422, 'Invalid partner voice');
   for (const beat of lesson.beats) {
     if (!plain(beat) || !text(beat.goal) || !Array.isArray(beat.lines) || !beat.lines.length || beat.lines.length > 50 || !Array.isArray(beat.vocab)) throw new AgentError(422, 'Invalid lesson beat');
     if (beat.lines.some((line) => !plain(line) || !['jp', 'kana', 'romaji', 'zh', 'en', 'cue'].every((k) => text(line[k])))) throw new AgentError(422, 'Invalid lesson line');
+    if (beat.lines.some(({ reaction }) => reaction !== undefined && (!plain(reaction) ||
+        Object.keys(reaction).length !== 3 || !['jp', 'romaji', 'en'].every(key => text(reaction[key])))))
+      throw new AgentError(422, 'Invalid lesson reaction');
     if (beat.vocab.some((v) => !plain(v) || !['jp', 'kana', 'en', 'objectHint'].every((k) => text(v[k])))) throw new AgentError(422, 'Invalid lesson vocabulary');
+    for (const scene of [beat.scene, beat.milkScene]) {
+      if (scene !== undefined && (!plain(scene) || !authoredSceneId.test(scene.id) ||
+          !['label', 'prompt', 'identity'].every((k) => text(scene[k])))) throw new AgentError(422, 'Invalid authored lesson scene');
+    }
+    if (beat.milkScene !== undefined && (lesson.id !== 'ja-cafe-demo-001' || beat.scene?.id !== 'cafe-serve'))
+      throw new AgentError(422, 'Invalid milk scene');
+  }
+  if (lesson.beats.some((beat) => beat.scene)) {
+    const ids = lesson.beats.map((beat) => beat.scene?.id);
+    const mediaIds = authoredLessonScenes(lesson).map(scene => scene.id);
+    if (ids.some((id) => !id) || new Set(mediaIds).size !== mediaIds.length ||
+        lesson.startImage !== `lessons/images/${ids[0]}.jpg`) throw new AgentError(422, 'Invalid authored scene sequence');
   }
   if (hasBannedTerm(JSON.stringify(lesson))) throw new AgentError(422, 'Lesson contains a blocked character or brand');
   return lesson;
@@ -65,6 +93,8 @@ export function createLessonStore(root = LESSON_ROOT, { now = Date.now, maxEphem
     try { files = await readdir(root); } catch (e) { if (e.code === 'ENOENT') return []; throw e; }
     const lessons = [];
     for (const file of files.sort().filter((name) => /^[a-z0-9][a-z0-9-]*\.json$/.test(name))) {
+      // Keep the retired lesson addressable for older saved runs.
+      if (file === 'ja-home-001.json') continue;
       const lesson = await load(file.slice(0, -5));
       lessons.push({ id: lesson.id, title: lesson.title, level: lesson.level, startImage: lesson.startImage, lineCount: flattenLesson(lesson).length });
     }

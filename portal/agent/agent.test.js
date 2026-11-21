@@ -8,7 +8,7 @@ import { createLessonStore, validateLesson } from './lessons.js';
 import { createClaudeClient, DEFAULT_MODEL } from './llm.js';
 import { normalizeKana, scoreTranscript, safePrompt, hasBannedTerm } from './guardrails.js';
 import { composeVisualPrompt } from './continuity.js';
-import { validateSchema } from './schema.js';
+import { validateSchema, WIRE_RESPONSE_SCHEMA } from './schema.js';
 const line = (jp, kana, cue) => ({ jp, kana, cue, romaji: 'romaji', zh: '中文', en: 'English' });
 const lesson = { id: 'ja-test', title: 'Original home', level: 'N1', startImage: 'lessons/images/home.jpg', scenePrompt: 'A host in a blue shirt sits beside a low table in a tatami room. Static eye-level camera.', audioPrompt: 'Rain taps the roof.', beats: [
   { goal: 'Ask to sit', lines: [line('座ってもいいですか。', 'すわってもいいですか。', 'The host points toward a cushion.'), line('ありがとうございます。', 'ありがとうございます。', 'The host places a cup on the table.')], vocab: [{ jp: '机', kana: 'つくえ', en: 'table', objectHint: 'table' }] },
@@ -20,8 +20,21 @@ test('first turn is native before start, no key required, canonical overlay', as
   const { service, logs } = setup(); const r = await service.turn(request());
   assert.deepEqual(r.visko.map((c) => c.name), ['set_prompt', 'set_audio_prompt', 'set_resolution', 'start']);
   assert.deepEqual(r.visko.at(-2).data, { resolution: 'native' });
-  assert.equal(r.overlay.jp, lesson.beats[0].lines[0].jp); assert.equal(r.advance, 'stay'); assert.ok(validateSchema(r)); assert.equal(logs[0].source, 'scripted');
+  assert.equal(r.overlay.jp, lesson.beats[0].lines[0].jp); assert.equal(r.advance, 'stay'); assert.ok(validateSchema(r, WIRE_RESPONSE_SCHEMA)); assert.equal(logs[0].source, 'scripted');
 });
+test('scripted speech carries immediate captions from the spoken line metadata', async () => {
+  const { service } = setup();
+  const opening = await service.turn(request());
+  assert.match(opening.speech.romaji, /^Konnichiwa/);
+  assert.match(opening.speech.english, /^Hello/);
+  const generated = structuredClone(lesson);
+  generated.beats[0].lines[0].partner = { jp: 'どうぞ。', romaji: 'Dōzo.', en: 'Please.' };
+  const scripted = setup({ store: { load: async () => structuredClone(generated) } }).service;
+  const captioned = await scripted.turn(request());
+  assert.deepEqual(captioned.speech, { role: 'clerk', text: 'どうぞ。', language: 'ja', romaji: 'Dōzo.', english: 'Please.' });
+  assert.ok(validateSchema(captioned, WIRE_RESPONSE_SCHEMA));
+});
+
 test('speech advances flattened lines, then completes with null overlay', async () => {
   const { service } = setup(); await service.turn(request());
   let r = await service.turn(request({ transcript: 'スワッテモイイデスカ' }));

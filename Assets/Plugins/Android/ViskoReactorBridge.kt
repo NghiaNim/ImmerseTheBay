@@ -13,6 +13,7 @@ import inc.reactor.sdk.android.VideoFrame
 import java.nio.ByteBuffer
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.sync.Mutex
@@ -44,15 +45,22 @@ class ViskoReactorBridge(private val listener: Listener) {
         fun onError(message: String)
     }
 
+    private companion object {
+        const val OPERATION_DEADLINE_MS = 30_000L
+    }
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val main = Handler(Looper.getMainLooper())
     @Volatile private var reactor: Reactor? = null
     private var connectionJob: Job? = null
     private var connectionScope: CoroutineScope? = null
     private val commands = Mutex()
-    private var disposed = false
+    @Volatile private var disposed = false
     private val audioLock = Any()
     private var audio: AudioTrack? = null
+    // Guarded by audioLock; retained across reconnects for this bridge's lifetime.
+    private var sceneGain = 1f
+    private var sceneGainRevision = -1L
 
     private val frameLock = Any()
     @Volatile private var frameId: Long = 0
@@ -60,7 +68,57 @@ class ViskoReactorBridge(private val listener: Listener) {
     @Volatile private var height = 0
     private var frame: ByteArray = ByteArray(0)
 
+    /**
+     * Plays or mutes main_audio on this device only; the Reactor session is unchanged. Muting also drops audio
+     * already queued in the AudioTrack, so the glasses go quiet at once (used while the learner speaks, so the
+     * glasses' microphone does not hear the scene).
+     */
     @Volatile var audioEnabled: Boolean = true
+        set(value) {
+            synchronized(audioLock) {
+                if (disposed) return@synchronized
+                field = value
+                applyAudioStateLocked()
+            }
+        }
+
+    /**
+     * Local main_audio gain only (not Cartesia or Reactor generation). Unity supplies a nonnegative,
+     * strictly increasing revision per bridge, assigned when the desired state changes, not when an
+     * async callback finishes. Stale/duplicate revisions and non-finite gains are rejected without change.
+     * Finite gains clamp to 0..1. Zero pauses/flushes and drops frames; restoring uses fresh audio only.
+     * Returns whether the desired state was accepted, not an audio-device acknowledgement.
+     * [audioEnabled] remains an independent hard mute: gain changes can never clear it.
+     */
+    fun setSceneGain(gain: Float, revision: Long): Boolean = synchronized(audioLock) {
+        if (disposed || !gain.isFinite() || revision < 0L || revision <= sceneGainRevision)
+            return@synchronized false
+        sceneGain = gain.coerceIn(0f, 1f)
+        sceneGainRevision = revision
+        applyAudioStateLocked()
+        true
+    }
+
+    // All AudioTrack state changes, writes and release share audioLock.
+    private fun applyAudioStateLocked() {
+        val track = audio ?: return
+        try {
+            val gain = if (audioEnabled) sceneGain else 0f
+            check(track.setVolume(gain) == AudioTrack.SUCCESS) { "AudioTrack rejected scene gain" }
+            if (gain > 0f) track.play() else { track.pause(); track.flush() }
+        } catch (_: Exception) {
+            // Never keep playing at a stale gain if a platform operation fails. A later frame retries
+            // with a fresh track, only if both the mute gate and desired gain permit playback.
+            releaseAudioLocked()
+        }
+    }
+
+    private fun releaseAudioLocked() {
+        val track = audio ?: return
+        audio = null
+        try { track.stop() } catch (_: Exception) {}
+        try { track.release() } catch (_: Exception) {}
+    }
 
     /** Creates a new session on [model] (sessionId empty) or joins an existing one. [jwt] must be bound to it. */
     fun connect(jwt: String, model: String, sessionId: String?) {
@@ -121,8 +179,12 @@ class ViskoReactorBridge(private val listener: Listener) {
     }
 
     private fun onAudio(r: Reactor, f: AudioFrame) = synchronized(audioLock) {
-        if (!audioEnabled || reactor !== r) return@synchronized
-        val track = audio ?: createAudioTrack(f.sampleRate, f.channels).also { audio = it }
+        if (disposed || !audioEnabled || sceneGain <= 0f || reactor !== r) return@synchronized
+        if (audio == null) {
+            audio = createAudioTrack(f.sampleRate, f.channels)
+            applyAudioStateLocked() // Set the saved gain before the first play/write.
+        }
+        val track = audio ?: return@synchronized
         val count = f.sampleCount * f.channels
         val samples = ShortArray(count)
         val src = f.samples.duplicate()
@@ -139,7 +201,7 @@ class ViskoReactorBridge(private val listener: Listener) {
             .setAudioFormat(AudioFormat.Builder().setSampleRate(rate).setChannelMask(mask).setEncoding(AudioFormat.ENCODING_PCM_16BIT).build())
             .setBufferSizeInBytes(maxOf(minBuf * 4, rate)) // ~0.5-1 s of headroom for chunked audio
             .setTransferMode(AudioTrack.MODE_STREAM)
-            .build().also { it.play() }
+            .build()
     }
 
     // ------------------------------------------------------------ frame access for Unity
@@ -180,38 +242,65 @@ class ViskoReactorBridge(private val listener: Listener) {
             }
             active.launch {
                 try {
-                    val frameBeforeCommand = frameId
-                    val reply = withTimeout(90000L) { commands.withLock {
-                        check(reactor === r) { "Connection changed" }
-                        action(r)
-                    } }
-                    check(reply.type != "command_error") { reply.data.toString() }
-                    val expected = when (name) {
-                        "set_prompt" -> "prompt_accepted"
-                        "set_audio_prompt" -> "audio_prompt_accepted"
-                        "set_image" -> "image_accepted"
-                        "set_resolution" -> "resolution_accepted"
-                        "set_audio_enabled" -> "audio_enabled_accepted"
-                        "start" -> "generation_started"
-                        "pause" -> "generation_paused"
-                        "resume" -> "generation_resumed"
-                        "reset" -> "generation_reset"
-                        else -> null
+                    val reply = withTimeout(OPERATION_DEADLINE_MS) {
+                        commands.withLock {
+                            check(reactor === r && r.status.value == ConnectionStatus.READY) { "Connection changed" }
+                            val frameBeforeCommand = frameId
+                            try {
+                                val result = action(r)
+                                validateReply(r, name, result, frameBeforeCommand)
+                                result
+                            } catch (e: TimeoutCancellationException) {
+                                // Fence the transport before releasing the mutex so queued work cannot
+                                // follow a command whose outcome may already have changed the provider.
+                                expireOperation(r, id, name)
+                                throw e
+                            }
+                        }
                     }
-                    val startVerifiedByFrame = name == "start" && reply.type == null && withTimeout(30000L) {
-                        while (frameId <= frameBeforeCommand) delay(50L)
-                        check(reactor === r) { "Connection changed" }
-                        android.util.Log.i("ImmerseVideo", "Native start confirmed by a new decoded frame")
-                        true
-                    }
-                    check(startVerifiedByFrame || expected == null || reply.type == expected) { "$name did not return $expected: ${reply.type}" }
                     if (reactor === r) listener.onOperation(id, name,
                         JSONObject().put("type", reply.type ?: "").put("data", wrap(reply.data)).toString(), "")
+                } catch (_: TimeoutCancellationException) {
+                    // The timeout may have elapsed while this operation was still waiting for the lock.
+                    expireOperation(r, id, name)
+                } catch (e: CancellationException) {
+                    throw e
                 } catch (e: Exception) {
-                    if (reactor === r) listener.onOperation(id, name, "", e.message ?: "Operation cancelled")
+                    if (reactor === r) listener.onOperation(id, name, "", e.message ?: "Operation failed")
                 }
             }
         }
+    }
+
+    private suspend fun validateReply(r: Reactor, name: String,
+        reply: inc.reactor.sdk.android.CommandReply, frameBeforeCommand: Long) {
+        check(reply.type != "command_error") { reply.data.toString() }
+        val expected = when (name) {
+            "set_prompt" -> "prompt_accepted"
+            "set_audio_prompt" -> "audio_prompt_accepted"
+            "set_image" -> "image_accepted"
+            "set_resolution" -> "resolution_accepted"
+            "set_audio_enabled" -> "audio_enabled_accepted"
+            "start" -> "generation_started"
+            "pause" -> "generation_paused"
+            "resume" -> "generation_resumed"
+            "reset" -> "generation_reset"
+            else -> null
+        }
+        if (name == "start" && reply.type == null) {
+            while (frameId <= frameBeforeCommand) delay(50L)
+            check(reactor === r) { "Connection changed" }
+            android.util.Log.i("ImmerseVideo", "Native start confirmed by a new decoded frame")
+            return
+        }
+        check(expected == null || reply.type == expected) { "$name did not return $expected: ${reply.type}" }
+    }
+
+    private fun expireOperation(r: Reactor, id: String, name: String) {
+        if (reactor !== r) return
+        listener.onOperation(id, name, "", "$name timed out; reconnect before retrying")
+        disconnectInternal()
+        listener.onStatus(ConnectionStatus.DISCONNECTED.name)
     }
 
     fun getSessionId(): String = reactor?.sessionId?.value ?: ""
@@ -227,8 +316,7 @@ class ViskoReactorBridge(private val listener: Listener) {
         tracksAttached = false
         synchronized(frameLock) { frame = ByteArray(0); width = 0; height = 0; frameId++ }
         synchronized(audioLock) {
-            audio?.let { try { it.stop() } catch (_: Exception) {}; it.release() }
-            audio = null
+            releaseAudioLocked()
         }
         if (r != null) scope.launch {
             try { withTimeout(5000L) { r.disconnect() } }
@@ -240,7 +328,7 @@ class ViskoReactorBridge(private val listener: Listener) {
     fun dispose() {
         main.post {
             if (!disposed) {
-                disposed = true
+                synchronized(audioLock) { disposed = true }
                 disconnectInternal()
                 // disconnect cleanup runs on this scope; let its bounded call finish before cancelling.
                 main.postDelayed({ scope.cancel() }, 6000)

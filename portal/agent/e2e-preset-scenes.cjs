@@ -50,6 +50,8 @@ fs.mkdirSync(out, { recursive: true });
   };
   try {
     await page.goto(`${base}/learn.html`); await page.waitForFunction(() => !document.querySelector('#begin').disabled);
+    await page.locator('#lesson').selectOption('ja-konbini-001');
+    await page.waitForFunction(() => !document.querySelector('#begin').disabled);
     await page.locator('#previewOnly').setChecked(!live); await page.locator('#begin').click(); await ready();
     const first = await decision(); firstSession = first.request.sessionId; assert.equal(first.response.scene.id, 'checkout'); await capture('opening');
     await switchScene('#presetSandwiches', 'sandwiches');

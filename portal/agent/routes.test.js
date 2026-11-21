@@ -32,3 +32,78 @@ test('HTTP catalog/turn/reset honor authorization and never serve private files'
     assert.deepEqual(await (await post('/api/agent/reset', { sessionId: body.sessionId, lessonId: body.lessonId })).json(), { ok: true });
   } finally { await new Promise((resolve) => server.close(resolve)); await rm(root, { recursive: true, force: true }); }
 });
+
+test('clerk audio reads text and style from the exact committed run and revision', async (t) => {
+  const app = express(); app.use(express.json());
+  const ids = { sessionId: 'session-1', lessonId: 'lesson-1' };
+  const spoken = [];
+  const service = { snapshot: (input) => {
+    assert.deepEqual(input, ids);
+    return { runId: 'run-1', revision: 2,
+      response: {
+        speech: { role: 'clerk', text: 'いらっしゃいませ。', language: 'ja' },
+        reaction: { role: 'clerk', text: 'かしこまりました。', language: 'ja' },
+      },
+      lessonContext: { partnerVoice: 'male' } };
+  } };
+  registerAgentRoutes(app, { service, synthesize: async ({ signal, ...voice }) => {
+    assert.equal(signal.aborted, false);
+    spoken.push(voice);
+    return Buffer.from('test audio');
+  } });
+  const server = app.listen(0, '127.0.0.1');
+  await new Promise((resolve) => server.once('listening', resolve));
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  const request = (body) => fetch(`http://127.0.0.1:${server.address().port}/api/agent/clerk-speech`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+  });
+  const exact = { ...ids, runId: 'run-1', revision: 2 };
+  assert.equal((await request({ ...exact, partnerVoice: 'female' })).status, 400);
+  assert.equal((await request({ ...exact, runId: 'another-run' })).status, 409);
+  assert.equal((await request({ ...exact, part: 'reaction', revision: 1 })).status, 409);
+  assert.equal((await request({ ...exact, part: 'unsupported' })).status, 400);
+  const response = await request(exact);
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get('content-type'), /audio\/wav/);
+  assert.equal((await request({ ...exact, part: 'prompt' })).status, 200);
+  assert.equal((await request({ ...exact, part: 'reaction' })).status, 200);
+  assert.deepEqual(spoken, [
+    { text: 'いらっしゃいませ。', language: 'ja', partnerVoice: 'male' },
+    { text: 'いらっしゃいませ。', language: 'ja', partnerVoice: 'male' },
+    { text: 'かしこまりました。', language: 'ja', partnerVoice: 'male' },
+  ]);
+});
+
+test('translation keeps the existing response and opts into romaji with one provider request', async (t) => {
+  const app = express(); app.use(express.json());
+  const calls = [];
+  registerAgentRoutes(app, {
+    authorized: (req) => req.get('portal_token') === 'fixture-token',
+    translate: async ({ text, includeRomaji, signal }) => {
+      assert.equal(signal.aborted, false);
+      calls.push({ text, includeRomaji });
+      if (text === '失礼します。') throw Error('private upstream error');
+      return includeRomaji ? { english: 'Welcome.', romaji: 'Irasshaimase.' } : 'Welcome.';
+    },
+  });
+  const server = app.listen(0, '127.0.0.1');
+  await new Promise((resolve) => server.once('listening', resolve));
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  const request = (body, token = 'fixture-token') => fetch(`http://127.0.0.1:${server.address().port}/api/agent/translate`, {
+    method: 'POST', headers: { portal_token: token, 'content-type': 'application/json' }, body: JSON.stringify(body),
+  });
+  const fixture = { text: '  いらっしゃいませ。 ' };
+  assert.equal((await request(fixture, 'wrong')).status, 401);
+  assert.equal((await request({ ...fixture, includeRomaji: 'yes' })).status, 400);
+  assert.deepEqual(await (await request(fixture)).json(), { english: 'Welcome.' });
+  const caption = await request({ ...fixture, includeRomaji: true });
+  assert.equal(caption.headers.get('cache-control'), 'no-store');
+  assert.deepEqual(await caption.json(), { english: 'Welcome.', romaji: 'Irasshaimase.' });
+  assert.deepEqual(calls, [
+    { text: fixture.text.trim(), includeRomaji: undefined },
+    { text: fixture.text.trim(), includeRomaji: true },
+  ]);
+  const failed = await request({ text: '失礼します。', includeRomaji: true });
+  assert.equal(failed.status, 500);
+  assert.deepEqual(await failed.json(), { error: 'Learning service unavailable' });
+});

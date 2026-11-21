@@ -4,6 +4,7 @@ using UnityEngine;
 using UnityEditor.SceneManagement;
 using System.Linq;
 using Unity.XR.XREAL;
+using UnityEngine.XR.Hands.Samples.VisualizerSample;
 public static class DevReferenceBuild {
  public static void Build() {
   PlayerSettings.SetApplicationIdentifier(BuildTargetGroup.Android, "com.immersethebay.app");
@@ -19,6 +20,34 @@ public static class DevReferenceBuild {
   if (!hands) throw new System.InvalidOperationException("Official XREAL hands rig missing.");
   PrefabUtility.ReplacePrefabAssetOfPrefabInstance(rig, hands,
       new PrefabReplacingSettings { objectMatchMode = ObjectMatchMode.ByHierarchy }, InteractionMode.AutomatedAction);
+  // Use an unlit, bright mesh in the optical see-through development view.
+  const string handMaterialPath = "Assets/ImmerseIntegration/TrackedHand.mat";
+  var handMaterial = AssetDatabase.LoadAssetAtPath<Material>(handMaterialPath);
+  if (!handMaterial)
+  {
+   var handShader = Shader.Find("Unlit/Color");
+   if (!handShader) throw new System.InvalidOperationException("Unlit hand shader missing.");
+   handMaterial = new Material(handShader);
+   AssetDatabase.CreateAsset(handMaterial, handMaterialPath);
+  }
+  handMaterial.color = new Color(0.68f, 0.60f, 0.89f);
+  EditorUtility.SetDirty(handMaterial);
+  var handVisualizers = rig.GetComponentsInChildren<HandVisualizer>(true);
+  if (handVisualizers.Length == 0)
+   throw new System.InvalidOperationException("The development rig is missing the XREAL hand model visualizer.");
+  foreach (var visualizer in handVisualizers)
+  {
+   visualizer.enabled = true;
+   var meshSettings = new SerializedObject(visualizer);
+   var meshMaterial = meshSettings.FindProperty("m_HandMeshMaterial");
+   if (meshMaterial == null) throw new System.InvalidOperationException("XREAL hand mesh material property missing.");
+   meshMaterial.objectReferenceValue = handMaterial;
+   meshSettings.ApplyModifiedPropertiesWithoutUndo();
+   visualizer.drawMeshes = true;
+   visualizer.debugDrawJoints = false;
+   visualizer.velocityType = HandVisualizer.VelocityType.None;
+   PrefabUtility.RecordPrefabInstancePropertyModifications(visualizer);
+  }
   foreach (var root in scene.GetRootGameObjects())
    if (root != rig && !root.GetComponent<Light>() &&
        !root.GetComponent<UnityEngine.XR.ARFoundation.ARSession>()) root.SetActive(false);
@@ -40,6 +69,7 @@ public static class DevReferenceBuild {
   video.screen = renderer;
   var context = session.AddComponent<ImmerseTheBay.Learning.LearningContext>();
   context.headCamera = xrOrigin.Camera;
+  context.enableScreenPinchShortcuts = false;
   var overlay = session.AddComponent<ImmerseTheBay.Learning.LearningOverlay>();
   overlay.screen = renderer;
   overlay.headCamera = xrOrigin.Camera;
@@ -47,8 +77,10 @@ public static class DevReferenceBuild {
   lesson.visko = video;
   lesson.context = context;
   lesson.overlay = overlay;
-  lesson.speechProvider = session.AddComponent<ImmerseTheBay.Visko.AndroidSpeechToText>();
-  lesson.startImage = "lessons/images/konbini-checkout-original.png";
+  // Hands-free answers: waits for speech, no recognizer tones or 3-second windows (AndroidSpeechToText is the fallback).
+  lesson.speechProvider = session.AddComponent<ImmerseTheBay.Learning.PortalSpeechToText>();
+  lesson.lessonId = "ja-cafe-demo-001";
+  lesson.startImage = "lessons/images/cafe-order.jpg";
   var controls = session.AddComponent<ImmerseTheBay.Learning.DevLessonControls>();
   controls.video = video;
   controls.lesson = lesson;

@@ -1,10 +1,11 @@
 import express from 'express';
-import { createCartesiaSpeech } from './cartesia.js';
+import { createCartesiaSpeech, stereoSpeechWav } from './cartesia.js';
 import { createTranscriber, audioType, MAX_AUDIO_BYTES } from './transcribe.js';
-import { createLessonStore } from './lessons.js';
+import { AgentError, createLessonStore } from './lessons.js';
 import { createDialogueTranslator } from './translate.js';
 import { createAgentService } from './service.js';
-export function registerAgentRoutes(app, { authorized = () => true, store = createLessonStore(), service = createAgentService({ store }), transcribe = createTranscriber(), synthesize = createCartesiaSpeech(), translate = createDialogueTranslator() } = {}) {
+import { OPENING_CLIP_ROOT, resolveOpeningClip } from './opening-clips.js';
+export function registerAgentRoutes(app, { authorized = () => true, store = createLessonStore(), service = createAgentService({ store }), transcribe = createTranscriber(), synthesize = createCartesiaSpeech(), translate = createDialogueTranslator(), openingClipRoot = OPENING_CLIP_ROOT } = {}) {
   const protect = (req, res, next) => authorized(req) ? next() : res.status(401).json({ error: 'portal_token required' });
   const route = (fn) => async (req, res) => {
     try { await fn(req, res); } catch (e) { res.status(e.status || 500).json({ error: e.status ? e.message : 'Learning service unavailable' }); }
@@ -23,27 +24,81 @@ export function registerAgentRoutes(app, { authorized = () => true, store = crea
     }))));
   app.post('/api/agent/translate', protect, route(async (req, res) => {
     const text = typeof req.body?.text === 'string' ? req.body.text.trim() : '';
-    if (!text || text.length > 2000) return res.status(400).json({ error: 'Invalid utterance' });
+    const { includeRomaji } = req.body || {};
+    if (!text || text.length > 2000 || (includeRomaji !== undefined && typeof includeRomaji !== 'boolean'))
+      return res.status(400).json({ error: 'Invalid utterance' });
     const controller = new AbortController();
     const abort = () => { if (!res.writableEnded) controller.abort(); };
     res.on('close', abort);
     try {
-      const english = await translate({ text, signal: controller.signal });
-      if (!controller.signal.aborted) res.set('Cache-Control', 'no-store').json({ english });
+      const caption = await translate({ text, ...(includeRomaji ? { includeRomaji } : {}), signal: controller.signal });
+      if (!controller.signal.aborted) res.set('Cache-Control', 'no-store').json(includeRomaji ? caption : { english: caption });
     } finally { res.off('close', abort); }
   }));
-  app.post('/api/agent/speak', protect, route(async (req, res) => {
-    if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body) || Object.keys(req.body).some((key) => !['text', 'language'].includes(key))) return res.status(400).json({ error: 'Invalid speech request' });
+  async function sendSpeech(req, res, params) {
+    const layout = req.get('x-tenin-audio-layout');
+    if (layout !== undefined && layout !== 'stereo') throw new AgentError(400, 'Unsupported speech audio layout');
     const controller = new AbortController();
     const abort = () => { if (!res.writableEnded) controller.abort(); };
     res.on('close', abort);
     try {
-      const audio = await synthesize({ ...req.body, signal: controller.signal });
-      if (!controller.signal.aborted) res.set('Cache-Control', 'no-store').type('audio/wav').send(audio);
+      const result = await synthesize({ ...params, signal: controller.signal });
+      if (controller.signal.aborted) return;
+      const audio = params.timed ? result.audio : result;
+      if (params.timed && result.ranges.length)
+        res.set('X-Tenin-Speech-Ranges', JSON.stringify({ ranges: result.ranges }));
+      res.set('Cache-Control', 'no-store').type('audio/wav').send(layout === 'stereo' ? stereoSpeechWav(audio) : audio);
     } finally { res.off('close', abort); }
+  }
+  app.post('/api/agent/speak', protect, route(async (req, res) => {
+    const input = req.body;
+    if (!input || typeof input !== 'object' || Array.isArray(input)
+        || Object.keys(input).some(key => !['text', 'language', 'role'].includes(key))
+        || (input.role !== undefined && input.role !== 'tutor'))
+      return res.status(400).json({ error: 'Invalid speech request' });
+    await sendSpeech(req, res, input);
+  }));
+  app.post('/api/agent/pronunciation', protect, route(async (req, res) => {
+    const input = req.body;
+    if (!input || typeof input !== 'object' || Array.isArray(input)
+        || Object.keys(input).some(key => !['text', 'slow'].includes(key))
+        || typeof input.text !== 'string' || !input.text.trim() || input.text.length > 120
+        || (input.slow !== undefined && typeof input.slow !== 'boolean'))
+      return res.status(400).json({ error: 'Invalid pronunciation request' });
+    await sendSpeech(req, res, { text: input.text, slow: input.slow === true, timed: true });
+  }));
+  app.post('/api/agent/clerk-speech', protect, route(async (req, res) => {
+    const input = req.body;
+    if (!input || typeof input !== 'object' || Array.isArray(input)
+        || Object.keys(input).some((key) => !['sessionId', 'lessonId', 'runId', 'revision', 'part'].includes(key))
+        || typeof input.runId !== 'string' || !Number.isSafeInteger(input.revision) || input.revision < 1
+        || (input.part !== undefined && !['prompt', 'reaction'].includes(input.part)))
+      return res.status(400).json({ error: 'Invalid clerk speech request' });
+    const state = service.snapshot({ sessionId: input.sessionId, lessonId: input.lessonId });
+    if (!state || state.runId !== input.runId || state.revision !== input.revision)
+      return res.status(409).json({ error: 'Lesson changed before clerk playback' });
+    const speech = input.part === 'reaction' ? state.response?.reaction : state.response?.speech;
+    if (speech?.role !== 'clerk' || !speech.text)
+      return res.status(404).json({ error: 'There is no clerk line for this turn' });
+    await sendSpeech(req, res, { text: speech.text, language: speech.language, partnerVoice: state.lessonContext?.partnerVoice });
   }));
   app.get('/api/agent/lessons', protect, route(async (_req, res) => res.json({ lessons: await store.list() })));
   app.get('/api/agent/lessons/:id', protect, route(async (req, res) => res.json(await store.load(req.params.id))));
+  app.get('/api/agent/lessons/:id/scenes/:sceneId/opening', protect, route(async (req, res) => {
+    const clip = await resolveOpeningClip(store, openingClipRoot, req.params.id, req.params.sceneId);
+    if (!clip) return res.set('Cache-Control', 'no-store').status(404).json({ error: 'Scene opening unavailable' });
+    res.sendFile(clip, { cacheControl: false, headers: { 'Cache-Control': 'private, no-cache' } }, error => {
+      if (!error) return;
+      if (res.headersSent) return res.destroy(error);
+      if (error.status === 416) {
+        const extent = error.headers?.['Content-Range'] ?? error.headers?.['content-range'];
+        if (extent) res.set('Content-Range', extent);
+        return res.set('Cache-Control', 'no-store').status(416).end();
+      }
+      res.set('Cache-Control', 'no-store').status(error.status === 404 ? 404 : 500)
+        .json({ error: 'Scene opening unavailable' });
+    });
+  }));
   app.get('/lessons/images/:filename', protect, route(async (req, res) => res.sendFile(await store.image(req.params.filename))));
   app.post('/api/agent/summary', protect, route(async (req, res) => res.set('Cache-Control', 'no-store').json(service.summary(req.body))));
   app.post('/api/agent/snapshot', protect, route(async (req, res) => res.set('Cache-Control', 'no-store').json(service.snapshot(req.body))));

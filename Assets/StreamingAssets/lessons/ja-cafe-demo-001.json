@@ -1,0 +1,134 @@
+{
+  "id": "ja-cafe-demo-001",
+  "title": "カフェで注文 — Order Coffee",
+  "level": "N5",
+  "scenePrompt": "A dark-haired adult Japanese barista in an olive apron at a warm espresso bar. The barista looks up, walks to the counter, and raises her order pad.",
+  "audioPrompt": "Quiet espresso-machine steam, a cup touching its saucer, and soft room tone.",
+  "startImage": "lessons/images/cafe-order.jpg",
+  "partnerVoice": "female",
+  "beats": [
+    {
+      "goal": "Order a coffee",
+      "scene": {
+        "id": "cafe-order",
+        "label": "Order a coffee",
+        "prompt": "The barista looks up, walks to the counter, and raises her order pad.",
+        "identity": "A dark-haired adult Japanese barista in an olive apron at a warm espresso bar."
+      },
+      "lines": [
+        {
+          "jp": "コーヒーをください。",
+          "kana": "こーひーをください。",
+          "romaji": "Kōhī o kudasai.",
+          "en": "A coffee, please.",
+          "zh": "请给我一杯咖啡。",
+          "cue": "The barista looks up, walks to the counter, and raises her order pad.",
+          "partner": {
+            "jp": "いらっしゃいませ。ご注文は？",
+            "kana": "いらっしゃいませ。ごちゅうもんは？",
+            "romaji": "Irasshaimase. Gochūmon wa?",
+            "en": "Welcome. What would you like?",
+            "zh": "欢迎光临。您要点什么？"
+          },
+          "reaction": {
+            "jp": "かしこまりました。",
+            "romaji": "Kashikomarimashita.",
+            "en": "Certainly."
+          }
+        }
+      ],
+      "vocab": [
+        {
+          "jp": "コーヒー",
+          "kana": "こーひー",
+          "en": "coffee",
+          "objectHint": "coffee"
+        }
+      ]
+    },
+    {
+      "goal": "Choose from the menu",
+      "scene": {
+        "id": "cafe-menu",
+        "label": "Choose from the menu",
+        "prompt": "The barista holds the large upright menu near the center, gestures gently to the coffee and latte choices with her open palm, then nods at the customer while the entire printed board stays still and readable.",
+        "identity": "A dark-haired adult Japanese barista in an olive apron at a warm espresso bar."
+      },
+      "lines": [
+        {
+          "jp": "これにします。",
+          "kana": "これにします。",
+          "romaji": "Kore ni shimasu.",
+          "en": "I’ll have this one.",
+          "zh": "我要这个。",
+          "cue": "The barista holds the large menu steady near the center and gently indicates the two choices with her open palm. Both her face and the board remain visible.",
+          "partner": {
+            "jp": "メニューです。どちらにしますか？",
+            "kana": "めにゅーです。どちらにしますか？",
+            "romaji": "Menyū desu. Dochira ni shimasu ka?",
+            "en": "Here’s the menu. Which one would you like?",
+            "zh": "这是菜单。您选哪一款？"
+          },
+          "reaction": {
+            "jp": "はい。すぐにお持ちします。",
+            "romaji": "Hai. Sugu ni omochi shimasu.",
+            "en": "Of course. I’ll bring it right over."
+          }
+        }
+      ],
+      "vocab": [
+        {
+          "jp": "これ",
+          "kana": "これ",
+          "en": "this one",
+          "objectHint": "menu"
+        }
+      ]
+    },
+    {
+      "goal": "Thank the barista",
+      "scene": {
+        "id": "cafe-serve",
+        "label": "Thank the barista",
+        "prompt": "The barista steps forward, slides the cup and saucer across the counter, and smiles.",
+        "identity": "A dark-haired adult Japanese barista in an olive apron at a warm espresso bar."
+      },
+      "lines": [
+        {
+          "jp": "ありがとうございます。",
+          "kana": "ありがとうございます。",
+          "romaji": "Arigatō gozaimasu.",
+          "en": "Thank you.",
+          "zh": "谢谢。",
+          "cue": "The barista steps forward, slides the cup and saucer across the counter, and smiles.",
+          "partner": {
+            "jp": "お待たせしました。こちらでよろしいですか？",
+            "kana": "おまたせしました。こちらでよろしいですか？",
+            "romaji": "Omatase shimashita. Kochira de yoroshii desu ka?",
+            "en": "Thanks for waiting. Does this look right?",
+            "zh": "让您久等了。这杯可以吗？"
+          },
+          "reaction": {
+            "jp": "ありがとうございます。またどうぞ。",
+            "romaji": "Arigatō gozaimasu. Mata dōzo.",
+            "en": "Thank you. Come again."
+          }
+        }
+      ],
+      "vocab": [
+        {
+          "jp": "ありがとう",
+          "kana": "ありがとう",
+          "en": "thanks",
+          "objectHint": "thanks"
+        }
+      ],
+      "milkScene": {
+        "id": "cafe-menupour",
+        "label": "Say how you want it",
+        "prompt": "The barista tips the pitcher, gently pours milk into the cup and steadies the saucer. Steam rises. The original wood-framed menu remains in place on the brass machine next to her shoulder.",
+        "identity": "A dark-haired adult Japanese barista in an olive apron at a warm espresso bar."
+      }
+    }
+  ]
+}

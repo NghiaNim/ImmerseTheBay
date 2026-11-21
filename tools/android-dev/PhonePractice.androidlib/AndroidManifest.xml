@@ -1,8 +1,18 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools" package="com.immersethebay.phone">
+    <!-- On-device Japanese text-to-speech for phrase playback (Android 11+ package visibility). -->
+    <queries>
+        <intent><action android:name="android.intent.action.TTS_SERVICE" /></intent>
+        <intent><action android:name="android.speech.RecognitionService" /></intent>
+    </queries>
     <!-- The development Portal currently runs over LAN HTTP. -->
     <application android:usesCleartextTraffic="true">
-        <activity android:name="com.immersethebay.phone.PhonePracticeActivity"
+        <!-- Tenin is the phone home screen (the single launcher entry). It shares the XREAL task
+             (taskAffinity xreal.unity, like NRXRActivity/UnityPlayerActivity) so the app is one task:
+             one entry in Recents, and returning from the glasses reuses this instance. -->
+        <activity android:name="com.immersethebay.phone.TeninActivity"
+            android:taskAffinity="xreal.unity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|density|uiMode"
             android:exported="true"
             android:theme="@android:style/Theme.Material.Light.NoActionBar"
             android:windowSoftInputMode="adjustResize">
@@ -11,6 +21,12 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <!-- Earlier phone screen, kept reachable for development. -->
+        <activity android:name="com.immersethebay.phone.PhonePracticeActivity"
+            android:taskAffinity="xreal.unity"
+            android:exported="true"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar"
+            android:windowSoftInputMode="adjustResize" />
         <!-- Keep the SDK activity available for XR and explicit in-app navigation. -->
         <activity android:name="ai.nreal.activitylife.NRXRActivity" android:exported="true">
             <intent-filter tools:node="removeAll" />

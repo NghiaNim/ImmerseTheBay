@@ -288,7 +288,7 @@ namespace ImmerseTheBay.Learning.Voice
                 if (bytes.Length / 2 > playback.Length - available) throw new InvalidDataException("Voice playback queue exceeded four seconds");
                 for (int i = 0; i < bytes.Length; i += 2)
                 {
-                    playback[write] = (short)(bytes[i] | bytes[i + 1] << 8) / 32768f;
+                    playback[write] = LearningAgentClient.BoostSpeechSample((short)(bytes[i] | bytes[i + 1] << 8) / 32768f);
                     write = (write + 1) % playback.Length; available++;
                 }
             }

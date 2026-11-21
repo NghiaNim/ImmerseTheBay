@@ -73,6 +73,7 @@ namespace ImmerseTheBay.Visko
 #if UNITY_ANDROID && !UNITY_EDITOR
             s_MicrophoneOwner = this;
             IsListening = true;
+            MuteScene(true);
             m_Cancelled = false;
             m_CancellationError = null;
             m_NativeStarted = m_StopRequested = false;
@@ -165,6 +166,14 @@ namespace ImmerseTheBay.Visko
 
         bool IsCurrent(int request) => request == m_Request && IsListening && !m_Cancelled && !m_Disposed;
 
+        ViskoSession m_Scene;
+        // The glasses' microphone sits next to their speakers; keep the scene quiet while the learner speaks.
+        void MuteScene(bool muted)
+        {
+            if (!m_Scene) m_Scene = FindAnyObjectByType<ViskoSession>();
+            if (m_Scene) m_Scene.SetSceneAudioMuted(muted);
+        }
+
         public void StopListening()
         {
             if (!IsListening || m_Cancelled || m_StopRequested) return;
@@ -244,6 +253,7 @@ namespace ImmerseTheBay.Visko
                 if (state.wasRecording) state.capture.StartCapture();
             }
             m_Captures.Clear();
+            MuteScene(false);
             if (ReferenceEquals(s_MicrophoneOwner, this)) s_MicrophoneOwner = null;
             Status = cancelled ? "stopped" : string.IsNullOrEmpty(error) ? "ready" : error;
             if (cancelled)

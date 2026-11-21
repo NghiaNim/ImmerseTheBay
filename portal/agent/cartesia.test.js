@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createCartesiaSpeech, MAX_SPEECH_BYTES } from './cartesia.js';
 const wav = Buffer.from('RIFF\x08\x00\x00\x00WAVE');
-const options = { apiKey: 'secret-fixture', voiceId: 'voice-fixture' };
+const options = { apiKey: 'secret-fixture', voiceId: 'voice-fixture', femaleVoiceId: '', maleVoiceId: '' };
 const sample = { text: '  いらっしゃいませ。  ' };
 const audioResponse = (bytes = wav) => new Response(bytes, { headers: { 'content-type': 'audio/wav' } });
 test('Cartesia uses server key, pinned API version, voice ID string and bounded WAV request', async () => {
@@ -23,9 +23,43 @@ test('invalid input, absent configuration and already canceled requests never re
   for (const body of [{}, { text: '' }, { text: ' '.repeat(5) }, { text: 'x'.repeat(1001) }, { ...sample, language: 'fr' }, { ...sample, signal: {} }]) {
     await assert.rejects(createCartesiaSpeech({ ...options, fetchImpl })(body), { status: 400 });
   }
-  for (const config of [{ apiKey: '', voiceId: 'voice' }, { apiKey: 'key', voiceId: '' }]) await assert.rejects(createCartesiaSpeech({ ...config, fetchImpl })(sample), { status: 503 });
+  for (const config of [{ apiKey: '', voiceId: 'voice' }, { apiKey: 'key', voiceId: '' }]) await assert.rejects(createCartesiaSpeech({ ...options, ...config, fetchImpl })(sample), { status: 503 });
   await assert.rejects(createCartesiaSpeech({ ...options, fetchImpl })({ ...sample, signal: AbortSignal.abort() }), { status: 499 });
   assert.equal(calls, 0);
+});
+test('pinned logical voices select distinct server IDs while unpinned speech uses the default', async () => {
+  const voices = [];
+  const fetchImpl = async (_url, init) => {
+    voices.push(JSON.parse(init.body).voice);
+    return audioResponse();
+  };
+  const speak = createCartesiaSpeech({
+    ...options, femaleVoiceId: ' female-fixture ', maleVoiceId: 'male-fixture', fetchImpl,
+  });
+  await speak({ ...sample, partnerVoice: 'female' });
+  await speak({ ...sample, partnerVoice: 'male' });
+  await speak(sample);
+  await assert.rejects(speak({ ...sample, partnerVoice: 'male-fixture' }), { status: 400 });
+  const partialConfig = createCartesiaSpeech({ ...options, voiceId: ' ', femaleVoiceId: 'female-fixture', fetchImpl });
+  await partialConfig(sample);
+  await assert.rejects(partialConfig({ ...sample, partnerVoice: 'male' }), { status: 503 });
+  assert.deepEqual(voices, ['female-fixture', 'male-fixture', 'voice-fixture', 'female-fixture']);
+});
+test('teaching uses a separate voice and a conflicting override cannot change the scene cast', async () => {
+  const voices = [];
+  const configuration = { ...options, femaleVoiceId: 'female-fixture', maleVoiceId: 'male-fixture' };
+  const fetchImpl = async (_url, init) => {
+    voices.push(JSON.parse(init.body).voice);
+    return audioResponse();
+  };
+  const speak = createCartesiaSpeech({ ...configuration, tutorVoiceId: 'tutor-fixture', fetchImpl });
+  await speak({ ...sample, role: 'tutor' });
+  await speak({ ...sample, partnerVoice: 'female' });
+  await speak({ ...sample, partnerVoice: 'male' });
+  const conflict = createCartesiaSpeech({ ...configuration, tutorVoiceId: ' male-fixture ', fetchImpl });
+  await assert.rejects(conflict({ ...sample, role: 'tutor' }), { status: 503 });
+  await conflict({ ...sample, partnerVoice: 'male' });
+  assert.deepEqual(voices, ['tutor-fixture', 'female-fixture', 'male-fixture', 'male-fixture']);
 });
 test('provider failures are redacted and configurable model, version and language are passed', async () => {
   for (const [status, expected] of [[401, 502], [403, 502], [429, 429], [503, 503], [500, 502]]) {
@@ -93,4 +127,34 @@ test('finalizes streaming WAV sizes after metadata chunks for file decoders', as
   assert.equal(complete.readUInt32LE(4), complete.length - 8);
   assert.equal(complete.readUInt32LE(28), 4);
   assert.deepEqual(complete.subarray(32), streamed.subarray(32));
+});
+
+test('timed pronunciation validates actual Japanese spans and preserves audio on unaligned text', async () => {
+  const text = 'ミルクを。';
+  const pcm = Buffer.alloc(88200, 17);
+  let words = [...text];
+  let done = true;
+  const speak = createCartesiaSpeech({ ...options, fetchImpl: async (url, init) => {
+    assert.equal(url, 'https://api.cartesia.ai/tts/sse');
+    const request = JSON.parse(init.body);
+    assert.equal(request.add_timestamps, true);
+    assert.equal(request.use_normalized_timestamps, false);
+    assert.equal(request.output_format.container, 'raw');
+    assert.equal(request.generation_config.speed, 0.8);
+    const events = [
+      { type: 'chunk', data: pcm.toString('base64') },
+      { type: 'timestamps', word_timestamps: { words, start: [0.1, 0.2, 0.3, 0.4, 0.5], end: [0.2, 0.3, 0.4, 0.4, 0.6] } },
+      ...(done ? [{ type: 'done' }] : []),
+    ];
+    return new Response(events.map(event => `data: ${JSON.stringify(event)}\r\n\r\n`).join(''));
+  } });
+  const aligned = await speak({ text, timed: true, slow: true });
+  assert.equal(aligned.audio.readUInt32LE(40), pcm.length);
+  assert.deepEqual(aligned.audio.subarray(44), pcm);
+  assert.deepEqual(aligned.ranges.map(range => [text.slice(range.start, range.end), range.from, range.to]),
+    [['ミ', 100, 200], ['ル', 200, 300], ['ク', 300, 400], ['。', 500, 600]]);
+  words = [...'みるくを。'];
+  assert.deepEqual((await speak({ text, timed: true, slow: true })).ranges, []);
+  done = false;
+  await assert.rejects(speak({ text, timed: true, slow: true }), { status: 502 });
 });

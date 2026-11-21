@@ -1,0 +1,215 @@
+{
+  "id": "ja-home-001",
+  "title": "夕立を待つ茶の間 — An Afternoon at Home",
+  "level": "N5–N4",
+  "scenePrompt": "An adult host with short black hair and a plain indigo cardigan sits beside a low wooden table in a cozy 1970s Tokyo suburban home, looking toward the visitor. Afternoon light falls across tatami, cream plaster walls and wooden sliding doors beneath exposed ceiling beams. Original anime-inspired rendering, eye-level medium-wide shot, static camera.",
+  "audioPrompt": "Soft cicadas outside, an occasional ceramic cup touching wood, and a light breeze rustling paper screens.",
+  "startImage": "lessons/images/tokyo-house-interior.jpg",
+  "beats": [
+    {
+      "goal": "Notice the tatami and open the sliding door.",
+      "lines": [
+        {
+          "jp": "畳の部屋ですね。",
+          "kana": "たたみのへやですね。",
+          "romaji": "Tatami no heya desu ne.",
+          "zh": "这是榻榻米房间呢。",
+          "en": "This is a tatami room.",
+          "cue": "The host slides the wooden door open a little farther."
+        },
+        {
+          "jp": "引き戸を開けます。",
+          "kana": "ひきどをあけます。",
+          "romaji": "Hikido o akemasu.",
+          "zh": "我来打开推拉门。",
+          "en": "I’ll open the sliding door.",
+          "cue": "The host brushes a hand across the worn wooden threshold."
+        }
+      ],
+      "vocab": [
+        {
+          "jp": "引き戸",
+          "kana": "ひきど",
+          "en": "sliding door",
+          "objectHint": "door"
+        },
+        {
+          "jp": "畳",
+          "kana": "たたみ",
+          "en": "tatami mat",
+          "objectHint": "floor"
+        },
+        {
+          "jp": "敷居",
+          "kana": "しきい",
+          "en": "sliding-door threshold",
+          "objectHint": "door"
+        }
+      ]
+    },
+    {
+      "goal": "Sit beside the low table and ask for a cushion.",
+      "lines": [
+        {
+          "jp": "ちゃぶ台のそばに座ります。",
+          "kana": "ちゃぶだいのそばにすわります。",
+          "romaji": "Chabudai no soba ni suwarimasu.",
+          "zh": "我坐在矮桌旁。",
+          "en": "I’ll sit by the low table.",
+          "cue": "The host places a ceramic teapot on the low table."
+        },
+        {
+          "jp": "座布団をください。",
+          "kana": "ざぶとんをください。",
+          "romaji": "Zabuton o kudasai.",
+          "zh": "请给我一个坐垫。",
+          "en": "A seat cushion, please.",
+          "cue": "The host moves a folded cloth to the edge of the table."
+        }
+      ],
+      "vocab": [
+        {
+          "jp": "ちゃぶ台",
+          "kana": "ちゃぶだい",
+          "en": "low dining table",
+          "objectHint": "table"
+        },
+        {
+          "jp": "湯飲み",
+          "kana": "ゆのみ",
+          "en": "Japanese teacup",
+          "objectHint": "table"
+        },
+        {
+          "jp": "座布団",
+          "kana": "ざぶとん",
+          "en": "floor cushion",
+          "objectHint": "floor"
+        }
+      ]
+    },
+    {
+      "goal": "Point out the wall crack and check the ceiling.",
+      "lines": [
+        {
+          "jp": "壁にひびがあります。",
+          "kana": "かべにひびがあります。",
+          "romaji": "Kabe ni hibi ga arimasu.",
+          "zh": "墙上有裂缝。",
+          "en": "There’s a crack in the wall.",
+          "cue": "The host points to a fine crack in the plaster wall."
+        },
+        {
+          "jp": "天井も見ましょう。",
+          "kana": "てんじょうもみましょう。",
+          "romaji": "Tenjō mo mimashō.",
+          "zh": "也看看天花板吧。",
+          "en": "Let’s check the ceiling too.",
+          "cue": "The host tilts their head toward the ceiling beams."
+        }
+      ],
+      "vocab": [
+        {
+          "jp": "壁",
+          "kana": "かべ",
+          "en": "wall",
+          "objectHint": "wall"
+        },
+        {
+          "jp": "ひび",
+          "kana": "ひび",
+          "en": "crack",
+          "objectHint": "wall"
+        },
+        {
+          "jp": "天井",
+          "kana": "てんじょう",
+          "en": "ceiling",
+          "objectHint": "ceiling"
+        }
+      ]
+    },
+    {
+      "goal": "Close the storm shutters and report the wet floor.",
+      "lines": [
+        {
+          "jp": "雨戸を閉めます。",
+          "kana": "あまどをしめます。",
+          "romaji": "Amado o shimemasu.",
+          "zh": "我来关防雨板。",
+          "en": "I’ll close the storm shutters.",
+          "cue": "Raindrops begin pattering on the garden stones beyond the open door."
+        },
+        {
+          "jp": "板の間が濡れています。",
+          "kana": "いたのまがぬれています。",
+          "romaji": "Ita no ma ga nurete imasu.",
+          "zh": "木地板湿了。",
+          "en": "The wooden floor is wet.",
+          "cue": "The wooden sliding door slowly closes against the rain."
+        }
+      ],
+      "vocab": [
+        {
+          "jp": "雨戸",
+          "kana": "あまど",
+          "en": "sliding storm shutter",
+          "objectHint": "door"
+        },
+        {
+          "jp": "板の間",
+          "kana": "いたのま",
+          "en": "wooden-floored area",
+          "objectHint": "floor"
+        },
+        {
+          "jp": "敷居",
+          "kana": "しきい",
+          "en": "sliding-door threshold",
+          "objectHint": "door"
+        }
+      ]
+    },
+    {
+      "goal": "Make tea and invite someone to drink it.",
+      "lines": [
+        {
+          "jp": "急須でお茶を入れます。",
+          "kana": "きゅうすでおちゃをいれます。",
+          "romaji": "Kyūsu de ocha o iremasu.",
+          "zh": "我用茶壶泡茶。",
+          "en": "I’ll make tea in the teapot.",
+          "cue": "The host cups a warm teacup in both hands."
+        },
+        {
+          "jp": "畳でお茶を飲みましょう。",
+          "kana": "たたみでおちゃをのみましょう。",
+          "romaji": "Tatami de ocha o nomimashō.",
+          "zh": "在榻榻米上喝茶吧。",
+          "en": "Let’s have tea on the tatami.",
+          "cue": "The host gives a small farewell bow beside the doorway."
+        }
+      ],
+      "vocab": [
+        {
+          "jp": "急須",
+          "kana": "きゅうす",
+          "en": "Japanese teapot",
+          "objectHint": "table"
+        },
+        {
+          "jp": "戸口",
+          "kana": "とぐち",
+          "en": "doorway",
+          "objectHint": "door"
+        },
+        {
+          "jp": "畳",
+          "kana": "たたみ",
+          "en": "tatami mat",
+          "objectHint": "floor"
+        }
+      ]
+    }
+  ]
+}

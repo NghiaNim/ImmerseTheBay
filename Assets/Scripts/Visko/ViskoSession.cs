@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using ImmerseTheBay.Content;
 using ImmerseTheBay.Net;
@@ -34,7 +35,7 @@ namespace ImmerseTheBay.Visko
     ///  - Video frames (BGRA) from the Android bridge are uploaded to a texture on <see cref="screen"/>; audio plays natively.
     /// Config: StreamingAssets/visko.json (see <see cref="ViskoConfig"/>).
     /// </summary>
-    public class ViskoSession : MonoBehaviour
+    public partial class ViskoSession : MonoBehaviour
     {
         public Renderer screen;
         public ViskoConfig config = new();
@@ -49,6 +50,14 @@ namespace ImmerseTheBay.Visko
         public string SessionId { get; private set; } = "";
         public string PortalSessionId => m_PortalSession;
         public Texture2D StartImageTexture { get; private set; }
+        public bool HasLiveFrame { get; private set; }
+        bool m_PreparingScene, m_AcceptSceneFrames, m_BackendWasReady;
+        long m_SceneFrameFloor;
+        double m_LiveFrameAt;
+        float m_LiveBlend;
+        float m_TransitionOpacity = 1f, m_TransitionTarget = 1f;
+        static readonly int TransitionOpacity = Shader.PropertyToID("_TransitionOpacity");
+        const float LessonAspect = 16f / 9f;
         public string Model { get; private set; } = "";
         public bool IsConnected => Status == "READY";
         public event Action<string> OnLearnMessage;
@@ -63,7 +72,9 @@ namespace ImmerseTheBay.Visko
         IViskoBackend m_Backend;
         Texture2D m_Texture;
         long m_LastFrame;
-        bool m_OwnsSession;
+        bool m_OwnsSession, m_AudioMuted;
+        float m_SceneGain = 1f;
+        long m_SceneGainRevision;
         int m_ConnectVersion;
         long m_OperationId;
         Task m_ImageTask;
@@ -92,7 +103,12 @@ namespace ImmerseTheBay.Visko
         void EnsureBackend()
         {
 #if UNITY_ANDROID && !UNITY_EDITOR
-            if (m_Backend == null && isActiveAndEnabled) m_Backend = new AndroidViskoBackend(this);
+            if (m_Backend == null && isActiveAndEnabled)
+            {
+                m_Backend = new AndroidViskoBackend(this);
+                m_Backend.SetSceneGain(m_SceneGain, m_SceneGainRevision);
+                if (m_AudioMuted) m_Backend.SetAudioEnabled(false);
+            }
 #endif
         }
 
@@ -109,6 +125,12 @@ namespace ImmerseTheBay.Visko
             DebugRegistry.Unregister(m_Debug);
             Leave();
             if (m_Hub) m_Hub.enabled = false;
+        }
+
+        void OnApplicationPause(bool paused)
+        {
+            // Leaving the XR view already cancels the lesson; end the Reactor session too so it stops billing.
+            if (paused && (m_Backend != null || SessionId != "")) Leave();
         }
 
         void OnDestroy()
@@ -165,6 +187,15 @@ namespace ImmerseTheBay.Visko
         {
             while (m_Main.TryDequeue(out var a)) a();
             PullFrame();
+            if (m_TransitionOpacity != m_TransitionTarget)
+                SetTransitionOpacity(Mathf.MoveTowards(m_TransitionOpacity, m_TransitionTarget,
+                    Time.unscaledDeltaTime / (m_TransitionTarget > m_TransitionOpacity ? 0.85f : 0.4f)));
+            if (m_PreparingScene && HasLiveFrame && m_LiveBlend < 1f)
+            {
+                m_LiveBlend = Mathf.MoveTowards(m_LiveBlend, 1f, Time.unscaledDeltaTime / 1.15f);
+                ApplyVideoBlend();
+            }
+            UpdateSceneOpenings();
             m_FpsT += Time.unscaledDeltaTime;
             if (m_FpsT >= 1f) { m_Fps = m_Frames / m_FpsT; m_Frames = 0; m_FpsT = 0; }
         }
@@ -172,8 +203,9 @@ namespace ImmerseTheBay.Visko
         // ------------------------------------------------------------ public API (menu / other scripts)
         public async void CreateSession()
         {
+            int version = m_ConnectVersion;
             await ConfigReady;
-            if (this && isActiveAndEnabled) await ConnectInternal(ModelFromConfig(), null);
+            if (this && isActiveAndEnabled && version == m_ConnectVersion) await ConnectInternal(ModelFromConfig(), null);
         }
 
         public async void JoinPortalSession()
@@ -197,16 +229,44 @@ namespace ImmerseTheBay.Visko
         public void Resume() => Command("resume", null);
         public void ResetGeneration() => Command("reset", null);
 
-        public void Leave()
+        /// <summary>
+        /// Mutes or restores the generated audio on this device only; the Reactor session is unchanged. Speech
+        /// input mutes it while the learner speaks, so the glasses' microphone does not hear the scene.
+        /// </summary>
+        public void SetSceneAudioMuted(bool muted)
         {
+            m_AudioMuted = muted;
+            m_Backend?.SetAudioEnabled(!muted);
+        }
+
+        /// <summary>Set native scene loudness without changing the microphone's mute state.</summary>
+        public void SetSceneGain(float gain)
+        {
+            gain = Mathf.Clamp01(gain);
+            if (Mathf.Approximately(m_SceneGain, gain)) return;
+            m_SceneGain = gain;
+            ++m_SceneGainRevision;
+            m_Backend?.SetSceneGain(gain, m_SceneGainRevision);
+        }
+
+        public void Leave() => DisconnectBackend(keepOpening: false);
+
+        void DisconnectBackend(bool keepOpening)
+        {
+            PrefetchSceneOpening(null, null);
+            if (!keepOpening) ClearSceneOpening();
             ++m_ConnectVersion;
             CancelInvoke(nameof(RetryConnect));
             Status = "DISCONNECTED";
             var backend = m_Backend;
             m_Backend = null;
+            m_BackendWasReady = false;
             FailPending("Visko connection closed");
             m_ImageTask = null;
             m_LastFrame = -1;
+            m_TransitionTarget = 1f;
+            SetTransitionOpacity(1f);
+            m_AcceptSceneFrames = false;
             SetHasVideo(false);
             backend?.Dispose();
             if (m_OwnsSession) _ = m_Hub?.SendText("{\"type\":\"session_end\"}");
@@ -239,8 +299,19 @@ namespace ImmerseTheBay.Visko
                 await RunOperation("set_resolution", (id) => m_Backend.SendCommand(id, "set_resolution", "{\"resolution\":\"" + Esc(glassesResolution) + "\"}"));
                 CheckVersion(version);
             }
+            if (m_PreparingScene && (name == "reset" || name == "start"))
+            {
+                m_AcceptSceneFrames = false;
+                SetHasVideo(false);
+                if (name == "start") m_SceneFrameFloor = m_Backend.FrameId;
+            }
             await RunOperation(name, (id) => m_Backend.SendCommand(id, name, argsJson ?? ""));
             if (name == "reset") m_ImageTask = null;
+            if (m_PreparingScene && name == "start")
+            {
+                CheckVersion(version);
+                m_AcceptSceneFrames = true;
+            }
         }
 
         /// <summary>Uploads a JPEG and completes only after set_image returns image_accepted.</summary>
@@ -265,6 +336,29 @@ namespace ImmerseTheBay.Visko
 
         async Task LoadAndSetImage(string path, int version)
         {
+            byte[] bytes = await ReadSceneImage(path, version);
+            CheckVersion(version);
+            await UploadAndDisplayImage(bytes);
+        }
+
+        public Task<byte[]> PrefetchLessonScene(string sceneId)
+        {
+            string path = sceneId switch
+            {
+                "sandwiches" => "lessons/images/konbini-sandwiches.png",
+                "drinks" => "lessons/images/konbini-drinks.png",
+                "checkout" => "lessons/images/konbini-checkout-original.png",
+                "cafe-order" or "cafe-pour" or "cafe-menupour" or "cafe-menu" or "cafe-serve" or
+                "dog-greet" or "dog-pet" or "dog-goodbye" or
+                "date-meet" or "date-walk" or "date-cafe" or
+                "store-sandwich" or "store-drink" or "store-checkout" => $"lessons/images/{sceneId}.jpg",
+                _ => throw new ArgumentException("Unknown bundled lesson scene", nameof(sceneId)),
+            };
+            return ReadSceneImage(path, m_ConnectVersion);
+        }
+
+        async Task<byte[]> ReadSceneImage(string path, int version)
+        {
             using var request = UnityWebRequest.Get(ContentLibrary.ToUrl(path));
             request.timeout = 20;
             var operation = request.SendWebRequest();
@@ -273,7 +367,7 @@ namespace ImmerseTheBay.Visko
             CheckVersion(version);
             byte[] bytes = request.downloadHandler.data;
             if (bytes.Length == 0 || bytes.Length > 16 * 1024 * 1024) throw new IOException("Image must be between 1 byte and 16 MiB");
-            await UploadAndDisplayImage(bytes);
+            return bytes;
         }
 
         async Task UploadAndDisplayImage(byte[] bytes)
@@ -282,25 +376,92 @@ namespace ImmerseTheBay.Visko
             bool png = bytes.Length > 8 && bytes[0] == 137 && bytes[1] == 80 && bytes[2] == 78 && bytes[3] == 71;
             await RunOperation("set_image", id => m_Backend.UploadImage(id, bytes, png ? "photo.png" : "photo.jpg", png ? "image/png" : "image/jpeg"));
             CheckVersion(version);
-            var texture = new Texture2D(2, 2, TextureFormat.RGB24, false) { wrapMode = TextureWrapMode.Clamp };
-            if (!ImageConversion.LoadImage(texture, bytes, true))
+            if (!m_PreparingScene || !StartImageTexture)
+                DisplayStartImage(bytes);
+        }
+
+        void SetTransitionOpacity(float opacity)
+        {
+            m_TransitionOpacity = opacity;
+            if (screen && screen.sharedMaterial && screen.sharedMaterial.HasProperty(TransitionOpacity))
+                screen.material.SetFloat(TransitionOpacity, Mathf.SmoothStep(0f, 1f, opacity));
+        }
+
+        public async Task FadeToScenePreview(byte[] image)
+        {
+            int version = m_ConnectVersion;
+            m_TransitionTarget = 0f;
+            try
             {
-                Destroy(texture);
-                Debug.LogWarning("[Visko] Image accepted, but the local environment preview could not decode it");
-                return;
+                while (m_TransitionOpacity > 0f)
+                {
+                    await Task.Yield();
+                    CheckVersion(version);
+                }
+                PrepareScenePreview(image);
+            }
+            finally
+            {
+                if (version == m_ConnectVersion) m_TransitionTarget = 1f;
+            }
+        }
+
+        /// <summary>Display the selected local image independently of the provider connection.</summary>
+        public void PrepareScenePreview(byte[] image)
+        {
+            m_PreparingScene = true;
+            m_AcceptSceneFrames = false;
+            SetHasVideo(false);
+            DisplayStartImage(image);
+            ApplySurfaceAspect();
+        }
+
+        void DisplayStartImage(byte[] bytes)
+        {
+            Texture2D texture = null;
+            if (bytes is { Length: > 0 })
+            {
+                texture = new Texture2D(2, 2, TextureFormat.RGB24, false) { wrapMode = TextureWrapMode.Clamp };
+                if (!ImageConversion.LoadImage(texture, bytes, true))
+                {
+                    Destroy(texture);
+                    texture = null;
+                    Debug.LogWarning("[Visko] Could not decode the scene preview");
+                }
             }
             var old = StartImageTexture;
             StartImageTexture = texture;
-            if (screen && screen.material.HasProperty("_EnvironmentTex")) screen.material.SetTexture("_EnvironmentTex", texture);
+            if (screen && screen.material.HasProperty("_EnvironmentTex"))
+            {
+                var mat = screen.material;
+                mat.SetTexture("_EnvironmentTex", texture ? texture : Texture2D.blackTexture);
+                Vector2 crop = texture && m_PreparingScene ? CropScale(texture.width, texture.height) : Vector2.one;
+                mat.SetTextureScale("_EnvironmentTex", crop);
+                mat.SetTextureOffset("_EnvironmentTex", (Vector2.one - crop) * 0.5f);
+            }
             SetHasVideo(false);
             if (old) Destroy(old);
         }
 
+        static Vector2 CropScale(int width, int height)
+        {
+            float aspect = (float)width / height;
+            return new Vector2(Mathf.Min(1f, LessonAspect / aspect), Mathf.Min(1f, aspect / LessonAspect));
+        }
+
+        void ApplySurfaceAspect()
+        {
+            if (!screen) return;
+            var t = screen.transform;
+            float heightRatio = m_PreparingScene ? 1f / LessonAspect : (m_Texture ? (float)m_Texture.height / m_Texture.width : 1f / LessonAspect);
+            t.localScale = new Vector3(t.localScale.x, t.localScale.x * heightRatio, 1f);
+        }
+
         public Task SendLearningEvent(string json)
         {
-            if (!isActiveAndEnabled || !m_Hub || !m_Hub.IsConnected) throw new InvalidOperationException("Learning sync is offline");
             if (JsonField(json, "type") != "learn") throw new ArgumentException("Expected a complete learn envelope", nameof(json));
-            return m_Hub.SendText(json);
+            // The lesson and media were already committed; a mirror outage cannot roll them back.
+            return isActiveAndEnabled && m_Hub && m_Hub.IsConnected ? m_Hub.SendText(json) : Task.CompletedTask;
         }
 
         void RequireReady()
@@ -321,14 +482,25 @@ namespace ImmerseTheBay.Visko
             string id = (++m_OperationId).ToString();
             var pending = new PendingOperation { Name = name };
             m_Pending.Add(id, pending);
+            using var deadline = new CancellationTokenSource();
             try
             {
                 send(id);
-                if (await Task.WhenAny(pending.Completion.Task, Task.Delay(95000)) != pending.Completion.Task)
+                // The native bridge owns a 30-second budget. This also covers a lost JNI callback.
+                if (await Task.WhenAny(pending.Completion.Task, Task.Delay(35000, deadline.Token)) != pending.Completion.Task &&
+                    !pending.Completion.Task.IsCompleted)
+                {
+                    m_Pending.Remove(id);
+                    DisconnectBackend(keepOpening: false);
                     throw new TimeoutException(name + " acknowledgement timed out");
+                }
                 await pending.Completion.Task;
             }
-            finally { m_Pending.Remove(id); }
+            finally
+            {
+                deadline.Cancel();
+                m_Pending.Remove(id);
+            }
         }
 
         void FailPending(string error)
@@ -346,7 +518,8 @@ namespace ImmerseTheBay.Visko
             if (m_Backend == null) { m_LastError = "Visko video needs the Android build (editor: use the web portal)"; return; }
             await ConfigReady;
             if (!this || !isActiveAndEnabled) return;
-            Leave();
+            // Cold startup and pre-ready capacity retries share the opening for this explicit course choice.
+            DisconnectBackend(keepOpening: string.IsNullOrEmpty(sessionId) && string.IsNullOrEmpty(SessionId));
             EnsureBackend();
             int version = m_ConnectVersion;
             m_LastError = "";
@@ -389,8 +562,20 @@ namespace ImmerseTheBay.Visko
         internal void PostStatus(object sender, string s) => EnqueueBackend(sender, () =>
         {
             Status = s;
-            if (s == "DISCONNECTED") FailPending("Reactor disconnected");
-            if (s == "READY") m_Retries = 0;
+            if (s == "DISCONNECTED")
+            {
+                if (m_BackendWasReady)
+                {
+                    DisconnectBackend(keepOpening: false);
+                    return;
+                }
+                FailPending("Reactor disconnected");
+            }
+            if (s == "READY")
+            {
+                m_BackendWasReady = true;
+                m_Retries = 0;
+            }
             SendHubStatus();
             if (s == "READY" && m_OwnsSession)
             {
@@ -485,34 +670,45 @@ namespace ImmerseTheBay.Visko
         // ------------------------------------------------------------ video
         void SetHasVideo(bool value)
         {
-            if (screen && screen.material.HasProperty("_HasVideo")) screen.material.SetFloat("_HasVideo", value ? 1 : 0);
+            HasLiveFrame = value;
+            if (!value || !m_PreparingScene) m_LiveBlend = value ? 1f : 0f;
+            ApplyVideoBlend();
+        }
+
+        void ApplyVideoBlend()
+        {
+            if (screen && screen.material.HasProperty("_HasVideo")) screen.material.SetFloat("_HasVideo", m_LiveBlend);
         }
 
         void PullFrame()
         {
-            if (m_Backend == null || !screen) return;
+            if (m_Backend == null || !IsConnected || !screen || (m_PreparingScene && !m_AcceptSceneFrames)) return;
             long id = m_Backend.FrameId;
-            if (id == m_LastFrame) return;
-            m_LastFrame = id;
+            if (id == m_LastFrame || (m_PreparingScene && id <= m_SceneFrameFloor)) return;
             int w = m_Backend.Width, h = m_Backend.Height;
             if (w <= 0 || h <= 0) return;
             var px = m_Backend.GetFrame();
             if (px == null || px.Length != w * h * 4) return;
+            m_LastFrame = id;
+            m_LiveFrameAt = Time.realtimeSinceStartupAsDouble;
             if (!m_Texture || m_Texture.width != w || m_Texture.height != h)
             {
                 if (m_Texture) Destroy(m_Texture);
                 m_Texture = new Texture2D(w, h, TextureFormat.BGRA32, false) { wrapMode = TextureWrapMode.Clamp };
+            }
+            if (!HasLiveFrame || screen.material.mainTexture != m_Texture)
+            {
                 var mat = screen.material;
+                var crop = m_PreparingScene ? CropScale(w, h) : Vector2.one;
                 mat.mainTexture = m_Texture;
-                mat.mainTextureScale = new Vector2(1, -1); // frames are top-down, Unity textures bottom-up
-                mat.mainTextureOffset = new Vector2(0, 1);
+                mat.mainTextureScale = new Vector2(crop.x, -crop.y); // BGRA rows arrive top-down.
+                mat.mainTextureOffset = new Vector2((1f - crop.x) * 0.5f, (1f + crop.y) * 0.5f);
                 if (mat.HasProperty("_Layout")) mat.SetFloat("_Layout", 0);
-                var t = screen.transform;
-                t.localScale = new Vector3(t.localScale.x, t.localScale.x * h / w, 1);
+                ApplySurfaceAspect();
             }
             m_Texture.LoadRawTextureData(px);
             m_Texture.Apply(false);
-            SetHasVideo(true);
+            if (!HasLiveFrame) SetHasVideo(true);
             m_Frames++;
         }
 
@@ -589,6 +785,8 @@ namespace ImmerseTheBay.Visko
         void SendCommand(string id, string name, string argsJson);
         void UploadImage(string id, byte[] bytes, string name, string mime);
         void Disconnect();
+        void SetAudioEnabled(bool enabled);
+        bool SetSceneGain(float gain, long revision);
         long FrameId { get; }
         int Width { get; }
         int Height { get; }
@@ -620,6 +818,8 @@ namespace ImmerseTheBay.Visko
         public void SendCommand(string id, string name, string argsJson) => m_Bridge.Call("sendCommand", id, name, argsJson ?? "");
         public void UploadImage(string id, byte[] bytes, string name, string mime) => m_Bridge.Call("uploadImage", id, bytes, name, mime);
         public void Disconnect() => m_Bridge.Call("disconnect");
+        public void SetAudioEnabled(bool enabled) => m_Bridge.Call("setAudioEnabled", enabled);
+        public bool SetSceneGain(float gain, long revision) => m_Bridge.Call<bool>("setSceneGain", gain, revision);
         public long FrameId => m_Bridge.Call<long>("getFrameId");
         public int Width => m_Bridge.Call<int>("getWidth");
         public int Height => m_Bridge.Call<int>("getHeight");

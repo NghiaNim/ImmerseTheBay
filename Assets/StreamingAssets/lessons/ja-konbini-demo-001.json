@@ -1,0 +1,113 @@
+{
+  "id": "ja-konbini-demo-001",
+  "title": "コンビニで買い物 — Convenience-store Shopping",
+  "level": "N5",
+  "scenePrompt": "An adult Japanese woman clerk with a neat black ponytail and navy apron, consistent across the same neighborhood convenience store. The clerk reaches into a restocking basket, moves a wrapped sandwich onto the shelf, then points out the sandwich section.",
+  "audioPrompt": "Quiet refrigeration, soft footsteps and a brief checkout beep.",
+  "startImage": "lessons/images/store-sandwich.jpg",
+  "partnerVoice": "female",
+  "beats": [
+    {
+      "goal": "Ask where the sandwiches are",
+      "lines": [
+        {
+          "jp": "サンドイッチはどこですか。",
+          "kana": "さんどいっちはどこですか。",
+          "romaji": "Sandoitchi wa doko desu ka?",
+          "zh": "三明治在哪里？",
+          "en": "Where are the sandwiches?",
+          "cue": "The clerk reaches into a restocking basket, moves a wrapped sandwich onto the shelf, then points out the sandwich section.",
+          "partner": {
+            "jp": "いらっしゃいませ。",
+            "kana": "いらっしゃいませ。",
+            "romaji": "Irasshaimase.",
+            "zh": "欢迎光临。",
+            "en": "Welcome."
+          }
+        }
+      ],
+      "vocab": [
+        {
+          "jp": "サンドイッチ",
+          "kana": "さんどいっち",
+          "en": "sandwich",
+          "objectHint": "sandwich"
+        }
+      ],
+      "scene": {
+        "id": "store-sandwich",
+        "label": "Find sandwiches",
+        "prompt": "The clerk reaches into a restocking basket, moves a wrapped sandwich onto the shelf, then points out the sandwich section.",
+        "identity": "An adult Japanese woman clerk with a neat black ponytail and navy apron, consistent across the same neighborhood convenience store."
+      }
+    },
+    {
+      "goal": "Ask for water",
+      "lines": [
+        {
+          "jp": "お水をください。",
+          "kana": "おみずをください。",
+          "romaji": "Omizu o kudasai.",
+          "zh": "请给我水。",
+          "en": "Water, please.",
+          "cue": "The clerk pulls open the cooler door, grasps a clear bottle of water, then turns and reaches toward the viewer with it.",
+          "partner": {
+            "jp": "飲み物もいかがですか。",
+            "kana": "のみものもいかがですか。",
+            "romaji": "Nomimono mo ikaga desu ka?",
+            "zh": "也要喝点什么吗？",
+            "en": "Would you like a drink too?"
+          }
+        }
+      ],
+      "vocab": [
+        {
+          "jp": "お水",
+          "kana": "おみず",
+          "en": "water",
+          "objectHint": "water"
+        }
+      ],
+      "scene": {
+        "id": "store-drink",
+        "label": "Ask for water",
+        "prompt": "The clerk pulls open the cooler door, grasps a clear bottle of water, then turns and reaches toward the viewer with it.",
+        "identity": "An adult Japanese woman clerk with a neat black ponytail and navy apron, consistent across the same neighborhood convenience store."
+      }
+    },
+    {
+      "goal": "Ask to pay by card",
+      "lines": [
+        {
+          "jp": "カードで払えますか。",
+          "kana": "かーどではらえますか。",
+          "romaji": "Kādo de haraemasu ka?",
+          "zh": "我可以刷卡吗？",
+          "en": "Can I pay by card?",
+          "cue": "The clerk lifts the handheld card reader, extends it toward the viewer and makes a small welcoming nod.",
+          "partner": {
+            "jp": "お支払いはどうしますか。",
+            "kana": "おしはらいはどうしますか。",
+            "romaji": "Oshiharai wa dō shimasu ka?",
+            "zh": "您要怎么付款？",
+            "en": "How would you like to pay?"
+          }
+        }
+      ],
+      "vocab": [
+        {
+          "jp": "カード",
+          "kana": "かーど",
+          "en": "card",
+          "objectHint": "card"
+        }
+      ],
+      "scene": {
+        "id": "store-checkout",
+        "label": "Pay by card",
+        "prompt": "The clerk lifts the handheld card reader, extends it toward the viewer and makes a small welcoming nod.",
+        "identity": "An adult Japanese woman clerk with a neat black ponytail and navy apron, consistent across the same neighborhood convenience store."
+      }
+    }
+  ]
+}

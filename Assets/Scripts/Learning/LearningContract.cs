@@ -10,7 +10,14 @@ namespace ImmerseTheBay.Learning
     public sealed class LearningOverlayData
     {
         public string jp, kana, romaji, zh, en;
+        public LearningReadingGroup[] readingGroups;
         public int hintLevel;
+    }
+
+    [Serializable]
+    public sealed class LearningReadingGroup
+    {
+        public string jp, kana, romaji;
     }
 
     [Serializable]
@@ -53,8 +60,32 @@ namespace ImmerseTheBay.Learning
     { public string requestId, runId; public int revision; public bool replayed; }
     [Serializable] public sealed class LearningRoute
     { public string kind, label, nodeId; public int step, total, returnBeat; }
+    [Serializable] public sealed class LearningAttempt
+    {
+        public string id, targetId, jp, text, outcome, nextTargetId;
+        public int score;
+        public LearningCorrection correction;
+    }
+    [Serializable] public sealed class LearningCorrection
+    {
+        public int start, end;
+        public string jp;
+
+        public bool Matches(string sentence)
+        {
+            if (string.IsNullOrEmpty(sentence) || string.IsNullOrWhiteSpace(jp) ||
+                start < 0 || end <= start || end > sentence.Length || end - start != jp.Length ||
+                string.CompareOrdinal(sentence, start, jp, 0, jp.Length) != 0)
+                return false;
+            var boundaries = StringInfo.ParseCombiningCharacters(sentence);
+            return Array.BinarySearch(boundaries, start) >= 0 &&
+                (end == sentence.Length || Array.BinarySearch(boundaries, end) >= 0);
+        }
+    }
+    [Serializable] public sealed class LearningProgress
+    { public int mainTotal, mainStep, mainCompleted; }
     [Serializable] public sealed class LearningSpeech
-    { public string role, language, text; }
+    { public string role, language, text, english, romaji; }
     [Serializable] public sealed class LearningSnapshot
     { public string runId; public int revision, beat; public LearningResponse response; }
     [Serializable] public sealed class LearningVoiceSession
@@ -63,13 +94,22 @@ namespace ImmerseTheBay.Learning
     [Serializable]
     public sealed class LearningResponse
     {
+        [Serializable]
+        public sealed class Scene
+        { public string id, startImage; }
+
         public LearningCommand[] visko;
+        public Scene scene;
+        public string nextSceneId;
+        public string alternateNextSceneId;
         public LearningOverlayData overlay;
         public LearningFeedback feedback;
+        public LearningAttempt attempt;
+        public LearningProgress progress;
         public string advance;
         public LearningOperation operation;
         public LearningRoute route;
-        public LearningSpeech speech;
+        public LearningSpeech speech, reaction;
         public string[] focusWords;
         // Present only on /sync events. Their cursor is already advanced by the sender.
         public string type, sessionId, lessonId;
@@ -121,19 +161,21 @@ namespace ImmerseTheBay.Learning
             return sb.Append("]}").ToString();
         }
 
-        public static string TurnJson(string session, string lesson, int beat, string transcript, LearningContextSnapshot context, string requestId = null, string runId = null, int revision = 0, string intent = null, string action = null)
+        public static string TurnJson(string session, string lesson, int beat, string transcript, LearningContextSnapshot context, string requestId = null, string runId = null, int revision = 0, string intent = null, string action = null, bool practiceAttempt = false)
         {
             if (transcript != null && transcript.Length > 1000)
                 throw new ArgumentException("Speech result is too long; please use one sentence.");
             if (intent != null && intent.Length > 1000) throw new ArgumentException("Intent is too long.");
-            if (action != null && action != "return_to_main" && action != "idle_hint") throw new ArgumentException("Invalid lesson action.");
+            if (action != null && action is not ("return_to_main" or "idle_hint" or "menu_select_coffee" or "menu_select_milk"))
+                throw new ArgumentException("Invalid lesson action.");
             if (action != null && (!string.IsNullOrEmpty(transcript) || !string.IsNullOrEmpty(intent))) throw new ArgumentException("Action cannot contain speech or intent.");
             string operation = requestId == null ? "" : ",\"operation\":{\"requestId\":" + Quote(requestId) +
                 ",\"expectedRevision\":" + revision.ToString(CultureInfo.InvariantCulture) +
                 (string.IsNullOrEmpty(runId) ? "" : ",\"runId\":" + Quote(runId)) + "}";
             return "{\"sessionId\":" + Quote(session) + ",\"lessonId\":" + Quote(lesson) +
                 ",\"beat\":" + beat.ToString(CultureInfo.InvariantCulture) +
-                ",\"transcript\":" + Quote(transcript ?? "") + ",\"context\":" + ContextJson(context) + operation + (intent == null ? "" : ",\"intent\":" + Quote(intent)) + (action == null ? "" : ",\"action\":" + Quote(action)) + "}";
+                ",\"transcript\":" + Quote(transcript ?? "") + (practiceAttempt ? ",\"practiceAttempt\":true" : "") +
+                ",\"context\":" + ContextJson(context) + operation + (intent == null ? "" : ",\"intent\":" + Quote(intent)) + (action == null ? "" : ",\"action\":" + Quote(action)) + "}";
         }
 
         public static LearningResponse ParseResponse(string json, bool commandsRequired = true)
@@ -145,6 +187,25 @@ namespace ImmerseTheBay.Learning
             // JsonUtility may instantiate nested serializable classes for JSON null on some Unity versions.
             if (ViskoSession.JsonObjectField(json, "overlay") == null) response.overlay = null;
             if (ViskoSession.JsonObjectField(json, "feedback") == null) response.feedback = null;
+            if (ViskoSession.JsonObjectField(json, "attempt") == null) response.attempt = null;
+            if (ViskoSession.JsonObjectField(json, "progress") == null) response.progress = null;
+            if (response.attempt != null)
+            {
+                var attempt = response.attempt;
+                if (string.IsNullOrEmpty(attempt.id) || string.IsNullOrEmpty(attempt.targetId) ||
+                    string.IsNullOrEmpty(attempt.jp) || attempt.score < 0 || attempt.score > 100 ||
+                    (attempt.outcome != "pass" && attempt.outcome != "retry" && attempt.outcome != "assisted" && attempt.outcome != "skip"))
+                    throw new FormatException("Invalid lesson attempt");
+                if (attempt.outcome != "retry" || attempt.correction?.Matches(attempt.jp) != true)
+                    attempt.correction = null;
+            }
+            if (response.progress != null)
+            {
+                var progress = response.progress;
+                if (progress.mainTotal < 1 || progress.mainStep < 1 || progress.mainStep > progress.mainTotal ||
+                    progress.mainCompleted < 0 || progress.mainCompleted > progress.mainTotal)
+                    throw new FormatException("Invalid lesson target count");
+            }
             if (response.advance != "scene_done" && (response.overlay == null || string.IsNullOrEmpty(response.overlay.jp)))
                 throw new FormatException("Missing learning subtitle.");
             if (response.advance == "scene_done" && response.overlay != null)
@@ -169,6 +230,18 @@ namespace ImmerseTheBay.Learning
             if (op == null || op.requestId != requestId || string.IsNullOrEmpty(op.runId) ||
                 op.revision != revision + 1 || (!string.IsNullOrEmpty(runId) && op.runId != runId))
                 throw new FormatException("Stale or invalid lesson operation. Restart safely.");
+        }
+
+        public static string AttemptLabel(LearningAttempt attempt)
+        {
+            if (attempt == null) return "";
+            switch (attempt.outcome)
+            {
+                case "skip": return "Skipped";
+                case "assisted": return $"Good job with a hint · {attempt.score}% match";
+                case "pass": return $"Good job · {attempt.score}% match";
+                default: return $"Please try again · {attempt.score}% match";
+            }
         }
 
         public static string SyncJson(string responseJson, string session, string lesson, int beat)

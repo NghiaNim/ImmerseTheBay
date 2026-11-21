@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { hasBannedTerm, safePrompt, scoreTranscript } from './guardrails.js';
+import { hasBannedTerm, safePrompt, scoreTranscript, PASS_SCORE } from './guardrails.js';
 import { validateSchema, PLAN_SCHEMA } from './schema.js';
 const line = (jp, kana, romaji, zh, en, cue) => ({ jp, kana, romaji, zh, en, cue });
 // Original conversational content; a detour changes the target overlay, not just the video prompt.
@@ -91,12 +91,12 @@ export function detourTurn(request, state, mainTarget, entered = false) {
   const point = c.gesture === 'point';
   const transcript = entered || request.intent ? '' : request.transcript?.trim() || '';
   const score = transcript ? scoreTranscript(transcript, current) : null;
-  const move = !entered && !request.intent && !hint && !point && (c.gesture === 'pinch' || c.glassesKey === 'next' || score !== null && score >= 75);
+  const move = !entered && !request.intent && !hint && !point && (c.gesture === 'pinch' || c.glassesKey === 'next' || score !== null && score >= PASS_SCORE);
   const notes = [];
   if (entered) notes.push('Follow this short side interaction; your main lesson checkpoint is saved.');
   else if (request.intent) notes.push('The current side interaction is unchanged; your main checkpoint is still saved.');
-  if (transcript) notes.push('Text similarity only; this does not measure pronunciation.', score >= 75 ? 'Good match. Continue with the next interaction.' : 'Try the current side-interaction line again.');
-  if (hint || c.gaze === 'room' || transcript && score < 75) state.hintLevel = Math.min(3, state.hintLevel + 1);
+  if (transcript) notes.push('Text similarity only; this does not measure pronunciation.', score >= PASS_SCORE ? 'Good match. Continue with the next interaction.' : 'Try the current side-interaction line again.');
+  if (hint || c.gaze === 'room' || transcript && score < PASS_SCORE) state.hintLevel = Math.min(3, state.hintLevel + 1);
   if (hint) notes.push(`Cue: ${current.cue}`);
   if (move) {
     state.hintLevel = 0;

@@ -49,3 +49,9 @@ Assets/Resources/PerformanceTestRun*
 # XREAL SDK samples are proprietary: re-import with Tools/XREAL/Import Official Samples
 Assets/Samples/XREAL XR Plugin/
 Assets/Samples/XREAL XR Plugin.meta
+
+# Learner photos, session records and replays (personal data)
+portal/data/
+
+# Python bytecode from local tools
+__pycache__/

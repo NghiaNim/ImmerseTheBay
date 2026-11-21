@@ -56,3 +56,70 @@ test('hinted and pointed transcripts are unscored and Wednesday does not imply w
  assert.equal(s.scoredAttempts,0);assert.equal(s.averageTranscriptMatch,null);assert.equal(s.firstAttempt.total,0);assert.equal(s.hints,2);
  assert.equal(s.words.some(word=>word.en==='water'),false);
 });
+
+test('wire results identify the attempted sentence and keep branch and manual progress separate', async () => {
+  const service = setup();
+  let r = await service.turn(make('shared-open'));
+  assert.equal(r.attempt, undefined);
+  assert.deepEqual(r.progress, { mainTotal: 2, mainStep: 1, mainCompleted: 0 });
+  r = await service.turn(make('shared-branch', r, { intent: 'I want a sandwich' }));
+  assert.equal(r.attempt, undefined);
+  assert.equal(r.route.kind, 'detour');
+  assert.deepEqual(r.progress, { mainTotal: 2, mainStep: 1, mainCompleted: 0 });
+  r = await service.turn(make('shared-return', r, { action: 'return_to_main' }));
+  r = await service.turn(make('shared-wrong', r, { transcript: 'こんにちは' }));
+  assert.equal(r.attempt.outcome, 'retry');
+  assert.equal(r.attempt.targetId, 'main:0');
+  r = await service.turn(make('shared-hint', r, { context: { gesture: 'long_pinch' } }));
+  assert.equal(r.attempt, undefined);
+  const request = make('shared-pass', r, { transcript: '水をください' });
+  r = await service.turn(request);
+  assert.equal(r.attempt.outcome, 'assisted');
+  assert.equal(r.attempt.score, 100);
+  assert.equal(r.attempt.jp, '水をください');
+  assert.equal(r.attempt.nextTargetId, 'main:1');
+  assert.equal(r.overlay.jp, '袋はいりません');
+  assert.deepEqual(r.progress, { mainTotal: 2, mainStep: 2, mainCompleted: 1 });
+  const retry = await service.turn(request);
+  assert.deepEqual(retry.attempt, r.attempt);
+  assert.deepEqual(retry.progress, r.progress);
+  r = await service.turn(make('shared-skip', r, { context: { glassesKey: 'next' } }));
+  assert.equal(r.attempt.outcome, 'skip');
+  assert.equal(r.attempt.score, null);
+  assert.equal(r.attempt.text, '');
+  assert.equal(r.attempt.nextTargetId, null);
+  assert.deepEqual(r.progress, { mainTotal: 2, mainStep: 2, mainCompleted: 1 });
+  assert.equal(service.summary(key).scoredAttempts, 2);
+});
+
+test('explicit rehearsal scores every answer, including off-target shopping requests and the final line', async () => {
+ const refinements = [];
+ const service = setup({llm: async ({ fallback }) => { refinements.push(true); return fallback; }});
+ const practice = {practiceAttempt: true};
+ const unrelatedRequest = 'I want a sandwich';
+ await assert.rejects(service.turn(make('early', null, {...practice, transcript: unrelatedRequest})), {status:409});
+ let r = await service.turn(make('open'));
+ await assert.rejects(service.turn(make('mixed', r, {...practice, transcript: unrelatedRequest, intent: unrelatedRequest})), {status:400});
+
+ const wrong = make('wrong', r, {...practice, transcript: unrelatedRequest});
+ r = await service.turn(wrong);
+ assert.equal(r.route.kind, 'main');
+ assert.equal(r.attempt.outcome, 'retry');
+ assert.equal(r.attempt.text, unrelatedRequest);
+ assert.deepEqual(r.visko, []);
+ assert.deepEqual((await service.turn(wrong)).attempt, r.attempt);
+
+ r = await service.turn(make('branch', r, {intent: unrelatedRequest}));
+ assert.equal(r.route.kind, 'detour');
+ r = await service.turn(make('branch-rehearsal', r, {...practice, transcript: r.overlay.jp}));
+ assert.equal(r.attempt.outcome, 'pass');
+ r = await service.turn(make('return', r, {action:'return_to_main'}));
+ r = await service.turn(make('correct', r, {...practice, transcript: r.overlay.jp}));
+ assert.equal(r.attempt.outcome, 'pass');
+ r = await service.turn(make('finish', r, {...practice, transcript: r.overlay.jp}));
+ assert.equal(r.advance, 'scene_done');
+ assert.equal(r.attempt.outcome, 'pass');
+ assert.equal(r.attempt.nextTargetId, null);
+ assert.equal(service.summary(key).scoredAttempts, 4);
+ assert.equal(refinements.length, 1);
+});
